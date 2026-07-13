@@ -13,7 +13,6 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import nl.frontier.api.HealthStatus;
 import nl.frontier.city.BuildingValidationService;
@@ -116,28 +115,27 @@ public final class FrontierPlugin extends JavaPlugin {
   private KingdomIntegrationSupervisor kingdomIntegrationSupervisor;
   private DynamicEventSupervisor dynamicEventSupervisor;
   private volatile boolean acceptingWrites;
+  private ConfigRegistry configRegistry;
 
   @Override
   public void onEnable() {
-    saveDefaultConfig();
     try {
       validateRuntime();
-      validateConfiguration();
+      configRegistry = ConfigRegistry.load(this);
+      FrontierConfiguration config = configRegistry.configuration();
       database =
           new DatabaseManager(
               new DatabaseManager.Configuration(
-                  getConfig()
-                      .getString("database.jdbc-url", "jdbc:postgresql://localhost:5432/frontier"),
-                  getConfig().getString("database.username", "frontier"),
-                  getConfig().getString("database.password", "frontier"),
-                  getConfig().getInt("database.maximum-pool-size", 10),
+                  config.global().database().jdbcUrl(),
+                  config.global().database().username(),
+                  config.global().database().password(),
+                  config.global().database().maximumPoolSize(),
                   Duration.ofSeconds(10)));
       database.migrate(materializeMigrations());
       JdbcTransactionalStore store = new JdbcTransactionalStore(database.dataSource());
       recovery = new PostgresRecoveryCoordinator(store);
       recovery.recover();
-      schedulers =
-          new PaperSchedulerFacade(this, getConfig().getInt("performance.async-threads", 4));
+      schedulers = new PaperSchedulerFacade(this, config.global().runtime().asyncThreads());
       metrics = new FrontierMetrics(new SimpleMeterRegistry());
       PaperPresentationService presentation = new PaperPresentationService(getServer());
       PostgresAdminDiagnostics diagnostics = new PostgresAdminDiagnostics(store);
@@ -146,8 +144,8 @@ public final class FrontierPlugin extends JavaPlugin {
           new InfluenceSimulationService(
               new PostgresInfluencePersistence(store),
               ownershipCache,
-              getConfig().getInt("influence.contested-threshold", 75),
-              getConfig().getInt("influence.required-lead-cycles", 3));
+              config.influence().contestedThreshold(),
+              config.influence().requiredLeadCycles());
       PostgresEconomyGateway economyGateway = new PostgresEconomyGateway(store);
       FinanceApplicationService finance =
           new FinanceApplicationService(new PostgresFinanceGateway(store));
@@ -155,11 +153,12 @@ public final class FrontierPlugin extends JavaPlugin {
       HarborApplicationService harbor = new HarborApplicationService(harborGateway);
       World primaryWorld = getServer().getWorlds().getFirst();
       Location harborLocation = primaryWorld.getSpawnLocation();
-      harborGateway.bootstrap(
-          primaryWorld.getUID(),
-          harborLocation.getBlockX() >> 4,
-          harborLocation.getBlockZ() >> 4,
-          Instant.now());
+      if (config.enabled("economy"))
+        harborGateway.bootstrap(
+            primaryWorld.getUID(),
+            harborLocation.getBlockX() >> 4,
+            harborLocation.getBlockZ() >> 4,
+            Instant.now());
       PostgresProductionGateway productionGateway = new PostgresProductionGateway(store);
       LogisticsGateway logisticsGateway = new PostgresLogisticsGateway(store);
       ContractGateway contractGateway = new PostgresContractGateway(store);
@@ -208,23 +207,33 @@ public final class FrontierPlugin extends JavaPlugin {
                   Map.ofEntries(
                       Map.entry("domain", "ACTIVE"),
                       Map.entry("api", "ACTIVE"),
-                      Map.entry("city", "ACTIVE"),
-                      Map.entry("influence", "ACTIVE"),
-                      Map.entry("economy", "ACTIVE"),
-                      Map.entry("warfare", "ACTIVE"),
-                      Map.entry("repair", "ACTIVE"),
-                      Map.entry("npc", "ACTIVE"),
-                      Map.entry("world", "ACTIVE"),
+                      Map.entry("city", moduleStatus(config, "settlements")),
+                      Map.entry("districts", moduleStatus(config, "districts")),
+                      Map.entry("buildings", moduleStatus(config, "buildings")),
+                      Map.entry("influence", moduleStatus(config, "influence")),
+                      Map.entry("economy", moduleStatus(config, "economy")),
+                      Map.entry("infrastructure", moduleStatus(config, "infrastructure")),
+                      Map.entry("caravans", moduleStatus(config, "caravans")),
+                      Map.entry("warfare", moduleStatus(config, "warfare")),
+                      Map.entry("repair", moduleStatus(config, "repairs")),
+                      Map.entry("npc", moduleStatus(config, "population")),
+                      Map.entry("world", moduleStatus(config, "world-simulation")),
+                      Map.entry("kingdoms", moduleStatus(config, "kingdoms")),
                       Map.entry("ui-paper", "ACTIVE"),
                       Map.entry("persistence-postgres", "ACTIVE"),
                       Map.entry("observability", "ACTIVE"),
                       Map.entry("bootstrap", "ACTIVE"),
-                      Map.entry("testkit", "BUILD_ONLY"))),
+                      Map.entry("testkit", "BUILD_ONLY"),
+                      Map.entry("waypoints", moduleStatus(config, "waypoints")),
+                      Map.entry("cartography", moduleStatus(config, "cartography")),
+                      Map.entry("map-walls", moduleStatus(config, "map-walls")),
+                      Map.entry("web", moduleStatus(config, "web")),
+                      Map.entry("history", moduleStatus(config, "history")))),
+              configRegistry,
               metrics,
               new CommandRateLimiter(
-                  getConfig().getInt("security.command-rate-limit", 12),
-                  Duration.ofSeconds(
-                      getConfig().getLong("security.command-rate-window-seconds", 2))),
+                  config.global().security().commandRateLimit(),
+                  Duration.ofSeconds(config.global().security().commandRateWindowSeconds())),
               settlements,
               buildingRegistrations,
               new DistrictApplicationService(new PostgresDistrictGateway(store)),
@@ -252,9 +261,9 @@ public final class FrontierPlugin extends JavaPlugin {
               kingdomIntegration,
               dynamicEvents,
               endgame,
-              Duration.ofHours(getConfig().getLong("campaigns.preparation-hours", 24)),
-              Duration.ofDays(getConfig().getLong("campaigns.maximum-duration-days", 14)),
-              getConfig().getLong("campaigns.declaration-cost-minor", 5_000),
+              Duration.ofHours(config.warfare().preparationHours()),
+              Duration.ofDays(config.warfare().maximumDurationDays()),
+              config.warfare().declarationCostMinor(),
               schedulers,
               new PaperFrontierUi(getServer()),
               presentation);
@@ -263,166 +272,172 @@ public final class FrontierPlugin extends JavaPlugin {
         throw new IllegalStateException("frontier command is missing from plugin.yml");
       command.setExecutor(handler);
       command.setTabCompleter(handler);
-      getServer()
-          .getPluginManager()
-          .registerEvents(new HarborOnboardingListener(schedulers, harbor, presentation), this);
-      getServer()
-          .getPluginManager()
-          .registerEvents(new SettlementActivityListener(schedulers, settlementLifecycle), this);
-      getServer()
-          .getPluginManager()
-          .registerEvents(new CaravanCombatListener(this, schedulers, caravans), this);
+      if (config.enabled("economy"))
+        getServer()
+            .getPluginManager()
+            .registerEvents(new HarborOnboardingListener(schedulers, harbor, presentation), this);
+      if (config.enabled("settlements"))
+        getServer()
+            .getPluginManager()
+            .registerEvents(new SettlementActivityListener(schedulers, settlementLifecycle), this);
+      if (config.enabled("caravans"))
+        getServer()
+            .getPluginManager()
+            .registerEvents(new CaravanCombatListener(this, schedulers, caravans), this);
       caravanSupervisor =
           new CaravanPresentationSupervisor(this, schedulers, caravans, getLogger());
-      caravanSupervisor.start();
+      if (config.enabled("caravans")) caravanSupervisor.start();
       populationSupervisor = new PopulationSupervisor(schedulers, population, getLogger());
-      populationSupervisor.start();
+      if (config.enabled("population")) populationSupervisor.start();
       commercialSupervisor = new CommercialSupervisor(schedulers, commerce, getLogger());
-      commercialSupervisor.start();
+      if (config.enabled("economy")) commercialSupervisor.start();
       campaignOutcomeSupervisor =
           new CampaignOutcomeSupervisor(schedulers, campaignOutcomes, getLogger());
-      campaignOutcomeSupervisor.start();
+      if (config.enabled("warfare")) campaignOutcomeSupervisor.start();
       settlementLifecycleSupervisor =
           new SettlementLifecycleSupervisor(schedulers, settlementLifecycle, getLogger());
-      settlementLifecycleSupervisor.start();
+      if (config.enabled("settlements")) settlementLifecycleSupervisor.start();
       influenceSupervisor =
           new InfluenceSupervisor(
               schedulers,
               influence,
-              Duration.ofSeconds(getConfig().getLong("influence.cycle-seconds", 60)),
-              getConfig().getInt("influence.maximum-settlements-per-cycle", 16),
+              Duration.ofSeconds(config.influence().cycleSeconds()),
+              config.influence().maximumSettlementsPerCycle(),
               getLogger());
-      influenceSupervisor.start();
+      if (config.enabled("influence")) influenceSupervisor.start();
       settlementSimulationSupervisor =
           new SettlementSimulationSupervisor(
               schedulers,
               new SettlementDailySimulation(new PostgresSettlementSimulationGateway(store)),
-              Duration.ofSeconds(getConfig().getLong("settlements.simulation-check-seconds", 60)),
-              getConfig().getInt("settlements.maximum-per-cycle", 32),
+              Duration.ofSeconds(config.settlements().simulationCheckSeconds()),
+              config.settlements().maximumPerCycle(),
               getLogger());
-      settlementSimulationSupervisor.start();
+      if (config.enabled("settlements")) settlementSimulationSupervisor.start();
       economySupervisor =
           new EconomySupervisor(
               schedulers,
               economyGateway,
-              Duration.ofSeconds(getConfig().getLong("economy.market-cycle-seconds", 5)),
-              getConfig().getInt("economy.maximum-trades-per-cycle", 64),
+              Duration.ofSeconds(config.economy().marketCycleSeconds()),
+              config.economy().maximumTradesPerCycle(),
               getLogger());
-      economySupervisor.start();
+      if (config.enabled("economy")) economySupervisor.start();
       productionSupervisor =
           new ProductionSupervisor(
               schedulers,
               productionGateway,
-              Duration.ofSeconds(getConfig().getLong("economy.production.cycle-seconds", 10)),
-              getConfig().getInt("economy.production.maximum-orders-per-cycle", 64),
+              Duration.ofSeconds(config.economy().productionCycleSeconds()),
+              config.economy().maximumProductionOrdersPerCycle(),
               getLogger());
-      productionSupervisor.start();
+      if (config.enabled("economy")) productionSupervisor.start();
       logisticsSupervisor =
           new LogisticsSupervisor(
               schedulers,
               logisticsGateway,
-              Duration.ofSeconds(getConfig().getLong("economy.logistics.cycle-seconds", 10)),
-              getConfig().getInt("economy.logistics.maximum-shipments-per-cycle", 64),
+              Duration.ofSeconds(config.economy().logisticsCycleSeconds()),
+              config.economy().maximumShipmentsPerCycle(),
               getLogger());
-      logisticsSupervisor.start();
+      if (config.enabled("infrastructure")) logisticsSupervisor.start();
       npcMaterializationSupervisor =
           new NpcMaterializationSupervisor(
               this,
               schedulers,
               new PostgresNpcMaterializationGateway(store),
-              Duration.ofSeconds(getConfig().getLong("npcs.materialization-cycle-seconds", 5)),
-              getConfig().getInt("performance.maximum-visible-npcs-per-settlement", 20),
+              Duration.ofSeconds(config.population().materializationCycleSeconds()),
+              config.population().maximumVisibleNpcsPerSettlement(),
               getLogger());
-      npcMaterializationSupervisor.start();
+      if (config.enabled("population")) npcMaterializationSupervisor.start();
       campaignSupervisor =
           new CampaignSupervisor(
               schedulers,
               campaignGateway,
               warPolicyCache,
-              Duration.ofSeconds(getConfig().getLong("campaigns.lifecycle-cycle-seconds", 5)),
-              getConfig().getInt("campaigns.maximum-transitions-per-cycle", 32),
+              Duration.ofSeconds(config.warfare().lifecycleCycleSeconds()),
+              config.warfare().maximumTransitionsPerCycle(),
               getLogger(),
               presentation);
-      campaignSupervisor.start();
+      if (config.enabled("warfare")) campaignSupervisor.start();
       objectiveSupervisor =
           new ObjectiveSupervisor(
               getServer(),
               schedulers,
               campaignGateway,
-              Duration.ofSeconds(getConfig().getLong("campaigns.objective-cycle-seconds", 5)),
+              Duration.ofSeconds(config.warfare().objectiveCycleSeconds()),
               getLogger());
-      objectiveSupervisor.start();
-      getServer()
-          .getPluginManager()
-          .registerEvents(
-              new CampaignCombatListener(warPolicyCache, campaignGateway, schedulers), this);
-      getServer()
-          .getPluginManager()
-          .registerEvents(
-              new CampaignStructuralListener(
-                  schedulers,
-                  ownershipCache,
-                  warPolicyCache,
-                  warDamageGateway,
-                  Duration.ofHours(getConfig().getLong("campaigns.breach-window-hours", 6)),
-                  getConfig().getInt("campaigns.breach-base-points", 1_200),
-                  getConfig().getInt("campaigns.breach-maximum-points", 3_000)),
-              this);
-      getServer()
-          .getPluginManager()
-          .registerEvents(new ClaimProtectionListener(claimProtection), this);
+      if (config.enabled("warfare")) {
+        objectiveSupervisor.start();
+        getServer()
+            .getPluginManager()
+            .registerEvents(
+                new CampaignCombatListener(warPolicyCache, campaignGateway, schedulers), this);
+        getServer()
+            .getPluginManager()
+            .registerEvents(
+                new CampaignStructuralListener(
+                    schedulers,
+                    ownershipCache,
+                    warPolicyCache,
+                    warDamageGateway,
+                    Duration.ofHours(config.warfare().breachWindowHours()),
+                    config.warfare().breachBasePoints(),
+                    config.warfare().breachMaximumPoints()),
+                this);
+      }
+      if (config.enabled("settlements"))
+        getServer()
+            .getPluginManager()
+            .registerEvents(new ClaimProtectionListener(claimProtection), this);
       claimProtectionSupervisor =
           new ClaimProtectionSupervisor(
               schedulers,
               claimProtectionGateway,
               claimProtectionCache,
-              Duration.ofSeconds(getConfig().getLong("protection.cache-refresh-seconds", 2)),
+              Duration.ofSeconds(config.settlements().protectionCacheRefreshSeconds()),
               getLogger());
-      claimProtectionSupervisor.start();
+      if (config.enabled("settlements")) claimProtectionSupervisor.start();
       repairSupervisor =
           new RepairSupervisor(
               schedulers,
               repairGateway,
               warPolicyCache,
-              Duration.ofSeconds(getConfig().getLong("repairs.cycle-seconds", 2)),
-              Duration.ofSeconds(getConfig().getLong("repairs.task-lease-seconds", 30)),
-              Duration.ofHours(getConfig().getLong("repairs.archive-after-hours", 24)),
-              getConfig().getInt("repairs.maximum-tasks-per-cycle", 8),
-              getConfig().getDouble("repairs.unsafe-radius", 96),
+              Duration.ofSeconds(config.repairs().cycleSeconds()),
+              Duration.ofSeconds(config.repairs().taskLeaseSeconds()),
+              Duration.ofHours(config.repairs().archiveAfterHours()),
+              config.repairs().maximumTasksPerCycle(),
+              config.repairs().unsafeRadius(),
               getLogger(),
               presentation);
-      repairSupervisor.start();
+      if (config.enabled("repairs")) repairSupervisor.start();
       damageRecoverySupervisor =
           new DamageRecoverySupervisor(
               schedulers,
               warDamageGateway,
-              Duration.ofSeconds(getConfig().getLong("damage-recovery.cycle-seconds", 10)),
-              getConfig().getInt("damage-recovery.maximum-per-cycle", 128),
+              Duration.ofSeconds(config.repairs().damageRecoveryCycleSeconds()),
+              config.repairs().maximumDamageRecoveryPerCycle(),
               getLogger());
-      damageRecoverySupervisor.start();
+      if (config.enabled("repairs")) damageRecoverySupervisor.start();
       worldSimulationSupervisor =
           new WorldSimulationSupervisor(
               schedulers,
               worldSimulationGateway,
-              Duration.ofSeconds(getConfig().getLong("world-simulation.cycle-seconds", 60)),
-              getConfig().getInt("world-simulation.maximum-cities-per-cycle", 32),
+              Duration.ofSeconds(config.worldSimulation().cycleSeconds()),
+              config.worldSimulation().maximumCitiesPerCycle(),
               getLogger());
-      worldSimulationSupervisor.start();
+      if (config.enabled("world-simulation")) worldSimulationSupervisor.start();
       dynamicEventSupervisor =
           new DynamicEventSupervisor(schedulers, dynamicEvents, Duration.ofMinutes(1), getLogger());
-      dynamicEventSupervisor.start();
+      if (config.enabled("world-simulation")) dynamicEventSupervisor.start();
       civilizationSupervisor =
           new CivilizationSupervisor(
               schedulers,
               civilizationGateway,
-              Duration.ofSeconds(getConfig().getLong("civilization.cycle-seconds", 300)),
-              getConfig().getInt("civilization.maximum-kingdoms-per-cycle", 32),
+              Duration.ofSeconds(config.kingdoms().civilizationCycleSeconds()),
+              config.kingdoms().maximumKingdomsPerCycle(),
               getLogger());
-      civilizationSupervisor.start();
+      if (config.enabled("kingdoms")) civilizationSupervisor.start();
       kingdomIntegrationSupervisor =
           new KingdomIntegrationSupervisor(
               schedulers, civilizationGateway, kingdomIntegration, getLogger());
-      kingdomIntegrationSupervisor.start();
+      if (config.enabled("kingdoms")) kingdomIntegrationSupervisor.start();
       outboxSupervisor =
           new OutboxSupervisor(
               schedulers,
@@ -438,17 +453,17 @@ public final class FrontierPlugin extends JavaPlugin {
                                   + "/"
                                   + event.aggregateId())),
               metrics,
-              Duration.ofSeconds(getConfig().getLong("outbox.cycle-seconds", 1)),
-              getConfig().getInt("outbox.maximum-events-per-cycle", 128),
+              Duration.ofSeconds(config.history().outboxCycleSeconds()),
+              config.history().maximumEventsPerCycle(),
               getLogger());
-      outboxSupervisor.start();
+      if (config.enabled("history")) outboxSupervisor.start();
       harborSupervisor =
           new HarborSupervisor(
               schedulers,
               harborGateway,
-              Duration.ofSeconds(getConfig().getLong("harbor.refresh-seconds", 300)),
+              Duration.ofSeconds(config.economy().harborRefreshSeconds()),
               getLogger());
-      harborSupervisor.start();
+      if (config.enabled("economy")) harborSupervisor.start();
       acceptingWrites = true;
       getLogger().info("The Frontier enabled; database migrations and recovery passed.");
     } catch (RuntimeException failure) {
@@ -492,81 +507,8 @@ public final class FrontierPlugin extends JavaPlugin {
       throw new IllegalStateException("The Frontier requires Java 25+");
   }
 
-  private void validateConfiguration() {
-    requireText("database.jdbc-url");
-    requireText("database.username");
-    for (String key :
-        List.of(
-            "database.maximum-pool-size",
-            "campaigns.preparation-hours",
-            "campaigns.maximum-duration-days",
-            "campaigns.breach-window-hours",
-            "campaigns.breach-base-points",
-            "campaigns.breach-maximum-points",
-            "campaigns.declaration-cost-minor",
-            "campaigns.lifecycle-cycle-seconds",
-            "campaigns.maximum-transitions-per-cycle",
-            "campaigns.objective-cycle-seconds",
-            "repairs.minimum-city-level",
-            "repairs.blocks-per-tick",
-            "repairs.unsafe-radius",
-            "repairs.post-combat-delay-seconds",
-            "repairs.cycle-seconds",
-            "repairs.task-lease-seconds",
-            "repairs.maximum-tasks-per-cycle",
-            "repairs.archive-after-hours",
-            "economy.market-cycle-seconds",
-            "economy.maximum-trades-per-cycle",
-            "economy.production.cycle-seconds",
-            "economy.production.maximum-orders-per-cycle",
-            "economy.logistics.cycle-seconds",
-            "economy.logistics.maximum-shipments-per-cycle",
-            "performance.async-threads",
-            "performance.maximum-visible-npcs-per-settlement",
-            "npcs.materialization-cycle-seconds",
-            "world-simulation.cycle-seconds",
-            "world-simulation.maximum-cities-per-cycle",
-            "civilization.cycle-seconds",
-            "civilization.maximum-kingdoms-per-cycle",
-            "influence.cycle-seconds",
-            "influence.maximum-settlements-per-cycle",
-            "influence.contested-threshold",
-            "influence.required-lead-cycles",
-            "settlements.simulation-check-seconds",
-            "settlements.maximum-per-cycle",
-            "outbox.cycle-seconds",
-            "outbox.maximum-events-per-cycle",
-            "security.command-rate-limit",
-            "security.command-rate-window-seconds",
-            "harbor.refresh-seconds",
-            "protection.cache-refresh-seconds",
-            "damage-recovery.cycle-seconds",
-            "damage-recovery.maximum-per-cycle")) {
-      if (getConfig().getLong(key) <= 0) {
-        throw new IllegalStateException("configuration must be positive: " + key);
-      }
-    }
-    double offlineMultiplier = getConfig().getDouble("campaigns.offline-structural-multiplier");
-    if (offlineMultiplier < 0.0 || offlineMultiplier > 1.0) {
-      throw new IllegalStateException(
-          "campaigns.offline-structural-multiplier must be between 0 and 1");
-    }
-    if (getConfig().getInt("campaigns.breach-base-points")
-        > getConfig().getInt("campaigns.breach-maximum-points")) {
-      throw new IllegalStateException(
-          "campaigns.breach-base-points cannot exceed breach-maximum-points");
-    }
-    if (getConfig().getInt("database.maximum-pool-size") > 64
-        || getConfig().getInt("performance.async-threads") > 64) {
-      throw new IllegalStateException("database pool and async thread limits cannot exceed 64");
-    }
-  }
-
-  private void requireText(String key) {
-    String value = getConfig().getString(key);
-    if (value == null || value.isBlank()) {
-      throw new IllegalStateException("configuration is required: " + key);
-    }
+  private static String moduleStatus(FrontierConfiguration config, String module) {
+    return config.enabled(module) ? "ACTIVE" : "DISABLED";
   }
 
   private String materializeMigrations() {

@@ -1,0 +1,5 @@
+config-version: 1
+enabled: true
+simulation:
+  cycle-seconds: 300
+  maximum-per-cycle: 32

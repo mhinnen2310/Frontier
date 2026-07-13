@@ -1,0 +1,13 @@
+config-version: 1
+enabled: true
+market:
+  cycle-seconds: 5
+  maximum-trades-per-cycle: 64
+production:
+  cycle-seconds: 10
+  maximum-orders-per-cycle: 64
+logistics:
+  cycle-seconds: 10
+  maximum-shipments-per-cycle: 64
+harbor:
+  refresh-seconds: 300

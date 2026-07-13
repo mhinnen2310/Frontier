@@ -24,4 +24,4 @@
 
 Administrative commands are deliberately separated in [ADMIN.md](ADMIN.md).
 
-`/frontier admin build` reports the exact packaged version, Git source revision/time, Java runtime, Paper target, live Flyway schema version and runtime/build-only module status.
+`/frontier admin build` reports the exact packaged version, Git source revision/time, Java runtime, Paper target, live Flyway schema version and runtime/build-only module status. Configuration administration uses `/frontier admin config validate|reload|show <global|module>`; secret values are never printed.

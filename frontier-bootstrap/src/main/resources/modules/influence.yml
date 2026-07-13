@@ -1,0 +1,7 @@
+config-version: 1
+enabled: true
+simulation:
+  cycle-seconds: 60
+  maximum-settlements-per-cycle: 16
+  contested-threshold: 75
+  required-lead-cycles: 3

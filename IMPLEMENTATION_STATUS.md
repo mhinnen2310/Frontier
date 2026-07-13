@@ -39,15 +39,15 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 | Strategic map walls | missing | No registered frame-grid rendering or recovery |
 | Local web/API/map/dashboard | missing | No `frontier-web` module or local HTTP server |
 | Unified history/Chronicle/tourism | partial | Several domain-specific history tables exist; no one immutable visibility-aware ledger, timeline, Chronicle, monuments or tourism |
-| Admin/security/performance | partial | Health, recovery, inspectors, security/performance reports, metrics and scale harness exist; module diagnostics and later web/map/waypoint coverage are missing |
+| Typed configuration | complete | Global plus 17 versioned module files load into immutable records, reject unknown/invalid/dependency-unsafe state, redact secrets, classify reloads and disable commands/listeners/supervisors safely |
+| Admin/security/performance | partial | Health, recovery, build/config reports, inspectors, security/performance reports, metrics and scale harness exist; later web/map/waypoint coverage is missing |
 | Onboarding/Dialog/notifications | partial | Harbor onboarding and 14 command-backed Dialog screens exist; waypoint guidance, confirmations, pagination, role-aware buttons and notification digests are incomplete |
 | Documentation/clean-room release | partial | Current system is documented and RC-tested, but documentation for the missing expansion features cannot be complete yet |
 
 ## Static audit findings
 
 - No code `TODO`, `FIXME`, `XXX`, `HACK`, placeholder or no-op markers were found. One `unsupported road node type` exception is intentional validation.
-- Configuration is still read through dispersed `getConfig()` calls in bootstrap. There are no typed module files, `config-version`, module enable flags, unknown-key warnings or reload classification. Sprint 2 owns this blocker.
-- Seven leaf config keys have no Java reference: repair container restoration, private insurance, perishables, Vault bridge, Folia certification, vanilla automation restriction and the legacy performance influence cadence. They are not claimed as functional.
+- No scattered `getConfig()` reads remain in gameplay/bootstrap wiring. Seven previously unconsumed legacy keys were removed during the version-1 migration rather than retained as misleading switches.
 - Ten tables have no direct Java SQL reference: `builder_depot_stock`, `campaign_participants`, `city_roles`, `city_upgrades`, `economic_metrics`, `economy_cycle_state`, `idempotency_tokens`, `production_chain_steps`, `production_chains`, and `regional_modifiers`. Some are schema constraints/history foundations, but none may be called active gameplay without Sprint-level evidence.
 - The supplied failed startup used two plugin JARs and a stopped PostgreSQL listener. The duplicate snapshot was removed, PostgreSQL was started on port 55432, the committed RC1 JAR replaced it, and Java 26/Paper 26.2 startup now passes.
 

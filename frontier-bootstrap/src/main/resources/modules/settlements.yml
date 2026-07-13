@@ -1,0 +1,8 @@
+# Settlement simulation and synchronous claim-cache policy.
+config-version: 1
+enabled: true
+simulation:
+  check-seconds: 60
+  maximum-per-cycle: 32
+protection:
+  cache-refresh-seconds: 2

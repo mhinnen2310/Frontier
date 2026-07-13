@@ -1,0 +1,7 @@
+# Local-only by default. The web module is implemented in Train H.
+config-version: 1
+enabled: false
+server:
+  bind-address: 127.0.0.1
+  port: 8088
+  public-url: http://127.0.0.1:8088

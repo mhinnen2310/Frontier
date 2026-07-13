@@ -1,5 +1,14 @@
 # Changelog
 
+## Master Roadmap Sprint 2 — Central Typed Configuration
+
+- Replaced dispersed Bukkit configuration reads with immutable typed global/module records and one `ConfigRegistry`.
+- Added 17 versioned module YAML files, dependency validation, value bounds, unknown-key warnings, secret redaction and safe defaults; unimplemented future modules remain explicitly disabled.
+- Added `/frontier admin config validate|reload|show`, including live/module/server restart classification without partially mutating running supervisors.
+- Made implemented module disablement stop its commands, listeners and scheduled work, and added dependency checks against unsafe partial stacks.
+- Added one-time migration of legacy RC1 config into module files while preserving consumed tuning and removing seven unused switches.
+- Added configuration contract tests plus real Paper upgrade, redaction and disabled-module startup gates.
+
 ## Master Roadmap Sprint 1 — Repository Baseline and Truthful Status
 
 - Replaced the broad RC-complete claim with an evidence-backed inventory and feature truth table covering all 60 expansion sprints.

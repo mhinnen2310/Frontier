@@ -1,89 +1,15 @@
+# Frontier global configuration. Module gameplay settings live in modules/*.yml.
+config-version: 1
+
 database:
   jdbc-url: jdbc:postgresql://localhost:5432/frontier
   username: frontier
   password: frontier
   maximum-pool-size: 10
 
-campaigns:
-  preparation-hours: 24
-  maximum-duration-days: 14
-  offline-structural-multiplier: 0.10
-  breach-window-hours: 6
-  breach-base-points: 1200
-  breach-maximum-points: 3000
-  declaration-cost-minor: 5000
-  lifecycle-cycle-seconds: 5
-  maximum-transitions-per-cycle: 32
-  objective-cycle-seconds: 5
-
-repairs:
-  minimum-city-level: 3
-  blocks-per-tick: 8
-  unsafe-radius: 96
-  post-combat-delay-seconds: 300
-  restore-container-contents: false
-  private-building-insurance: false
-  cycle-seconds: 2
-  task-lease-seconds: 30
-  maximum-tasks-per-cycle: 8
-  archive-after-hours: 24
-
-economy:
-  perishables-enabled: false
-  vault-bridge-enabled: false
-  market-cycle-seconds: 5
-  maximum-trades-per-cycle: 64
-  production:
-    cycle-seconds: 10
-    maximum-orders-per-cycle: 64
-  logistics:
-    cycle-seconds: 10
-    maximum-shipments-per-cycle: 64
-
-compatibility:
-  folia-certified: false
-  restrict-vanilla-automation: false
-
-performance:
+runtime:
   async-threads: 4
-  maximum-visible-npcs-per-settlement: 20
-  influence-cycle-seconds: 60
-
-npcs:
-  materialization-cycle-seconds: 5
-
-world-simulation:
-  cycle-seconds: 60
-  maximum-cities-per-cycle: 32
-
-civilization:
-  cycle-seconds: 300
-  maximum-kingdoms-per-cycle: 32
-
-influence:
-  cycle-seconds: 60
-  maximum-settlements-per-cycle: 16
-  contested-threshold: 75
-  required-lead-cycles: 3
-
-settlements:
-  simulation-check-seconds: 60
-  maximum-per-cycle: 32
-
-outbox:
-  cycle-seconds: 1
-  maximum-events-per-cycle: 128
 
 security:
   command-rate-limit: 12
   command-rate-window-seconds: 2
-
-harbor:
-  refresh-seconds: 300
-
-protection:
-  cache-refresh-seconds: 2
-
-damage-recovery:
-  cycle-seconds: 10
-  maximum-per-cycle: 128

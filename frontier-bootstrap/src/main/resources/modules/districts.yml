@@ -1,0 +1,3 @@
+# District management. Disable only before server start.
+config-version: 1
+enabled: true

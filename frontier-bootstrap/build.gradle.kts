@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:26.2.build.60-beta")
+    testImplementation("io.papermc.paper:paper-api:26.2.build.60-beta")
     implementation(project(":frontier-api"))
     implementation(project(":frontier-city"))
     implementation(project(":frontier-influence"))

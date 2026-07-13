@@ -7,7 +7,8 @@ The attached 60-sprint roadmap supersedes the legacy implementation sequence bel
 | Train | Sprints | Scope | Status |
 |---|---:|---|---|
 | A | 1 | Repository Baseline and Truthful Status | complete |
-| A | 2–5 | Typed configuration, fresh economy, claim protection, repair integrity | pending |
+| A | 2 | Central typed configuration architecture | complete |
+| A | 3–5 | Fresh economy, claim protection and repair integrity | pending |
 | B | 6–10 | Founding, membership, districts and specialization | pending |
 | C | 11–15 | Building validation/UX, physical roads and infrastructure failure | pending |
 | D | 16–20 | Workers, Builder Guild, population and ambient life | pending |

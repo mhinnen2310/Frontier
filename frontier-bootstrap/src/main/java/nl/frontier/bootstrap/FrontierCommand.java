@@ -95,6 +95,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final RecoveryCoordinator recovery;
   private final AdminDiagnostics diagnostics;
   private final BuildInformationService buildInformation;
+  private final ConfigRegistry configs;
   private final FrontierMetrics metrics;
   private final CommandRateLimiter rateLimiter;
   private final SettlementApplicationService settlements;
@@ -132,6 +133,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       RecoveryCoordinator recovery,
       AdminDiagnostics diagnostics,
       BuildInformationService buildInformation,
+      ConfigRegistry configs,
       FrontierMetrics metrics,
       CommandRateLimiter rateLimiter,
       SettlementApplicationService settlements,
@@ -167,6 +169,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.recovery = Objects.requireNonNull(recovery);
     this.diagnostics = Objects.requireNonNull(diagnostics);
     this.buildInformation = Objects.requireNonNull(buildInformation);
+    this.configs = Objects.requireNonNull(configs);
     this.metrics = Objects.requireNonNull(metrics);
     this.rateLimiter = Objects.requireNonNull(rateLimiter);
     this.settlements = Objects.requireNonNull(settlements);
@@ -249,6 +252,14 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     }
     if (root.equals("admin") && args.length > 1) {
       admin(sender, Arrays.copyOfRange(args, 1, args.length));
+      return true;
+    }
+    String module = moduleForRoot(root);
+    if (module != null && !configs.enabled(module)) {
+      sender.sendMessage(
+          Component.text(
+              "Frontier module '" + module + "' is disabled by server configuration.",
+              NamedTextColor.RED));
       return true;
     }
     if (root.equals("city") && sender instanceof Player player) {
@@ -2648,6 +2659,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       return;
     }
     switch (args[0].toLowerCase(Locale.ROOT)) {
+      case "config" -> adminConfig(sender, Arrays.copyOfRange(args, 1, args.length));
       case "build" ->
           schedulers
               .async(buildInformation::report)
@@ -2800,8 +2812,51 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       default ->
           sender.sendMessage(
               Component.text(
-                  "admin actions: build, health, recover, metrics, live, security, performance, snapshot, inspect, audit, settlement, influence, road, repair, campaign, worker, economy, heatmap, chunk",
+                  "admin actions: build, config, health, recover, metrics, live, security, performance, snapshot, inspect, audit, settlement, influence, road, repair, campaign, worker, economy, heatmap, chunk",
                   NamedTextColor.RED));
+    }
+  }
+
+  private void adminConfig(CommandSender sender, String[] args) {
+    if (args.length == 0) {
+      sender.sendMessage(
+          Component.text(
+              "usage: /frontier admin config <validate|reload|show>", NamedTextColor.RED));
+      return;
+    }
+    switch (args[0].toLowerCase(Locale.ROOT)) {
+      case "validate" ->
+          schedulers
+              .async(configs::validate)
+              .whenComplete((rows, failure) -> adminRows(sender, rows, failure));
+      case "reload" ->
+          schedulers
+              .async(configs::reload)
+              .whenComplete(
+                  (report, failure) ->
+                      adminRows(
+                          sender,
+                          report == null
+                              ? List.of()
+                              : List.of(
+                                  "reload=" + report.classification(),
+                                  "changed=" + report.changedKeys(),
+                                  "running configuration is unchanged until the required restart"),
+                          failure));
+      case "show" -> {
+        if (args.length != 2) {
+          sender.sendMessage(
+              Component.text(
+                  "usage: /frontier admin config show <global|module>", NamedTextColor.RED));
+          return;
+        }
+        schedulers
+            .async(() -> configs.show(args[1]))
+            .whenComplete((rows, failure) -> adminRows(sender, rows, failure));
+      }
+      default ->
+          sender.sendMessage(
+              Component.text("config actions: validate, reload, show", NamedTextColor.RED));
     }
   }
 
@@ -3137,6 +3192,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       return matching(
           List.of(
               "build",
+              "config",
               "health",
               "recover",
               "metrics",
@@ -3156,7 +3212,34 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "heatmap",
               "chunk"),
           args[1]);
+    if (args.length == 3 && args[0].equalsIgnoreCase("admin") && args[1].equalsIgnoreCase("config"))
+      return matching(List.of("validate", "reload", "show"), args[2]);
+    if (args.length == 4
+        && args[0].equalsIgnoreCase("admin")
+        && args[1].equalsIgnoreCase("config")
+        && args[2].equalsIgnoreCase("show")) {
+      List<String> modules = new java.util.ArrayList<>(ConfigRegistry.MODULES);
+      modules.add("global");
+      return matching(modules, args[3]);
+    }
     return List.of();
+  }
+
+  private static String moduleForRoot(String root) {
+    return switch (root) {
+      case "city" -> "settlements";
+      case "district" -> "districts";
+      case "balance", "pay", "harbor", "economy", "treasury", "production", "market", "contracts" ->
+          "economy";
+      case "logistics" -> "infrastructure";
+      case "caravan" -> "caravans";
+      case "population", "workers" -> "population";
+      case "war" -> "warfare";
+      case "repair" -> "repairs";
+      case "world", "events" -> "world-simulation";
+      case "kingdom", "endgame" -> "kingdoms";
+      default -> null;
+    };
   }
 
   private static List<String> matching(List<String> values, String prefix) {

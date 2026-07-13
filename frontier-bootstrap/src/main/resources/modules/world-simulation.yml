@@ -1,0 +1,5 @@
+config-version: 1
+enabled: true
+simulation:
+  cycle-seconds: 60
+  maximum-cities-per-cycle: 32

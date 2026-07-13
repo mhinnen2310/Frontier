@@ -1,0 +1,15 @@
+config-version: 1
+enabled: true
+campaign:
+  preparation-hours: 24
+  maximum-duration-days: 14
+  declaration-cost-minor: 5000
+breach:
+  window-hours: 6
+  base-points: 1200
+  maximum-points: 3000
+lifecycle:
+  cycle-seconds: 5
+  maximum-transitions-per-cycle: 32
+objectives:
+  cycle-seconds: 5

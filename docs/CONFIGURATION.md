@@ -1,28 +1,63 @@
 # Configuration
 
-Frontier writes `plugins/TheFrontier/config.yml`. Restart after changes. Durations are positive whole seconds/hours/days; limits are positive integers; money is integer cents. Invalid critical values stop safe initialization rather than silently changing gameplay.
+Frontier uses one global file and versioned module files under `plugins/TheFrontier`:
 
-| Section | Keys and meaning |
-|---|---|
-| `database` | JDBC URL, username/password and Hikari maximum pool size |
-| `campaigns` | Preparation/duration, offline structural multiplier, breach window/budget, declaration cost, lifecycle/objective cadence and per-cycle bound |
-| `repairs` | Minimum city level, blocks/tick, unsafe radius, combat delay, container/private insurance policy, cycle/lease/archive timing and work bound |
-| `economy` | Perishables/Vault feature flags; market cadence/bound; production and logistics cadence/bounds |
-| `compatibility` | Folia certification flag (false) and optional vanilla automation restriction |
-| `performance` | Async thread count, visible NPC cap and legacy influence cadence |
-| `npcs` | Materialization cadence |
-| `world-simulation` | Cadence and maximum cities per cycle |
-| `civilization` | Cadence and maximum kingdoms per cycle |
-| `influence` | Cadence, settlements per cycle, contested threshold and lead-cycle hysteresis |
-| `settlements` | Simulation cadence and maximum settlements per cycle |
-| `outbox` | Dispatch cadence and events per cycle |
-| `security` | Per-player command rate and rolling window |
-| `harbor` | Starter market/job refresh cadence |
-| `protection` | Claim cache refresh cadence |
-| `damage-recovery` | Reconciliation cadence and maximum records per cycle |
+```text
+config.yml
+modules/settlements.yml
+modules/districts.yml
+modules/buildings.yml
+modules/influence.yml
+modules/economy.yml
+modules/infrastructure.yml
+modules/caravans.yml
+modules/warfare.yml
+modules/repairs.yml
+modules/population.yml
+modules/kingdoms.yml
+modules/waypoints.yml
+modules/cartography.yml
+modules/map-walls.yml
+modules/web.yml
+modules/history.yml
+modules/world-simulation.yml
+messages/
+```
 
-## Tuning order
+Every file has `config-version: 1`; every module has `enabled`. Values are loaded once into immutable typed records, validated before database startup and passed to services/supervisors. Gameplay code does not perform scattered YAML lookups. Unknown keys produce a key-only warning—values and secrets are never logged.
 
-Increase per-cycle bounds only after checking `/frontier admin performance`, database pool saturation and Paper tick time. Prefer shorter queues over very frequent full scans. `async-threads` should remain below available CPU capacity and `database.maximum-pool-size` must cover the async workers plus administration headroom. Changing economic prices/budgets affects balance and should be staged with a database snapshot.
+## Global
 
-Secrets may remain in this file only when filesystem permissions are restricted to the server account. Never commit production credentials. There is no supported hot reload.
+`config.yml` contains the PostgreSQL JDBC URL, username/password, pool size (1–64), async thread count (1–64), and per-player command rate/window. Database, pool and thread changes require a server restart. Restrict the file to the server account and never commit production credentials.
+
+## Modules
+
+| File | Functional settings | Default |
+|---|---|---|
+| `settlements.yml` | Simulation cadence/bound and protection-cache refresh | enabled |
+| `districts.yml` | District subsystem control | enabled |
+| `buildings.yml` | Physical validation/registration control | enabled |
+| `influence.yml` | Cadence/bound, contested threshold and lead hysteresis | enabled |
+| `economy.yml` | Market, production, logistics and Harbor cadences/bounds | enabled |
+| `infrastructure.yml` | Infrastructure subsystem control | enabled |
+| `caravans.yml` | Caravan subsystem control | enabled |
+| `warfare.yml` | Campaign timing/cost, breach budget and objective lifecycle | enabled |
+| `repairs.yml` | Task cycle/lease/archive/bound, unsafe radius and damage recovery | enabled |
+| `population.yml` | NPC materialization cadence and visible-per-settlement cap | enabled |
+| `kingdoms.yml` | Civilization cadence and kingdom bound | enabled |
+| `waypoints.yml` | Reserved typed control for Train G | disabled until implemented |
+| `cartography.yml` | Reserved typed control for Train G | disabled until implemented |
+| `map-walls.yml` | Reserved typed control for Train H | disabled until implemented |
+| `web.yml` | Local bind address, port and public URL | disabled until implemented |
+| `history.yml` | Transactional outbox cadence/bound | enabled |
+| `world-simulation.yml` | World cycle cadence and city bound | enabled |
+
+All durations and batch limits must be positive. Web ports are 1–65535, visible NPCs are capped at 500, repair unsafe radius at 1024 blocks, breach base cannot exceed its maximum, and database/async pools cannot exceed 64. Enabled dependency chains are validated; for example repairs require warfare, warfare requires influence, and influence requires settlements.
+
+## Administration
+
+- `/frontier admin config validate` rereads every file and reports clear validation errors.
+- `/frontier admin config show <global|module>` displays effective disk keys with passwords/tokens/secrets redacted.
+- `/frontier admin config reload` validates and classifies differences as `LIVE`, `MODULE_RESTART` or `SERVER_RESTART`. Running values are deliberately unchanged until the reported restart, preventing half-reloaded supervisors.
+
+Setting an implemented module to `enabled: false` prevents its commands, listeners and periodic supervisors from operating. Disable dependent modules too; invalid dependency combinations fail startup with a precise explanation. Legacy RC1 `config.yml` files migrate once to version 1 module files while retaining every formerly consumed value and removing seven nonfunctional legacy keys.

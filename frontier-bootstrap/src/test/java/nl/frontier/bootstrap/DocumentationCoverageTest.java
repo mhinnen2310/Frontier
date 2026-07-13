@@ -49,26 +49,11 @@ class DocumentationCoverageTest {
     }
 
     String configuration = Files.readString(docs.resolve("CONFIGURATION.md"));
-    for (String section :
-        List.of(
-            "database",
-            "campaigns",
-            "repairs",
-            "economy",
-            "compatibility",
-            "performance",
-            "npcs",
-            "world-simulation",
-            "civilization",
-            "influence",
-            "settlements",
-            "outbox",
-            "security",
-            "harbor",
-            "protection",
-            "damage-recovery")) {
-      assertTrue(configuration.contains("`" + section + "`"), section);
-    }
+    for (String module : ConfigRegistry.MODULES)
+      assertTrue(configuration.contains("`" + module + ".yml`"), module);
+    assertTrue(configuration.contains("config-version"));
+    assertTrue(configuration.contains("config validate"));
+    assertTrue(configuration.contains("redacted"));
 
     String database = Files.readString(docs.resolve("DATABASE.md"));
     assertTrue(database.contains("V1–V3"));

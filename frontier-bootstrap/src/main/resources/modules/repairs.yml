@@ -1,0 +1,12 @@
+config-version: 1
+enabled: true
+tasks:
+  cycle-seconds: 2
+  lease-seconds: 30
+  maximum-per-cycle: 8
+  archive-after-hours: 24
+placement:
+  unsafe-radius: 96.0
+damage-recovery:
+  cycle-seconds: 10
+  maximum-per-cycle: 128

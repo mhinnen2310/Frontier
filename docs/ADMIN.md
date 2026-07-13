@@ -9,6 +9,9 @@ All commands below require `frontier.admin`.
 | Command | Result |
 |---|---|
 | `/frontier admin build` | Packaged version, Git revision/time, Java, Paper target, live schema and module states |
+| `/frontier admin config validate` | Validate every global/module file without exposing values |
+| `/frontier admin config reload` | Validate changes and report live/module/server restart classification |
+| `/frontier admin config show <global\|module>` | Show disk configuration with all secrets redacted |
 | `/frontier admin health` | Database, outbox, scheduler and simulation health |
 | `/frontier admin recover` | Reconcile expired leases, transfers, prepared consumption and outbox work |
 | `/frontier admin inspect <settlement\|influence\|road\|repair\|campaign\|worker\|economy> <uuid>` | Read-only aggregate inspector |

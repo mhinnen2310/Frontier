@@ -1,0 +1,5 @@
+config-version: 1
+enabled: true
+outbox:
+  cycle-seconds: 1
+  maximum-events-per-cycle: 128
