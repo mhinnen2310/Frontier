@@ -183,7 +183,11 @@ public final class PostgresEconomyGateway implements EconomyGateway {
   }
 
   private static boolean matchOne(Connection connection, Instant now) throws SQLException {
-    LockedOrder buy = best(connection, "BUY", "unit_price_minor DESC,created_at,id");
+    LockedOrder buy =
+        best(
+            connection,
+            "BUY",
+            "unit_price_minor DESC,coalesce((SELECT max(de.trade_bonus) FROM district_effects de WHERE de.city_id=o.settlement_id),0) DESC,created_at,id");
     if (buy == null) return false;
     LockedOrder sell = bestSell(connection, buy.commodity, buy.unitPrice);
     if (sell == null) return false;
@@ -337,7 +341,7 @@ public final class PostgresEconomyGateway implements EconomyGateway {
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT id,settlement_id,side,commodity_key,remaining_quantity,unit_price_minor,reservation_id,escrow_account_id,status FROM market_orders WHERE side='SELL' AND commodity_key=? AND unit_price_minor<=? AND status IN ('OPEN','PARTIAL') AND EXISTS(SELECT 1 FROM road_nodes n WHERE n.city_id=settlement_id AND n.integrity>=10) ORDER BY unit_price_minor,created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED")) {
+            "SELECT o.id,o.settlement_id,o.side,o.commodity_key,o.remaining_quantity,o.unit_price_minor,o.reservation_id,o.escrow_account_id,o.status FROM market_orders o WHERE o.side='SELL' AND o.commodity_key=? AND o.unit_price_minor<=? AND o.status IN ('OPEN','PARTIAL') AND EXISTS(SELECT 1 FROM road_nodes n WHERE n.city_id=o.settlement_id AND n.integrity>=10) ORDER BY o.unit_price_minor,coalesce((SELECT max(de.trade_bonus) FROM district_effects de WHERE de.city_id=o.settlement_id),0) DESC,o.created_at,o.id LIMIT 1 FOR UPDATE SKIP LOCKED")) {
       statement.setString(1, commodity);
       statement.setLong(2, maximum);
       try (ResultSet result = statement.executeQuery()) {

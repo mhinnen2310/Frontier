@@ -43,8 +43,14 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
                     attempt.now()),
                 existing.id,
                 false);
+          UUID building = building(connection, attempt);
+          int defenseBonus = districtDefense(connection, building);
           double multiplier = policy.defenderMultiplier(attempt.activeDefenders());
-          int charged = Math.max(1, (int) Math.ceil(attempt.baseCost() / multiplier));
+          int charged =
+              Math.max(
+                  1,
+                  (int)
+                      Math.ceil(attempt.baseCost() * (100.0 + defenseBonus) / 100.0 / multiplier));
           int remaining =
               remaining(
                   connection,
@@ -56,7 +62,6 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
           if (charged > remaining)
             return new Decision(false, "breach capacity exhausted", 0, remaining, null, false);
           UUID damage = existing == null ? UUID.randomUUID() : existing.id;
-          UUID building = building(connection, attempt);
           if (existing == null) {
             try (PreparedStatement statement =
                 connection.prepareStatement(
@@ -119,6 +124,19 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
           }
           return new Decision(true, "authorized", charged, remaining - charged, damage, true);
         });
+  }
+
+  private static int districtDefense(java.sql.Connection connection, UUID building)
+      throws SQLException {
+    if (building == null) return 0;
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT coalesce(de.defense_bonus,0) FROM city_buildings b LEFT JOIN district_effects de ON de.district_id::text=b.district_key WHERE b.id=?")) {
+      statement.setObject(1, building);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next() ? result.getInt(1) : 0;
+      }
+    }
   }
 
   @Override

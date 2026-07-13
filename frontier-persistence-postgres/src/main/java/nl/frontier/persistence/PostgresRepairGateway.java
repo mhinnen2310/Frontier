@@ -167,7 +167,7 @@ public final class PostgresRepairGateway implements RepairGateway {
           List<UUID> taskIds = new ArrayList<>();
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "SELECT t.id FROM repair_tasks t JOIN repair_orders o ON o.id=t.repair_order_id WHERE t.status IN ('READY','PREPARED') AND o.status IN ('RESERVED','REPAIRING') AND (t.lease_expires_at IS NULL OR t.lease_expires_at<?) AND NOT EXISTS (SELECT 1 FROM task_dependencies d JOIN repair_tasks p ON p.id=d.depends_on WHERE d.task_id=t.id AND p.status<>'COMPLETED') ORDER BY t.priority_score DESC,t.layer,t.y,t.id LIMIT ? FOR UPDATE OF t SKIP LOCKED")) {
+                  "SELECT t.id FROM repair_tasks t JOIN repair_orders o ON o.id=t.repair_order_id WHERE t.status IN ('READY','PREPARED') AND o.status IN ('RESERVED','REPAIRING') AND (t.lease_expires_at IS NULL OR t.lease_expires_at<?) AND NOT EXISTS (SELECT 1 FROM task_dependencies d JOIN repair_tasks p ON p.id=d.depends_on WHERE d.task_id=t.id AND p.status<>'COMPLETED') ORDER BY t.priority_score+coalesce((SELECT de.repair_priority_bonus FROM damage_journal j JOIN city_buildings b ON b.id=j.building_id JOIN district_effects de ON de.district_id::text=b.district_key WHERE j.id=t.journal_id),0) DESC,t.layer,t.y,t.id LIMIT ? FOR UPDATE OF t SKIP LOCKED")) {
             statement.setTimestamp(1, Timestamp.from(now));
             statement.setInt(2, maximum);
             try (ResultSet result = statement.executeQuery()) {

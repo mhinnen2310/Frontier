@@ -20,6 +20,7 @@ import nl.frontier.city.BuildingValidator;
 import nl.frontier.city.ClaimProtectionCache;
 import nl.frontier.city.ClaimProtectionGateway;
 import nl.frontier.city.ClaimProtectionService;
+import nl.frontier.city.DistrictApplicationService;
 import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementDailySimulation;
 import nl.frontier.economy.ContractGateway;
@@ -40,6 +41,7 @@ import nl.frontier.persistence.PostgresCampaignGateway;
 import nl.frontier.persistence.PostgresCivilizationGateway;
 import nl.frontier.persistence.PostgresClaimProtectionGateway;
 import nl.frontier.persistence.PostgresContractGateway;
+import nl.frontier.persistence.PostgresDistrictGateway;
 import nl.frontier.persistence.PostgresEconomyGateway;
 import nl.frontier.persistence.PostgresFinanceGateway;
 import nl.frontier.persistence.PostgresHarborGateway;
@@ -165,6 +167,7 @@ public final class FrontierPlugin extends JavaPlugin {
                       getConfig().getLong("security.command-rate-window-seconds", 2))),
               settlements,
               buildingRegistrations,
+              new DistrictApplicationService(new PostgresDistrictGateway(store)),
               finance,
               harbor,
               new EconomyApplicationService(economyGateway),

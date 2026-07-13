@@ -144,7 +144,7 @@ public final class PostgresProductionGateway implements ProductionGateway {
     OrderRow order;
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT p.id,p.building_id,p.recipe_key,p.requested_quantity,p.progress_units,p.target_units,b.city_id,b.integrity,r.worker_profession FROM production_orders p JOIN city_buildings b ON b.id=p.building_id JOIN recipes r ON r.recipe_key=p.recipe_key WHERE p.status IN ('QUEUED','ACTIVE','PAUSED_NO_INPUT','PAUSED_NO_WORKERS','PAUSED_UNSAFE') AND (p.lease_expires_at IS NULL OR p.lease_expires_at<?) ORDER BY p.priority DESC,p.created_at LIMIT 1 FOR UPDATE OF p SKIP LOCKED")) {
+            "SELECT p.id,p.building_id,p.recipe_key,p.requested_quantity,p.progress_units,p.target_units,b.city_id,b.integrity,r.worker_profession,coalesce(de.production_bonus,0),coalesce(de.worker_efficiency_bonus,0) FROM production_orders p JOIN city_buildings b ON b.id=p.building_id JOIN recipes r ON r.recipe_key=p.recipe_key LEFT JOIN district_effects de ON de.district_id::text=b.district_key WHERE p.status IN ('QUEUED','ACTIVE','PAUSED_NO_INPUT','PAUSED_NO_WORKERS','PAUSED_UNSAFE') AND (p.lease_expires_at IS NULL OR p.lease_expires_at<?) ORDER BY p.priority DESC,p.created_at LIMIT 1 FOR UPDATE OF p SKIP LOCKED")) {
       statement.setTimestamp(1, Timestamp.from(now));
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) return CycleResult.NONE;
@@ -158,7 +158,9 @@ public final class PostgresProductionGateway implements ProductionGateway {
                 result.getLong(6),
                 result.getObject(7, UUID.class),
                 result.getInt(8),
-                result.getString(9));
+                result.getString(9),
+                result.getInt(10),
+                result.getInt(11));
       }
     }
     if (order.integrity < 15) {
@@ -176,7 +178,12 @@ public final class PostgresProductionGateway implements ProductionGateway {
       return CycleResult.PAUSED;
     }
     long efficiency = Math.max(20, order.integrity);
-    long work = Math.max(1, skill * efficiency / 10L);
+    long baseWork = Math.max(1, skill * efficiency / 10L);
+    long work =
+        Math.max(
+            1,
+            Math.multiplyExact(baseWork, 100L + order.productionBonus + order.workerEfficiencyBonus)
+                / 100L);
     long progress = Math.min(order.target, Math.addExact(order.progress, work));
     if (progress < order.target) {
       try (PreparedStatement statement =
@@ -547,5 +554,7 @@ public final class PostgresProductionGateway implements ProductionGateway {
       long target,
       UUID city,
       int integrity,
-      String profession) {}
+      String profession,
+      int productionBonus,
+      int workerEfficiencyBonus) {}
 }

@@ -37,6 +37,16 @@
 - Added the `PLANNED → UNDER_CONSTRUCTION → VALIDATING → ACTIVE` registration path plus durable `DAMAGED`, `DISABLED` and `DESTROYED` states, validation reports, history and audit entries.
 - Added validator coverage for every supported building type and PostgreSQL integration coverage for migration V18 and lifecycle history.
 
+### Sprint 5 — District System
+
+- Added persistent `city_districts`, `district_workers`, `district_storage`, `district_budget` and append-only `district_history` data with Flyway migration V19.
+- Added transactional create, delete, resize, rename, manager assignment/transfer, budget allocation, priority, policy and worker assignment flows through `/frontier district`.
+- Added all eleven district types with bounded production, housing, maintenance, defense, trade, worker-efficiency and repair-priority bonuses.
+- Integrated bonuses into production work, population growth, daily maintenance, structural-defense cost, market-order priority and repair-task priority.
+- Replaced temporary building district hints with authoritative district UUID, boundary and building-type compatibility validation.
+- Added District Overview, Budget, Workers, Buildings, Reports, Policies and History Paper Dialog views, with commands retained as fallback.
+- Added full PostgreSQL lifecycle coverage including overlap/claim/role enforcement, manager transfer, budgets, policies, workers, storage, building assignment, reporting, history and deletion.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

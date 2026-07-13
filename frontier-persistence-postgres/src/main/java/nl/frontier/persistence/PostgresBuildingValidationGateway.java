@@ -35,7 +35,9 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
           requireRole(connection, city, actor);
           requireClaimedBounds(connection, city, bounds);
           return new BuildingValidator.ValidationContext(
-              overlaps(connection, city, bounds), districtCompatible(type, districtKey), false);
+              overlaps(connection, city, bounds),
+              districtCompatible(connection, city, type, bounds, districtKey),
+              false);
         });
   }
 
@@ -54,7 +56,7 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
           if (!validation.valid()) throw new DomainException("building validation did not pass");
           if (overlaps(connection, city, bounds))
             throw new DomainException("building overlaps during registration");
-          if (!districtCompatible(validation.type(), districtKey))
+          if (!districtCompatible(connection, city, validation.type(), bounds, districtKey))
             throw new DomainException("building district changed during registration");
           UUID building = UUID.randomUUID();
           String report = report(validation);
@@ -144,20 +146,45 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
     }
   }
 
-  private static boolean districtCompatible(BuildingType type, String districtKey) {
+  private static boolean districtCompatible(
+      Connection connection,
+      UUID city,
+      BuildingType type,
+      SettlementGateway.Bounds bounds,
+      String districtKey)
+      throws SQLException {
     if (districtKey == null || districtKey.isBlank()) return true;
-    String district = districtKey.toUpperCase(java.util.Locale.ROOT);
-    return switch (type) {
-      case WAREHOUSE ->
-          district.equals("INDUSTRIAL")
-              || district.equals("COMMERCIAL")
-              || district.equals("HARBOR");
-      case HOUSING -> district.equals("RESIDENTIAL");
-      case FARM -> district.equals("AGRICULTURAL");
-      case BUILDER_GUILD -> district.equals("INDUSTRIAL") || district.equals("GOVERNMENT");
-      case MARKET -> district.equals("COMMERCIAL") || district.equals("HARBOR");
-      case BARRACKS -> district.equals("MILITARY");
-    };
+    UUID district;
+    try {
+      district = UUID.fromString(districtKey);
+    } catch (IllegalArgumentException invalid) {
+      throw new DomainException("district must be a district UUID");
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT district_type FROM city_districts WHERE id=? AND city_id=? AND status='ACTIVE' AND (bounds->>'world')::uuid=? AND (bounds->>'minX')::int<=? AND (bounds->>'maxX')::int>=? AND (bounds->>'minY')::int<=? AND (bounds->>'maxY')::int>=? AND (bounds->>'minZ')::int<=? AND (bounds->>'maxZ')::int>=?")) {
+      statement.setObject(1, district);
+      statement.setObject(2, city);
+      statement.setObject(3, bounds.world());
+      statement.setInt(4, bounds.minX());
+      statement.setInt(5, bounds.maxX());
+      statement.setInt(6, bounds.minY());
+      statement.setInt(7, bounds.maxY());
+      statement.setInt(8, bounds.minZ());
+      statement.setInt(9, bounds.maxZ());
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) return false;
+        String districtType = result.getString(1);
+        return switch (type) {
+          case WAREHOUSE -> Set.of("INDUSTRIAL", "COMMERCIAL", "HARBOR").contains(districtType);
+          case HOUSING -> districtType.equals("RESIDENTIAL");
+          case FARM -> districtType.equals("AGRICULTURAL");
+          case BUILDER_GUILD -> Set.of("INDUSTRIAL", "GOVERNMENT").contains(districtType);
+          case MARKET -> Set.of("COMMERCIAL", "HARBOR").contains(districtType);
+          case BARRACKS -> districtType.equals("MILITARY");
+        };
+      }
+    }
   }
 
   private static String report(BuildingValidator.ValidationResult validation) {

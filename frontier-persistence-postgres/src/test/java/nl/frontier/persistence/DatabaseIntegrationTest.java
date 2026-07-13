@@ -19,6 +19,8 @@ import nl.frontier.city.BuildingType;
 import nl.frontier.city.BuildingValidationService;
 import nl.frontier.city.BuildingValidator;
 import nl.frontier.city.ClaimProtectionGateway;
+import nl.frontier.city.DistrictApplicationService;
+import nl.frontier.city.DistrictType;
 import nl.frontier.city.GovernmentRole;
 import nl.frontier.city.SettlementDailySimulation;
 import nl.frontier.city.SettlementGateway;
@@ -161,7 +163,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(18, result.getInt(1));
+        assertEquals(19, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -220,6 +222,62 @@ class DatabaseIntegrationTest {
       SettlementGateway.CitySnapshot city =
           settlements.create(
               owner, "Test-" + owner.toString().substring(0, 8), world, 10, 10, Instant.now());
+      DistrictApplicationService districtService =
+          new DistrictApplicationService(new PostgresDistrictGateway(store));
+      SettlementGateway.Bounds districtBounds =
+          new SettlementGateway.Bounds(world, 160, -64, 160, 175, 320, 175);
+      var district =
+          districtService.create(
+              city.id(), owner, "Fields", DistrictType.AGRICULTURAL, districtBounds, Instant.now());
+      assertEquals(20, district.bonuses().production());
+      assertEquals(1, districtService.list(city.id(), owner).size());
+      assertThrows(
+          DomainException.class,
+          () ->
+              districtService.create(
+                  city.id(),
+                  owner,
+                  "Overlap",
+                  DistrictType.RESIDENTIAL,
+                  districtBounds,
+                  Instant.now()));
+      UUID firstManager = UUID.randomUUID();
+      UUID secondManager = UUID.randomUUID();
+      UUID worker = UUID.randomUUID();
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "INSERT INTO city_members(city_id,player_id,role,joined_at) VALUES('"
+                + city.id()
+                + "','"
+                + firstManager
+                + "','CITIZEN',now()),('"
+                + city.id()
+                + "','"
+                + secondManager
+                + "','CITIZEN',now())");
+        statement.executeUpdate(
+            "INSERT INTO workers(id,city_id,profession,skill,state,salary_minor) VALUES('"
+                + worker
+                + "','"
+                + city.id()
+                + "','FARMER',50,'IDLE',0)");
+      }
+      districtService.rename(district.id(), owner, "Harvest Fields", Instant.now());
+      districtService.resize(
+          district.id(),
+          owner,
+          new SettlementGateway.Bounds(world, 160, -64, 160, 174, 320, 174),
+          Instant.now());
+      districtService.manager(district.id(), owner, firstManager, false, Instant.now());
+      assertThrows(
+          DomainException.class,
+          () -> districtService.priority(district.id(), firstManager, 10, Instant.now()));
+      districtService.manager(district.id(), owner, secondManager, true, Instant.now());
+      districtService.budget(district.id(), owner, 500, Instant.now());
+      districtService.priority(district.id(), owner, 80, Instant.now());
+      districtService.policy(district.id(), owner, "work", "DAYLIGHT", Instant.now());
+      districtService.worker(district.id(), owner, worker, 90, Instant.now());
       BuildingValidationService buildingValidation =
           new BuildingValidationService(
               new PostgresBuildingValidationGateway(store), new BuildingValidator());
@@ -231,10 +289,25 @@ class DatabaseIntegrationTest {
               owner,
               BuildingType.FARM,
               farmBounds,
-              "AGRICULTURAL",
+              district.id().toString(),
               new BuildingSurvey(8, 7, 8, 48, 0, 0, 0, 0, 0, 0, 24, 1, 16, 0, 0, 0, Map.of()),
               Instant.now());
       assertEquals("ACTIVE", registeredFarm.state());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "INSERT INTO district_storage(district_id,commodity_key,quantity,capacity) VALUES(?,'minecraft:wheat',32,64)")) {
+        statement.setObject(1, district.id());
+        statement.executeUpdate();
+      }
+      var districtReport = districtService.report(district.id(), owner);
+      assertEquals(1, districtReport.workers());
+      assertEquals(1, districtReport.buildings());
+      assertEquals(32, districtReport.storedUnits());
+      assertEquals(500, districtReport.district().budgetMinor());
+      assertEquals(80, districtReport.district().priority());
+      assertEquals("DAYLIGHT", districtReport.district().policies().get("WORK"));
+      assertTrue(districtReport.history().size() >= 8);
       try (var connection = database.dataSource().getConnection();
           var statement =
               connection.prepareStatement(
@@ -247,6 +320,9 @@ class DatabaseIntegrationTest {
           assertEquals(4, result.getInt(2));
         }
       }
+      districtService.removeWorker(district.id(), owner, worker, Instant.now());
+      districtService.delete(district.id(), owner, Instant.now());
+      assertTrue(districtService.list(city.id(), owner).isEmpty());
       assertEquals(SettlementLevel.CAMP, city.level());
       assertEquals(
           "INFLUENCED",

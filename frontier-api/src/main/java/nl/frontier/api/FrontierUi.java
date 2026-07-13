@@ -15,4 +15,6 @@ public interface FrontierUi {
   void openRepair(PlayerId player, RepairOrderId repair);
 
   void openMarket(PlayerId player, SettlementId settlement);
+
+  void openDistrict(PlayerId player, java.util.UUID district, String view, String summary);
 }

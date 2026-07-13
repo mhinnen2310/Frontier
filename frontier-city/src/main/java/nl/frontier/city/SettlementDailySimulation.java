@@ -39,10 +39,11 @@ public final class SettlementDailySimulation {
   public Result calculate(SettlementSimulationGateway.Snapshot snapshot) {
     TaxProfile tax = TaxProfile.valueOf(snapshot.taxProfile());
     long taxIncome = Math.multiplyExact(snapshot.population(), tax.centsPerCitizen);
-    long maintenance =
+    long baseMaintenance =
         Math.addExact(
             Math.addExact(snapshot.level().level() * 1_000L, snapshot.buildings() * 250L),
             Math.addExact(snapshot.workers() * 100L, snapshot.roadSegments() * 10L));
+    long maintenance = baseMaintenance * (100L - snapshot.maintenanceBonus()) / 100L;
     long funds = Math.addExact(snapshot.treasuryMinor(), taxIncome);
     boolean paid = funds >= maintenance;
     long afterMaintenance = paid ? funds - maintenance : funds;
@@ -63,6 +64,8 @@ public final class SettlementDailySimulation {
         paid && snapshot.prosperity() >= 60
             ? Math.max(1, snapshot.population() / 100)
             : paid ? 0 : -Math.max(1, snapshot.population() / 50);
+    if (paid && snapshot.housingBonus() > 0)
+      populationDelta += Math.max(1, snapshot.population() / 100) * snapshot.housingBonus() / 20;
     if (!foodSatisfied && snapshot.population() > 0)
       populationDelta -= Math.max(1, snapshot.population() / 100);
     int civilizationDelta = paid ? 0 : -2;

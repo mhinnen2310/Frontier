@@ -31,5 +31,7 @@ public interface SettlementSimulationGateway {
       long wheatAvailable,
       long breadAvailable,
       String taxProfile,
+      int housingBonus,
+      int maintenanceBonus,
       long version) {}
 }

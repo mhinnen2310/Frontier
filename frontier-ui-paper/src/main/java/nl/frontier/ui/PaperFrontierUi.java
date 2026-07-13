@@ -80,6 +80,23 @@ public final class PaperFrontierUi implements FrontierUi {
         List.of(command("Browse", "frontier market browse")));
   }
 
+  @Override
+  public void openDistrict(PlayerId player, UUID district, String view, String summary) {
+    String prefix = "frontier district view " + district + " ";
+    open(
+        player,
+        "District " + view,
+        summary,
+        List.of(
+            command("Overview", prefix + "overview"),
+            command("Budget", prefix + "budget"),
+            command("Workers", prefix + "workers"),
+            command("Buildings", prefix + "buildings"),
+            command("Reports", prefix + "reports"),
+            command("Policies", prefix + "policies"),
+            command("History", prefix + "history")));
+  }
+
   private void open(PlayerId playerId, String title, String message, List<ActionButton> actions) {
     Player player = server.getPlayer(playerId.value());
     if (player == null) return;
