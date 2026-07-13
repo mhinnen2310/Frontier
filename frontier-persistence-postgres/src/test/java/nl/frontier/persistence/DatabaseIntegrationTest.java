@@ -13,6 +13,7 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import nl.frontier.api.RecoveryCoordinator;
+import nl.frontier.city.ClaimProtectionGateway;
 import nl.frontier.city.GovernmentRole;
 import nl.frontier.city.SettlementDailySimulation;
 import nl.frontier.city.SettlementGateway;
@@ -228,6 +229,13 @@ class DatabaseIntegrationTest {
                   EnumSet.of(GovernmentRole.MAYOR),
                   Instant.now())
               .state());
+      ClaimProtectionGateway.Snapshot protection =
+          new PostgresClaimProtectionGateway(store).load(Instant.now());
+      assertEquals(
+          city.id(), protection.claims().get(new ClaimProtectionGateway.ClaimKey(world, 11, 10)));
+      assertTrue(
+          protection.members().stream()
+              .anyMatch(value -> value.city().equals(city.id()) && value.player().equals(owner)));
 
       UUID member = UUID.randomUUID();
       SettlementGateway.Invitation invite =

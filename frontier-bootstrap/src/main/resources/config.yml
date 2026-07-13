@@ -79,3 +79,6 @@ security:
 
 harbor:
   refresh-seconds: 300
+
+protection:
+  cache-refresh-seconds: 2

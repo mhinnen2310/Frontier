@@ -15,6 +15,9 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import nl.frontier.api.HealthStatus;
+import nl.frontier.city.ClaimProtectionCache;
+import nl.frontier.city.ClaimProtectionGateway;
+import nl.frontier.city.ClaimProtectionService;
 import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementDailySimulation;
 import nl.frontier.economy.ContractGateway;
@@ -32,6 +35,7 @@ import nl.frontier.persistence.JdbcTransactionalStore;
 import nl.frontier.persistence.PostgresAdminDiagnostics;
 import nl.frontier.persistence.PostgresCampaignGateway;
 import nl.frontier.persistence.PostgresCivilizationGateway;
+import nl.frontier.persistence.PostgresClaimProtectionGateway;
 import nl.frontier.persistence.PostgresContractGateway;
 import nl.frontier.persistence.PostgresEconomyGateway;
 import nl.frontier.persistence.PostgresFinanceGateway;
@@ -76,6 +80,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private CivilizationSupervisor civilizationSupervisor;
   private OutboxSupervisor outboxSupervisor;
   private HarborSupervisor harborSupervisor;
+  private ClaimProtectionSupervisor claimProtectionSupervisor;
   private volatile boolean acceptingWrites;
 
   @Override
@@ -124,6 +129,14 @@ public final class FrontierPlugin extends JavaPlugin {
       ContractGateway contractGateway = new PostgresContractGateway(store);
       CampaignGateway campaignGateway = new PostgresCampaignGateway(store);
       WarPolicyCache warPolicyCache = new WarPolicyCache();
+      warPolicyCache.replace(campaignGateway.policySnapshot(Instant.now()));
+      ClaimProtectionGateway claimProtectionGateway = new PostgresClaimProtectionGateway(store);
+      ClaimProtectionCache claimProtectionCache = new ClaimProtectionCache();
+      claimProtectionCache.replace(claimProtectionGateway.load(Instant.now()));
+      ClaimProtectionService claimProtection =
+          new ClaimProtectionService(
+              claimProtectionCache,
+              (player, city) -> warPolicyCache.hostileCampaign(player, city).isPresent());
       RepairGateway repairGateway = new PostgresRepairGateway(store);
       WorldSimulationGateway worldSimulationGateway = new PostgresWorldSimulationGateway(store);
       CivilizationGateway civilizationGateway = new PostgresCivilizationGateway(store);
@@ -243,6 +256,17 @@ public final class FrontierPlugin extends JavaPlugin {
                   getConfig().getInt("campaigns.breach-base-points", 1_200),
                   getConfig().getInt("campaigns.breach-maximum-points", 3_000)),
               this);
+      getServer()
+          .getPluginManager()
+          .registerEvents(new ClaimProtectionListener(claimProtection), this);
+      claimProtectionSupervisor =
+          new ClaimProtectionSupervisor(
+              schedulers,
+              claimProtectionGateway,
+              claimProtectionCache,
+              Duration.ofSeconds(getConfig().getLong("protection.cache-refresh-seconds", 2)),
+              getLogger());
+      claimProtectionSupervisor.start();
       repairSupervisor =
           new RepairSupervisor(
               schedulers,
@@ -321,6 +345,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (civilizationSupervisor != null) civilizationSupervisor.stop();
     if (outboxSupervisor != null) outboxSupervisor.stop();
     if (harborSupervisor != null) harborSupervisor.stop();
+    if (claimProtectionSupervisor != null) claimProtectionSupervisor.stop();
     if (schedulers != null) schedulers.close();
     if (database != null) database.close();
   }
