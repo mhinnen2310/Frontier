@@ -13,3 +13,4 @@ V12__paid_reconstruction_pipeline.sql
 V13__regional_simulation_and_dynamic_events.sql
 V14__kingdoms_diplomacy_research_and_wonders.sql
 V15__mega_projects_and_global_objectives.sql
+V16__player_wallets_and_frontier_harbor.sql

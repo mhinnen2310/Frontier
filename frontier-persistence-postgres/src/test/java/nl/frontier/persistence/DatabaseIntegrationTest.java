@@ -22,6 +22,8 @@ import nl.frontier.domain.Ids.WorldId;
 import nl.frontier.domain.Position.ChunkPos;
 import nl.frontier.economy.ContractGateway;
 import nl.frontier.economy.EconomyGateway;
+import nl.frontier.economy.FinanceApplicationService;
+import nl.frontier.economy.HarborGateway;
 import nl.frontier.economy.LogisticsGateway;
 import nl.frontier.economy.MarketEngine;
 import nl.frontier.economy.ProductionGateway;
@@ -153,7 +155,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(15, result.getInt(1));
+        assertEquals(16, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -164,6 +166,42 @@ class DatabaseIntegrationTest {
                     "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(gen_random_uuid(),'CITY',gen_random_uuid(),-1)"));
       }
       JdbcTransactionalStore store = new JdbcTransactionalStore(database.dataSource());
+      UUID harborWorld = UUID.randomUUID();
+      PostgresHarborGateway harbor = new PostgresHarborGateway(store);
+      HarborGateway.HarborSnapshot harborSnapshot =
+          harbor.bootstrap(harborWorld, 0, 0, Instant.now());
+      assertEquals(3, harborSnapshot.openBuyOrders());
+      assertEquals(3, harborSnapshot.openSellOrders());
+      UUID starter = UUID.randomUUID();
+      assertTrue(harbor.onboard(starter, Instant.now()).firstVisit());
+      HarborGateway.StarterJob starterJob = harbor.jobs(starter, Instant.now()).getFirst();
+      HarborGateway.JobReceipt jobReceipt =
+          harbor.completeJob(starter, starterJob.id(), Instant.now());
+      assertEquals(starterJob.rewardMinor(), jobReceipt.playerBalanceMinor());
+      assertEquals(
+          jobReceipt.playerBalanceMinor(),
+          harbor.completeJob(starter, starterJob.id(), Instant.now()).playerBalanceMinor());
+
+      PostgresSettlementGateway starterSettlements = new PostgresSettlementGateway(store);
+      SettlementGateway.CitySnapshot starterCity =
+          starterSettlements.create(
+              starter, "Starter-" + shortId(), harborWorld, 5, 5, Instant.now());
+      FinanceApplicationService finances =
+          new FinanceApplicationService(new PostgresFinanceGateway(store));
+      UUID depositKey = UUID.randomUUID();
+      finances.deposit(starter, starterCity.id(), 500, depositKey, Instant.now());
+      assertEquals(
+          10_500,
+          finances
+              .deposit(starter, starterCity.id(), 500, depositKey, Instant.now())
+              .destinationBalanceMinor());
+      finances.withdraw(starterCity.id(), starter, 100, UUID.randomUUID(), Instant.now());
+      UUID recipient = UUID.randomUUID();
+      finances.settlementPay(
+          starterCity.id(), starter, recipient, 50, UUID.randomUUID(), Instant.now());
+      finances.pay(recipient, starter, 25, UUID.randomUUID(), Instant.now());
+      assertEquals(10_350, starterSettlements.treasuryBalance(starterCity.id()));
+      assertTrue(finances.audit(starterCity.id(), starter, 20).size() >= 3);
       RecoveryCoordinator.RecoveryReport report = new PostgresRecoveryCoordinator(store).recover();
       assertTrue(report.outboxEvents() >= 0);
       assertEquals(0, report.leases());
@@ -308,8 +346,8 @@ class DatabaseIntegrationTest {
         statement.setObject(1, city.id());
         try (var result = statement.executeQuery()) {
           assertTrue(result.next());
-          assertEquals(8, result.getInt(1));
-          assertEquals(40, result.getInt(2));
+          assertEquals(9, result.getInt(1));
+          assertEquals(45, result.getInt(2));
           assertEquals(500, result.getLong(3));
           assertEquals("OVERDUE", result.getString(4));
         }
@@ -389,14 +427,21 @@ class DatabaseIntegrationTest {
       assertEquals(1, logistics.cycle(1, Instant.now().plusSeconds(1_000)).delivered());
       assertEquals(
           6,
-          economy.warehouse(buyer.id(), buyerOwner, Instant.now()).stock().getFirst().available());
+          economy.warehouse(buyer.id(), buyerOwner, Instant.now()).stock().stream()
+              .filter(stock -> stock.commodity().equals("minecraft:iron_ingot"))
+              .findFirst()
+              .orElseThrow()
+              .available());
       EconomyGateway.Stock sellerStock =
-          economy.warehouse(seller.id(), sellerOwner, Instant.now()).stock().getFirst();
+          economy.warehouse(seller.id(), sellerOwner, Instant.now()).stock().stream()
+              .filter(stock -> stock.commodity().equals("minecraft:iron_ingot"))
+              .findFirst()
+              .orElseThrow();
       assertEquals(4, sellerStock.available());
       assertEquals(0, sellerStock.reserved());
       economy.cancel(buyer.id(), buyerOwner, buy.id(), Instant.now());
       assertEquals(910, settlements.treasuryBalance(buyer.id()));
-      assertEquals(90, settlements.treasuryBalance(seller.id()));
+      assertEquals(10_090, settlements.treasuryBalance(seller.id()));
 
       SettlementGateway.BuildingSnapshot industry =
           settlements.registerBuilding(
@@ -532,14 +577,14 @@ class DatabaseIntegrationTest {
       EconomyGateway.WarehouseSnapshot afterDaily =
           economy.warehouse(seller.id(), sellerOwner, Instant.now());
       assertEquals(
-          0,
+          64,
           afterDaily.stock().stream()
               .filter(stock -> stock.commodity().equals("minecraft:wheat"))
               .findFirst()
               .orElseThrow()
               .available());
       assertEquals(
-          2,
+          18,
           afterDaily.stock().stream()
               .filter(stock -> stock.commodity().equals("minecraft:bread"))
               .findFirst()

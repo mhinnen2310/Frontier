@@ -28,6 +28,9 @@ import nl.frontier.domain.Ids.WarId;
 import nl.frontier.economy.ContractGateway;
 import nl.frontier.economy.EconomyApplicationService;
 import nl.frontier.economy.EconomyGateway;
+import nl.frontier.economy.FinanceApplicationService;
+import nl.frontier.economy.FinanceGateway;
+import nl.frontier.economy.HarborApplicationService;
 import nl.frontier.economy.LogisticsGateway;
 import nl.frontier.economy.MarketEngine;
 import nl.frontier.economy.ProductionApplicationService;
@@ -49,6 +52,9 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private static final List<String> ROOTS =
       List.of(
           "status",
+          "balance",
+          "pay",
+          "harbor",
           "city",
           "treasury",
           "production",
@@ -66,6 +72,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final FrontierMetrics metrics;
   private final CommandRateLimiter rateLimiter;
   private final SettlementApplicationService settlements;
+  private final FinanceApplicationService finance;
+  private final HarborApplicationService harbor;
   private final EconomyApplicationService economy;
   private final ProductionApplicationService production;
   private final LogisticsGateway logistics;
@@ -87,6 +95,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       FrontierMetrics metrics,
       CommandRateLimiter rateLimiter,
       SettlementApplicationService settlements,
+      FinanceApplicationService finance,
+      HarborApplicationService harbor,
       EconomyApplicationService economy,
       ProductionApplicationService production,
       LogisticsGateway logistics,
@@ -106,6 +116,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.metrics = Objects.requireNonNull(metrics);
     this.rateLimiter = Objects.requireNonNull(rateLimiter);
     this.settlements = Objects.requireNonNull(settlements);
+    this.finance = Objects.requireNonNull(finance);
+    this.harbor = Objects.requireNonNull(harbor);
     this.economy = Objects.requireNonNull(economy);
     this.production = Objects.requireNonNull(production);
     this.logistics = Objects.requireNonNull(logistics);
@@ -158,8 +170,23 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       city(player, Arrays.copyOfRange(args, 1, args.length));
       return true;
     }
+    if (root.equals("balance") && sender instanceof Player player) {
+      execute(
+          player,
+          () -> finance.balance(player.getUniqueId(), Instant.now()),
+          balance -> "Wallet: " + balance + " cents");
+      return true;
+    }
+    if (root.equals("pay") && sender instanceof Player player) {
+      pay(player, Arrays.copyOfRange(args, 1, args.length));
+      return true;
+    }
+    if (root.equals("harbor") && sender instanceof Player player) {
+      harbor(player, Arrays.copyOfRange(args, 1, args.length));
+      return true;
+    }
     if (root.equals("treasury") && sender instanceof Player player) {
-      treasury(player);
+      treasury(player, Arrays.copyOfRange(args, 1, args.length));
       return true;
     }
     if (root.equals("market") && sender instanceof Player player) {
@@ -379,11 +406,185 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                 + city.civilization());
   }
 
-  private void treasury(Player player) {
-    withCity(
-        player,
-        city -> settlements.treasury(city.id()),
-        balance -> "Treasury: " + balance + " cents");
+  private void pay(Player player, String[] args) {
+    try {
+      if (args.length != 2)
+        throw new IllegalArgumentException("usage: /frontier pay <player> <cents>");
+      UUID target = resolvePlayer(player, args[0]);
+      long amount = Long.parseLong(args[1]);
+      execute(
+          player,
+          () -> finance.pay(player.getUniqueId(), target, amount, UUID.randomUUID(), Instant.now()),
+          FrontierCommand::transferText);
+    } catch (IllegalArgumentException failure) {
+      player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
+    }
+  }
+
+  private void treasury(Player player, String[] args) {
+    String action = args.length == 0 ? "status" : args[0].toLowerCase(Locale.ROOT);
+    try {
+      switch (action) {
+        case "status" ->
+            withCity(
+                player,
+                city -> settlements.treasury(city.id()),
+                balance -> "Treasury: " + balance + " cents");
+        case "deposit" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier treasury deposit <cents>");
+          long amount = Long.parseLong(args[1]);
+          withCity(
+              player,
+              city ->
+                  finance.deposit(
+                      player.getUniqueId(), city.id(), amount, UUID.randomUUID(), Instant.now()),
+              FrontierCommand::transferText);
+        }
+        case "withdraw" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier treasury withdraw <cents>");
+          long amount = Long.parseLong(args[1]);
+          withCity(
+              player,
+              city ->
+                  finance.withdraw(
+                      city.id(), player.getUniqueId(), amount, UUID.randomUUID(), Instant.now()),
+              FrontierCommand::transferText);
+        }
+        case "pay" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException("usage: /frontier treasury pay <player> <cents>");
+          UUID target = resolvePlayer(player, args[1]);
+          long amount = Long.parseLong(args[2]);
+          withCity(
+              player,
+              city ->
+                  finance.settlementPay(
+                      city.id(),
+                      player.getUniqueId(),
+                      target,
+                      amount,
+                      UUID.randomUUID(),
+                      Instant.now()),
+              FrontierCommand::transferText);
+        }
+        case "audit" -> {
+          int limit = args.length == 2 ? Integer.parseInt(args[1]) : 10;
+          withCity(
+              player,
+              city -> finance.audit(city.id(), player.getUniqueId(), limit),
+              lines ->
+                  lines.isEmpty()
+                      ? "No treasury entries."
+                      : lines.stream()
+                          .map(FrontierCommand::ledgerText)
+                          .collect(java.util.stream.Collectors.joining("\n")));
+        }
+        default ->
+            throw new IllegalArgumentException(
+                "treasury actions: status, deposit, withdraw, pay, audit");
+      }
+    } catch (IllegalArgumentException failure) {
+      player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
+    }
+  }
+
+  private void harbor(Player player, String[] args) {
+    String action = args.length == 0 ? "tutorial" : args[0].toLowerCase(Locale.ROOT);
+    try {
+      switch (action) {
+        case "tutorial" ->
+            execute(
+                player,
+                () -> harbor.onboard(player.getUniqueId(), Instant.now()),
+                tutorial ->
+                    "Frontier Harbor: take a starter contract with /frontier harbor jobs, complete it with /frontier harbor work, then use /frontier city create and /frontier treasury deposit. Wallet="
+                        + tutorial.balanceMinor());
+        case "jobs" ->
+            execute(
+                player,
+                () -> harbor.jobs(player.getUniqueId(), Instant.now()),
+                jobs ->
+                    jobs.stream()
+                        .map(
+                            job ->
+                                job.id()
+                                    + " "
+                                    + job.jobType()
+                                    + " "
+                                    + job.rewardMinor()
+                                    + "c "
+                                    + job.status()
+                                    + " — "
+                                    + job.description())
+                        .collect(java.util.stream.Collectors.joining("\n")));
+        case "work" -> {
+          if (args.length > 2)
+            throw new IllegalArgumentException("usage: /frontier harbor work [starter-job-uuid]");
+          execute(
+              player,
+              () ->
+                  args.length == 2
+                      ? harbor.complete(
+                          player.getUniqueId(), UUID.fromString(args[1]), Instant.now())
+                      : harbor.completeFirst(player.getUniqueId(), Instant.now()),
+              receipt ->
+                  "Starter contract paid "
+                      + receipt.rewardMinor()
+                      + " cents; wallet="
+                      + receipt.playerBalanceMinor());
+        }
+        case "status" ->
+            execute(
+                player,
+                () -> harbor.status(Instant.now()),
+                value ->
+                    value.name()
+                        + ": budget="
+                        + value.budgetRemainingMinor()
+                        + ", jobs="
+                        + value.openJobs()
+                        + ", buy orders="
+                        + value.openBuyOrders()
+                        + ", sell orders="
+                        + value.openSellOrders());
+        default ->
+            throw new IllegalArgumentException("harbor actions: tutorial, jobs, work, status");
+      }
+    } catch (IllegalArgumentException failure) {
+      player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
+    }
+  }
+
+  private static String transferText(FinanceGateway.TransferReceipt receipt) {
+    return receipt.transferType()
+        + ": "
+        + receipt.amountMinor()
+        + " cents; source="
+        + receipt.sourceBalanceMinor()
+        + ", destination="
+        + receipt.destinationBalanceMinor();
+  }
+
+  private static String ledgerText(FinanceGateway.LedgerLine line) {
+    return line.occurredAt()
+        + " "
+        + line.type()
+        + " "
+        + line.amountMinor()
+        + " => "
+        + line.balanceAfterMinor();
+  }
+
+  private static UUID resolvePlayer(Player requester, String name) {
+    Player online = requester.getServer().getPlayerExact(name);
+    if (online != null) return online.getUniqueId();
+    for (org.bukkit.OfflinePlayer candidate : requester.getServer().getOfflinePlayers()) {
+      if (candidate.getName() != null && candidate.getName().equalsIgnoreCase(name))
+        return candidate.getUniqueId();
+    }
+    throw new IllegalArgumentException("player must have joined this server before");
   }
 
   private void market(Player player, String[] args) {
@@ -1458,8 +1659,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
             NamedTextColor.GOLD));
     sender.sendMessage(
         Component.text(
-            "/frontier treasury | /frontier status | /frontier admin health|recover|metrics|snapshot|inspect|audit",
+            "/frontier balance | pay <player> <cents> | treasury status|deposit|withdraw|pay|audit",
             NamedTextColor.GRAY));
+    sender.sendMessage(
+        Component.text("/frontier harbor tutorial|jobs|work|status", NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text(
             "/frontier market list|warehouse|deposit|buy|sell|cancel", NamedTextColor.GRAY));
@@ -1490,6 +1693,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     if (args.length == 2 && args[0].equalsIgnoreCase("admin"))
       return matching(
           List.of("health", "recover", "metrics", "snapshot", "inspect", "audit"), args[1]);
+    if (args.length == 2 && args[0].equalsIgnoreCase("treasury"))
+      return matching(List.of("status", "deposit", "withdraw", "pay", "audit"), args[1]);
+    if (args.length == 2 && args[0].equalsIgnoreCase("harbor"))
+      return matching(List.of("tutorial", "jobs", "work", "status"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("city"))
       return matching(
           List.of(

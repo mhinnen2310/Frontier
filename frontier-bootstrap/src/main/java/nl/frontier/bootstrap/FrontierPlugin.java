@@ -11,6 +11,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import nl.frontier.api.HealthStatus;
@@ -18,6 +19,9 @@ import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementDailySimulation;
 import nl.frontier.economy.ContractGateway;
 import nl.frontier.economy.EconomyApplicationService;
+import nl.frontier.economy.FinanceApplicationService;
+import nl.frontier.economy.HarborApplicationService;
+import nl.frontier.economy.HarborGateway;
 import nl.frontier.economy.LogisticsGateway;
 import nl.frontier.economy.ProductionApplicationService;
 import nl.frontier.influence.ChunkOwnershipCache;
@@ -30,6 +34,8 @@ import nl.frontier.persistence.PostgresCampaignGateway;
 import nl.frontier.persistence.PostgresCivilizationGateway;
 import nl.frontier.persistence.PostgresContractGateway;
 import nl.frontier.persistence.PostgresEconomyGateway;
+import nl.frontier.persistence.PostgresFinanceGateway;
+import nl.frontier.persistence.PostgresHarborGateway;
 import nl.frontier.persistence.PostgresInfluencePersistence;
 import nl.frontier.persistence.PostgresLogisticsGateway;
 import nl.frontier.persistence.PostgresNpcMaterializationGateway;
@@ -47,6 +53,8 @@ import nl.frontier.warfare.CampaignGateway;
 import nl.frontier.warfare.WarPolicyCache;
 import nl.frontier.world.CivilizationGateway;
 import nl.frontier.world.WorldSimulationGateway;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -67,6 +75,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private WorldSimulationSupervisor worldSimulationSupervisor;
   private CivilizationSupervisor civilizationSupervisor;
   private OutboxSupervisor outboxSupervisor;
+  private HarborSupervisor harborSupervisor;
   private volatile boolean acceptingWrites;
 
   @Override
@@ -99,6 +108,17 @@ public final class FrontierPlugin extends JavaPlugin {
               getConfig().getInt("influence.contested-threshold", 75),
               getConfig().getInt("influence.required-lead-cycles", 3));
       PostgresEconomyGateway economyGateway = new PostgresEconomyGateway(store);
+      FinanceApplicationService finance =
+          new FinanceApplicationService(new PostgresFinanceGateway(store));
+      HarborGateway harborGateway = new PostgresHarborGateway(store);
+      HarborApplicationService harbor = new HarborApplicationService(harborGateway);
+      World primaryWorld = getServer().getWorlds().getFirst();
+      Location harborLocation = primaryWorld.getSpawnLocation();
+      harborGateway.bootstrap(
+          primaryWorld.getUID(),
+          harborLocation.getBlockX() >> 4,
+          harborLocation.getBlockZ() >> 4,
+          Instant.now());
       PostgresProductionGateway productionGateway = new PostgresProductionGateway(store);
       LogisticsGateway logisticsGateway = new PostgresLogisticsGateway(store);
       ContractGateway contractGateway = new PostgresContractGateway(store);
@@ -118,6 +138,8 @@ public final class FrontierPlugin extends JavaPlugin {
                   Duration.ofSeconds(
                       getConfig().getLong("security.command-rate-window-seconds", 2))),
               new SettlementApplicationService(new PostgresSettlementGateway(store)),
+              finance,
+              harbor,
               new EconomyApplicationService(economyGateway),
               new ProductionApplicationService(productionGateway),
               logisticsGateway,
@@ -136,6 +158,9 @@ public final class FrontierPlugin extends JavaPlugin {
         throw new IllegalStateException("frontier command is missing from plugin.yml");
       command.setExecutor(handler);
       command.setTabCompleter(handler);
+      getServer()
+          .getPluginManager()
+          .registerEvents(new HarborOnboardingListener(schedulers, harbor), this);
       influenceSupervisor =
           new InfluenceSupervisor(
               schedulers,
@@ -264,6 +289,13 @@ public final class FrontierPlugin extends JavaPlugin {
               getConfig().getInt("outbox.maximum-events-per-cycle", 128),
               getLogger());
       outboxSupervisor.start();
+      harborSupervisor =
+          new HarborSupervisor(
+              schedulers,
+              harborGateway,
+              Duration.ofSeconds(getConfig().getLong("harbor.refresh-seconds", 300)),
+              getLogger());
+      harborSupervisor.start();
       acceptingWrites = true;
       getLogger().info("The Frontier enabled; database migrations and recovery passed.");
     } catch (RuntimeException failure) {
@@ -288,6 +320,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (worldSimulationSupervisor != null) worldSimulationSupervisor.stop();
     if (civilizationSupervisor != null) civilizationSupervisor.stop();
     if (outboxSupervisor != null) outboxSupervisor.stop();
+    if (harborSupervisor != null) harborSupervisor.stop();
     if (schedulers != null) schedulers.close();
     if (database != null) database.close();
   }

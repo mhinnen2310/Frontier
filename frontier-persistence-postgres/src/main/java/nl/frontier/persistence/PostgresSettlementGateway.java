@@ -49,11 +49,33 @@ public final class PostgresSettlementGateway implements SettlementGateway {
               world,
               chunkX,
               chunkZ);
+          UUID treasury = UUID.randomUUID();
           update(
               connection,
-              "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(?,'CITY',?,0)",
-              UUID.randomUUID(),
+              "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(?,'CITY',?,10000)",
+              treasury,
               city);
+          update(
+              connection,
+              "INSERT INTO ledger_entries(id,account_id,actor_id,entry_type,amount_minor,balance_after_minor,reference_id,idempotency_key,occurred_at,description) VALUES(?,?,?,'HARBOR_FOUNDING_GRANT',10000,10000,?,?,?,'Frontier Harbor settlement bootstrap')",
+              UUID.randomUUID(),
+              treasury,
+              owner,
+              city,
+              UUID.nameUUIDFromBytes(
+                  (city + ":founding-grant").getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+              now);
+          UUID warehouse = UUID.randomUUID();
+          update(
+              connection,
+              "INSERT INTO warehouses(id,city_id,capacity,status,version) VALUES(?,?,1000,'ACTIVE',0)",
+              warehouse,
+              city);
+          update(
+              connection,
+              "INSERT INTO warehouse_stock(warehouse_id,commodity_key,available_quantity,reserved_quantity,version) VALUES(?,'minecraft:wheat',64,0,0),(?,'minecraft:bread',16,0,0)",
+              warehouse,
+              warehouse);
           update(
               connection,
               "INSERT INTO dirty_settlements(city_id,reason,enqueued_at) VALUES(?,'CREATED',?)",
@@ -81,7 +103,7 @@ public final class PostgresSettlementGateway implements SettlementGateway {
               now);
           outbox(
               connection, "CITY", city, "SettlementCreated", "{\"owner\":\"" + owner + "\"}", now);
-          return new CitySnapshot(city, name, owner, SettlementLevel.CAMP, 1, 50, 1, 0);
+          return new CitySnapshot(city, name, owner, SettlementLevel.CAMP, 1, 50, 1, 10_000);
         });
   }
 

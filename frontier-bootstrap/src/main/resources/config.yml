@@ -76,3 +76,6 @@ outbox:
 security:
   command-rate-limit: 12
   command-rate-window-seconds: 2
+
+harbor:
+  refresh-seconds: 300
