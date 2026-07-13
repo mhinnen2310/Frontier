@@ -51,6 +51,9 @@ public final class PostgresInfrastructureGateway implements InfrastructureGatewa
                       + Math.pow(context.from().y() - context.to().y(), 2)
                       + Math.pow(context.from().z() - context.to().z(), 2));
           var survey = validation.survey();
+          long capacity =
+              Math.multiplyExact(validation.capacity(), 100L + roadCapacityBonus(connection, city))
+                  / 100L;
           String report =
               "{\"samples\":"
                   + survey.samples()
@@ -66,7 +69,7 @@ public final class PostgresInfrastructureGateway implements InfrastructureGatewa
             statement.setObject(2, from);
             statement.setObject(3, to);
             statement.setDouble(4, distance);
-            statement.setLong(5, validation.capacity());
+            statement.setLong(5, capacity);
             statement.setInt(6, validation.health());
             statement.setString(7, validation.type().name());
             statement.setInt(8, importance);
@@ -97,11 +100,23 @@ public final class PostgresInfrastructureGateway implements InfrastructureGatewa
               to,
               validation.type(),
               validation.health(),
-              validation.capacity(),
+              capacity,
               0,
               importance,
               city);
         });
+  }
+
+  private static int roadCapacityBonus(Connection connection, UUID city) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT coalesce(max((u.effect->>'roadCapacityPercent')::int),0) FROM kingdom_members m JOIN kingdom_unlocks u ON u.kingdom_id=m.kingdom_id WHERE m.city_id=? AND u.content_type='RESEARCH'")) {
+      statement.setObject(1, city);
+      try (ResultSet result = statement.executeQuery()) {
+        result.next();
+        return result.getInt(1);
+      }
+    }
   }
 
   private static Context context(Connection connection, UUID city, UUID from, UUID to, boolean lock)

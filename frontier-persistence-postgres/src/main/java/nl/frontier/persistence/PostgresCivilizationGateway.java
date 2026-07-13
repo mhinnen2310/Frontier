@@ -212,6 +212,15 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
         connection -> {
           requireKingdomAuthority(connection, kingdom, actor);
           if (requiredPoints <= 0) throw new DomainException("research points must be positive");
+          ContentDefinition definition = researchDefinition(connection, project);
+          requireEra(connection, kingdom, definition.era);
+          if (!definition.branch.equalsIgnoreCase(branch)
+              || definition.requirement != requiredPoints)
+            throw new DomainException(
+                "research branch or point requirement does not match catalog");
+          if (definition.prerequisite != null
+              && !completedProject(connection, kingdom, definition.prerequisite))
+            throw new DomainException("research prerequisite is not completed");
           UUID id = UUID.randomUUID();
           try (PreparedStatement statement =
               connection.prepareStatement(
@@ -239,10 +248,11 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
     return store.inTransaction(
         connection -> {
           requireKingdomAuthority(connection, kingdom, actor);
-          KingdomSnapshot owner = loadKingdom(connection, kingdom);
-          if (owner.era() != CivilizationProgression.Era.GOLDEN_AGE)
-            throw new DomainException("world wonders require the Golden Age");
+          ContentDefinition definition = wonderDefinition(connection, wonderKey);
+          requireEra(connection, kingdom, definition.era);
           if (requiredUnits <= 0) throw new DomainException("wonder requirement must be positive");
+          if (!definition.commodity.equals(commodity) || definition.requirement != requiredUnits)
+            throw new DomainException("wonder material or requirement does not match catalog");
           UUID id = UUID.randomUUID();
           try (PreparedStatement statement =
               connection.prepareStatement(
@@ -312,7 +322,9 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
             statement.executeUpdate();
           }
           if (complete) {
-            grantPrestige(connection, current.kingdom(), 500, "WORLD_WONDER", now);
+            ContentDefinition definition = wonderDefinition(connection, current.key());
+            grantPrestige(connection, current.kingdom(), definition.prestige, "WORLD_WONDER", now);
+            unlock(connection, current.kingdom(), "WONDER", current.key(), definition.effect, now);
             serverHistory(connection, "WONDER_COMPLETED", wonder, "{}", now);
           }
           return loadWonder(connection, wonder);
@@ -331,6 +343,11 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
         connection -> {
           requireKingdomAuthority(connection, kingdom, actor);
           if (requiredUnits <= 0) throw new DomainException("project requirement must be positive");
+          ContentDefinition definition = megaDefinition(connection, projectKey);
+          requireEra(connection, kingdom, definition.era);
+          if (!definition.commodity.equals(commodity) || definition.requirement != requiredUnits)
+            throw new DomainException(
+                "mega-project material or requirement does not match catalog");
           UUID id = UUID.randomUUID();
           try (PreparedStatement statement =
               connection.prepareStatement(
@@ -401,7 +418,15 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
             statement.executeUpdate();
           }
           if (complete) {
-            grantPrestige(connection, current.kingdom(), 150, "MEGA_PROJECT", now);
+            ContentDefinition definition = megaDefinition(connection, current.key());
+            grantPrestige(connection, current.kingdom(), definition.prestige, "MEGA_PROJECT", now);
+            unlock(
+                connection,
+                current.kingdom(),
+                "MEGA_PROJECT",
+                current.key(),
+                definition.effect,
+                now);
             serverHistory(connection, "MEGA_PROJECT_COMPLETED", project, "{}", now);
           }
           return loadMegaProject(connection, project, false);
@@ -574,17 +599,19 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
   private static boolean applyResearch(Connection connection, UUID kingdom, Instant now)
       throws SQLException {
     UUID project;
+    String projectKey;
     long progress;
     long required;
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT id,progress_points,required_points FROM research_projects WHERE kingdom_id=? AND status='ACTIVE' ORDER BY started_at LIMIT 1 FOR UPDATE SKIP LOCKED")) {
+            "SELECT id,progress_points,required_points,project_key FROM research_projects WHERE kingdom_id=? AND status='ACTIVE' ORDER BY started_at LIMIT 1 FOR UPDATE SKIP LOCKED")) {
       statement.setObject(1, kingdom);
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) return false;
         project = result.getObject(1, UUID.class);
         progress = result.getLong(2);
         required = result.getLong(3);
+        projectKey = result.getString(4);
       }
     }
     long available;
@@ -616,7 +643,13 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
       statement.setObject(4, project);
       statement.executeUpdate();
     }
-    if (complete) grantPrestige(connection, kingdom, 100, "RESEARCH_COMPLETED", now);
+    if (complete) {
+      grantPrestige(connection, kingdom, 100, "RESEARCH_COMPLETED", now);
+      ContentDefinition definition = researchDefinition(connection, projectKey);
+      unlock(connection, kingdom, "RESEARCH", projectKey, definition.effect, now);
+      serverHistory(
+          connection, "RESEARCH_COMPLETED", project, "{\"project\":\"" + projectKey + "\"}", now);
+    }
     return complete;
   }
 
@@ -1116,6 +1149,99 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
     }
   }
 
+  private static ContentDefinition researchDefinition(Connection connection, String key)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT branch,required_era,required_points,prerequisite_key,effect::text FROM endgame_research_definitions WHERE project_key=? AND enabled")) {
+      statement.setString(1, key);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next())
+          throw new DomainException("research project is not in the endgame catalog");
+        return new ContentDefinition(
+            result.getString(1),
+            result.getString(2),
+            null,
+            result.getLong(3),
+            result.getString(4),
+            100,
+            result.getString(5));
+      }
+    }
+  }
+
+  private static ContentDefinition wonderDefinition(Connection connection, String key)
+      throws SQLException {
+    return materialDefinition(
+        connection,
+        "SELECT required_era,commodity_key,required_units,prestige_reward,effect::text FROM endgame_wonder_definitions WHERE wonder_key=? AND enabled",
+        key,
+        "wonder is not in the unique-wonder catalog");
+  }
+
+  private static ContentDefinition megaDefinition(Connection connection, String key)
+      throws SQLException {
+    return materialDefinition(
+        connection,
+        "SELECT required_era,commodity_key,required_units,prestige_reward,effect::text FROM endgame_mega_definitions WHERE project_key=? AND enabled",
+        key,
+        "mega project is not in the endgame catalog");
+  }
+
+  private static ContentDefinition materialDefinition(
+      Connection connection, String sql, String key, String missing) throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, key);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException(missing);
+        return new ContentDefinition(
+            null,
+            result.getString(1),
+            result.getString(2),
+            result.getLong(3),
+            null,
+            result.getLong(4),
+            result.getString(5));
+      }
+    }
+  }
+
+  private static void requireEra(Connection connection, UUID kingdom, String required)
+      throws SQLException {
+    CivilizationProgression.Era current = loadKingdom(connection, kingdom).era();
+    CivilizationProgression.Era minimum = CivilizationProgression.Era.valueOf(required);
+    if (current.ordinal() < minimum.ordinal())
+      throw new DomainException("content requires kingdom era " + minimum);
+  }
+
+  private static boolean completedProject(Connection connection, UUID kingdom, String project)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT 1 FROM research_projects WHERE kingdom_id=? AND project_key=? AND status='COMPLETED'")) {
+      statement.setObject(1, kingdom);
+      statement.setString(2, project);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next();
+      }
+    }
+  }
+
+  private static void unlock(
+      Connection connection, UUID kingdom, String type, String key, String effect, Instant now)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO kingdom_unlocks(kingdom_id,content_type,content_key,effect,unlocked_at) VALUES(?,?,?,?::jsonb,?) ON CONFLICT DO NOTHING")) {
+      statement.setObject(1, kingdom);
+      statement.setString(2, type);
+      statement.setString(3, key);
+      statement.setString(4, effect);
+      statement.setTimestamp(5, Timestamp.from(now));
+      statement.executeUpdate();
+    }
+  }
+
   private static void history(
       Connection connection, UUID kingdom, String event, String payload, Instant now)
       throws SQLException {
@@ -1145,4 +1271,13 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
       statement.executeUpdate();
     }
   }
+
+  private record ContentDefinition(
+      String branch,
+      String era,
+      String commodity,
+      long requirement,
+      String prerequisite,
+      long prestige,
+      String effect) {}
 }

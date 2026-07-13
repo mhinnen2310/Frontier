@@ -173,7 +173,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(28, result.getInt(1));
+        assertEquals(29, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1258,11 +1258,16 @@ class DatabaseIntegrationTest {
               .orElseThrow()
               .status());
       economy.deposit(attacker.id(), attackerOwner, "minecraft:stone", 3, Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE kingdoms SET era='KINGDOM' WHERE id='" + firstKingdom.id() + "'");
+      }
       CivilizationGateway.MegaProjectSnapshot mega =
           civilization.startMegaProject(
               firstKingdom.id(),
               attackerOwner,
-              "highway_" + UUID.randomUUID(),
+              "CONTINENTAL_HIGHWAY",
               "minecraft:stone",
               3,
               Instant.now());
@@ -1286,7 +1291,7 @@ class DatabaseIntegrationTest {
           civilization.startWonder(
               firstKingdom.id(),
               attackerOwner,
-              "wonder_" + UUID.randomUUID(),
+              "GRAND_LIGHTHOUSE",
               "minecraft:stone_bricks",
               2,
               Instant.now());
@@ -1517,6 +1522,15 @@ class DatabaseIntegrationTest {
           "RESOLVED",
           dynamicEvents.respond(escortEvent.id(), populationOwner, 100, Instant.now()).state());
       assertTrue(dynamicEvents.cycle(100, Instant.now()).skippedCooldown() > 0);
+      PostgresEndgameGateway endgame = new PostgresEndgameGateway(store);
+      assertTrue(endgame.catalog().size() >= 7);
+      assertEquals(firstKingdom.id(), endgame.rankings(10).getFirst().kingdom());
+      assertTrue(
+          endgame.worldHistory(100).stream()
+              .anyMatch(value -> value.eventType().equals("WONDER_COMPLETED")));
+      assertTrue(
+          endgame.unlocks(firstKingdom.id()).stream()
+              .anyMatch(value -> value.contains("WONDER:GRAND_LIGHTHOUSE")));
 
       ArrayList<PostgresOutboxDispatcher.Event> published = new ArrayList<>();
       PostgresOutboxDispatcher outbox = new PostgresOutboxDispatcher(store, published::add);
@@ -1544,7 +1558,7 @@ class DatabaseIntegrationTest {
     try (var connection = database.dataSource().getConnection();
         var statement = connection.createStatement()) {
       statement.execute(
-          "DO $$ DECLARE names text; BEGIN SELECT string_agg(format('%I.%I',schemaname,tablename),',') INTO names FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('flyway_schema_history','commodity_definitions','recipes','recipe_inputs','recipe_outputs'); IF names IS NOT NULL THEN EXECUTE 'TRUNCATE TABLE '||names||' CASCADE'; END IF; END $$");
+          "DO $$ DECLARE names text; BEGIN SELECT string_agg(format('%I.%I',schemaname,tablename),',') INTO names FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('flyway_schema_history','commodity_definitions','recipes','recipe_inputs','recipe_outputs','endgame_research_definitions','endgame_wonder_definitions','endgame_mega_definitions'); IF names IS NOT NULL THEN EXECUTE 'TRUNCATE TABLE '||names||' CASCADE'; END IF; END $$");
       statement.execute(
           "INSERT INTO global_objectives(id,objective_key,status,progress,target,version) VALUES(gen_random_uuid(),'CONNECT_CAPITALS','ACTIVE',0,1,0),(gen_random_uuid(),'BUILD_WORLD_WONDERS','ACTIVE',0,1,0),(gen_random_uuid(),'SURVIVE_WORLD_CRISIS','ACTIVE',0,1,0),(gen_random_uuid(),'RESTORE_WAR_RUINS','ACTIVE',0,1,0)");
     }

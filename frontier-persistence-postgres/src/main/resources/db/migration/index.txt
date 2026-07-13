@@ -26,3 +26,4 @@ V25__campaign_result_engine.sql
 V26__kingdom_integration.sql
 V27__complete_world_simulation.sql
 V28__dynamic_events.sql
+V29__wonders_and_endgame.sql

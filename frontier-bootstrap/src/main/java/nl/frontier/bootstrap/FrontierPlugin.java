@@ -53,6 +53,7 @@ import nl.frontier.persistence.PostgresContractGateway;
 import nl.frontier.persistence.PostgresDistrictGateway;
 import nl.frontier.persistence.PostgresDynamicEventGateway;
 import nl.frontier.persistence.PostgresEconomyGateway;
+import nl.frontier.persistence.PostgresEndgameGateway;
 import nl.frontier.persistence.PostgresFinanceGateway;
 import nl.frontier.persistence.PostgresHarborGateway;
 import nl.frontier.persistence.PostgresInfluencePersistence;
@@ -77,6 +78,7 @@ import nl.frontier.warfare.CampaignOutcomeService;
 import nl.frontier.warfare.WarPolicyCache;
 import nl.frontier.world.CivilizationGateway;
 import nl.frontier.world.DynamicEventService;
+import nl.frontier.world.EndgameService;
 import nl.frontier.world.KingdomIntegrationService;
 import nl.frontier.world.WorldSimulationGateway;
 import org.bukkit.Location;
@@ -180,6 +182,7 @@ public final class FrontierPlugin extends JavaPlugin {
           new KingdomIntegrationService(new PostgresKingdomIntegrationGateway(store));
       DynamicEventService dynamicEvents =
           new DynamicEventService(new PostgresDynamicEventGateway(store));
+      EndgameService endgame = new EndgameService(new PostgresEndgameGateway(store));
       SettlementApplicationService settlements =
           new SettlementApplicationService(new PostgresSettlementGateway(store));
       SettlementLifecycleService settlementLifecycle =
@@ -226,6 +229,7 @@ public final class FrontierPlugin extends JavaPlugin {
               civilizationGateway,
               kingdomIntegration,
               dynamicEvents,
+              endgame,
               Duration.ofHours(getConfig().getLong("campaigns.preparation-hours", 24)),
               Duration.ofDays(getConfig().getLong("campaigns.maximum-duration-days", 14)),
               getConfig().getLong("campaigns.declaration-cost-minor", 5_000),

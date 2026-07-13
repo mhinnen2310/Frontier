@@ -52,6 +52,7 @@ import nl.frontier.warfare.CampaignOutcomeService;
 import nl.frontier.warfare.WarCampaign;
 import nl.frontier.world.CivilizationGateway;
 import nl.frontier.world.DynamicEventService;
+import nl.frontier.world.EndgameService;
 import nl.frontier.world.KingdomIntegrationGateway;
 import nl.frontier.world.KingdomIntegrationService;
 import nl.frontier.world.WorldSimulationGateway;
@@ -77,6 +78,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           "population",
           "workers",
           "events",
+          "endgame",
           "economy",
           "treasury",
           "production",
@@ -115,6 +117,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final CivilizationGateway civilization;
   private final KingdomIntegrationService kingdomIntegration;
   private final DynamicEventService dynamicEvents;
+  private final EndgameService endgame;
   private final Duration campaignPreparation;
   private final Duration campaignMaximumDuration;
   private final long campaignDeclarationCost;
@@ -149,6 +152,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       CivilizationGateway civilization,
       KingdomIntegrationService kingdomIntegration,
       DynamicEventService dynamicEvents,
+      EndgameService endgame,
       Duration campaignPreparation,
       Duration campaignMaximumDuration,
       long campaignDeclarationCost,
@@ -181,6 +185,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.civilization = Objects.requireNonNull(civilization);
     this.kingdomIntegration = Objects.requireNonNull(kingdomIntegration);
     this.dynamicEvents = Objects.requireNonNull(dynamicEvents);
+    this.endgame = Objects.requireNonNull(endgame);
     this.campaignPreparation = Objects.requireNonNull(campaignPreparation);
     this.campaignMaximumDuration = Objects.requireNonNull(campaignMaximumDuration);
     this.campaignDeclarationCost = campaignDeclarationCost;
@@ -262,6 +267,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     }
     if (root.equals("events") && sender instanceof Player player) {
       dynamicEvents(player, Arrays.copyOfRange(args, 1, args.length));
+      return true;
+    }
+    if (root.equals("endgame") && sender instanceof Player player) {
+      endgame(player, Arrays.copyOfRange(args, 1, args.length));
       return true;
     }
     if (root.equals("economy") && sender instanceof Player player) {
@@ -1993,6 +2002,82 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     }
   }
 
+  private void endgame(Player player, String[] args) {
+    String action = args.length == 0 ? "rankings" : args[0].toLowerCase(Locale.ROOT);
+    try {
+      switch (action) {
+        case "catalog" ->
+            execute(
+                player,
+                endgame::catalog,
+                values ->
+                    values.stream()
+                        .map(
+                            value ->
+                                value.contentType()
+                                    + " "
+                                    + value.key()
+                                    + " era="
+                                    + value.requiredEra()
+                                    + " requirement="
+                                    + value.requirement()
+                                    + " effect="
+                                    + value.effect())
+                        .collect(java.util.stream.Collectors.joining("\n")));
+        case "rankings" -> {
+          int limit = args.length > 1 ? Integer.parseInt(args[1]) : 10;
+          execute(
+              player,
+              () -> endgame.rankings(limit),
+              values ->
+                  values.stream()
+                      .map(
+                          value ->
+                              "#"
+                                  + value.rank()
+                                  + " "
+                                  + value.name()
+                                  + " score="
+                                  + value.score()
+                                  + " prestige="
+                                  + value.prestige()
+                                  + " era="
+                                  + value.era())
+                      .collect(java.util.stream.Collectors.joining("\n")));
+        }
+        case "history" -> {
+          int limit = args.length > 1 ? Integer.parseInt(args[1]) : 25;
+          execute(
+              player,
+              () -> endgame.history(limit),
+              values ->
+                  values.stream()
+                      .map(
+                          value ->
+                              value.occurredAt()
+                                  + " "
+                                  + value.eventType()
+                                  + " "
+                                  + value.aggregate())
+                      .collect(java.util.stream.Collectors.joining("\n")));
+        }
+        case "unlocks" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier endgame unlocks <kingdom-uuid>");
+          execute(
+              player,
+              () -> endgame.unlocks(UUID.fromString(args[1])),
+              values -> values.isEmpty() ? "No endgame unlocks." : String.join("\n", values));
+        }
+        default ->
+            throw new IllegalArgumentException(
+                "endgame actions: catalog, rankings, history, unlocks");
+      }
+    } catch (IllegalArgumentException failure) {
+      player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
+    }
+  }
+
   private void world(CommandSender sender, String[] args) {
     String action = args.length == 0 ? "regions" : args[0].toLowerCase(Locale.ROOT);
     schedulers
@@ -2769,6 +2854,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         Component.text("/frontier logistics list|node|connect|ship", NamedTextColor.GRAY));
     sender.sendMessage(Component.text("/frontier caravan list|escort", NamedTextColor.GRAY));
     sender.sendMessage(Component.text("/frontier events list|join|respond", NamedTextColor.GRAY));
+    sender.sendMessage(
+        Component.text("/frontier endgame catalog|rankings|history|unlocks", NamedTextColor.GRAY));
     sender.sendMessage(Component.text("/frontier population | workers", NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text(
@@ -2910,6 +2997,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       return matching(List.of("list", "escort"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("events"))
       return matching(List.of("list", "join", "respond"), args[1]);
+    if (args.length == 2 && args[0].equalsIgnoreCase("endgame"))
+      return matching(List.of("catalog", "rankings", "history", "unlocks"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("economy"))
       return matching(
           List.of(

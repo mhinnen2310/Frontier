@@ -368,6 +368,10 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
       Instant now)
       throws SQLException {
     List<Decay> edges = new ArrayList<>();
+    int effectiveBase =
+        hasUnlock(connection, city, "MEGA_PROJECT", "CONTINENTAL_HIGHWAY")
+            ? Math.max(0, baseDecay - 1)
+            : baseDecay;
     try (PreparedStatement statement =
         connection.prepareStatement(
             "SELECT id,infrastructure_type,integrity,traffic FROM road_edges WHERE owner_city=? AND integrity>0 FOR UPDATE")) {
@@ -376,7 +380,7 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
         while (result.next()) {
           int before = result.getInt(3);
           int amount =
-              baseDecay
+              effectiveBase
                   + (result.getString(2).equals("BRIDGE") ? 1 : 0)
                   + (int) Math.min(2, result.getLong(4) / 1_000);
           edges.add(
@@ -411,6 +415,20 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
       }
     }
     return edges.size();
+  }
+
+  private static boolean hasUnlock(Connection connection, UUID city, String type, String key)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT 1 FROM kingdom_members m JOIN kingdom_unlocks u ON u.kingdom_id=m.kingdom_id WHERE m.city_id=? AND u.content_type=? AND u.content_key=?")) {
+      statement.setObject(1, city);
+      statement.setString(2, type);
+      statement.setString(3, key);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next();
+      }
+    }
   }
 
   private static boolean activeEvent(Connection connection, UUID region, String key)

@@ -151,6 +151,16 @@
 - Added `/frontier events list|join|respond`, Dialog report access and a bounded minute detection supervisor.
 - Added Flyway migration V28 and clean-database coverage detecting seven simultaneous source types, joining/completing an escort and checking cooldown replay protection.
 
+### Sprint 17 — Wonders & Endgame
+
+- Added data-driven research, unique-wonder and mega-project catalogs with era, prerequisite, material, requirement, prestige and effect definitions.
+- Replaced free-text endgame starts with transactional catalog validation; unique wonders remain globally exclusive through the existing database invariant.
+- Added durable kingdom unlocks on research, wonder and mega-project completion plus world-history records for completed research.
+- Applied the Roads I research unlock to newly validated road capacity and the Continental Highway unlock to daily infrastructure decay.
+- Added deterministic kingdom rankings combining era, prestige, population, completed research, wonders and mega projects.
+- Added `/frontier endgame catalog|rankings|history|unlocks` and Dialog access to rankings.
+- Added Flyway migration V29 and clean-database coverage for catalog seeds, unlocks, world history and rankings.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

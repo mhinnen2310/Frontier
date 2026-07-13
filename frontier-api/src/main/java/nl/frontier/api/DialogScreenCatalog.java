@@ -139,6 +139,7 @@ public final class DialogScreenCatalog {
               read("World regions", "frontier world regions"),
               read("World events", "frontier world events"),
               read("Dynamic events", "frontier events list"),
+              read("Kingdom rankings", "frontier endgame rankings"),
               read("Settlement", "frontier city info"),
               read("Population", "frontier population"),
               back());
