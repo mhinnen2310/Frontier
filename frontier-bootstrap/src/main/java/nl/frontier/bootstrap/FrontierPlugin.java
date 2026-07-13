@@ -177,7 +177,9 @@ public final class FrontierPlugin extends JavaPlugin {
       ClaimProtectionService claimProtection =
           new ClaimProtectionService(
               claimProtectionCache,
-              (player, city) -> warPolicyCache.hostileCampaign(player, city).isPresent());
+              (player, city) ->
+                  config.enabled("warfare")
+                      && warPolicyCache.hostileCampaign(player, city).isPresent());
       RepairGateway repairGateway = new PostgresRepairGateway(store);
       nl.frontier.warfare.WarDamageGateway warDamageGateway = new PostgresWarDamageGateway(store);
       WorldSimulationGateway worldSimulationGateway = new PostgresWorldSimulationGateway(store);
@@ -370,19 +372,21 @@ public final class FrontierPlugin extends JavaPlugin {
             .getPluginManager()
             .registerEvents(
                 new CampaignCombatListener(warPolicyCache, campaignGateway, schedulers), this);
+      }
+      if (config.enabled("settlements"))
         getServer()
             .getPluginManager()
             .registerEvents(
                 new CampaignStructuralListener(
                     schedulers,
                     ownershipCache,
+                    claimProtection,
                     warPolicyCache,
                     warDamageGateway,
                     Duration.ofHours(config.warfare().breachWindowHours()),
                     config.warfare().breachBasePoints(),
                     config.warfare().breachMaximumPoints()),
                 this);
-      }
       if (config.enabled("settlements"))
         getServer()
             .getPluginManager()

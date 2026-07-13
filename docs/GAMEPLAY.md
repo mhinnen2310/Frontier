@@ -23,7 +23,7 @@ Population depends on housing, food, safety and prosperity. Workers have profess
 
 ## War, damage and repair
 
-Campaigns move through preparation, active, ceasefire and resolution. Claim protection checks campaign status, ownership, roles, permissions and bypass for block, inventory, entity, vehicle, fire, redstone and interaction events. Authorized structural damage is journaled once. Paid repair orders progress `REGISTERED` → `RESERVED` → `REPAIRING` → `COMPLETED` → `ARCHIVED`; leases make restart, disconnect and chunk-unload recovery safe.
+Campaigns move through preparation, active, ceasefire and resolution. [Claim protection](CLAIM_PROTECTION.md) checks actor/action/source/target, campaign, treaty, incident, ownership, role, overrides and bypass for the complete Paper interaction surface. Automation, liquids, fire and redstone cannot cross a territory boundary. Authorized campaign structural damage is journaled once. Paid repair orders progress `REGISTERED` → `RESERVED` → `REPAIRING` → `COMPLETED` → `ARCHIVED`; leases make restart, disconnect and chunk-unload recovery safe.
 
 Results include occupation, liberation, conquest, annexation, territory concession, reparations, tribute, independence, civil war and kingdom intervention. Transfers include claims and their buildings, roads, infrastructure, workers and storage.
 

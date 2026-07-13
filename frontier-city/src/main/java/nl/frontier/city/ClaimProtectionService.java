@@ -1,71 +1,80 @@
 package nl.frontier.city;
 
-import java.util.EnumSet;
 import java.util.Objects;
 import java.util.UUID;
 
 public final class ClaimProtectionService {
-  private static final EnumSet<Action> COMMON_MEMBER_ACTIONS =
-      EnumSet.of(
-          Action.BUILD,
-          Action.BREAK,
-          Action.CONTAINER,
-          Action.INTERACT,
-          Action.ENTITY,
-          Action.BUCKET,
-          Action.TRAMPLE,
-          Action.VEHICLE);
-  private static final EnumSet<Action> TRUSTED_MEMBER_ACTIONS =
-      EnumSet.of(Action.AUTOMATION, Action.HANGING, Action.FIRE, Action.REDSTONE);
   private final ClaimProtectionCache cache;
   private final HostilityView hostility;
+  private final TreatyView treaties;
+  private final IncidentView incidents;
+  private final TerritoryActionPolicy policy;
 
   public ClaimProtectionService(ClaimProtectionCache cache, HostilityView hostility) {
+    this(
+        cache,
+        hostility,
+        (player, city) -> TerritoryActionPolicy.TreatyContext.NONE,
+        (player, city) -> TerritoryActionPolicy.IncidentContext.NONE);
+  }
+
+  public ClaimProtectionService(
+      ClaimProtectionCache cache,
+      HostilityView hostility,
+      TreatyView treaties,
+      IncidentView incidents) {
     this.cache = Objects.requireNonNull(cache);
     this.hostility = Objects.requireNonNull(hostility);
+    this.treaties = Objects.requireNonNull(treaties);
+    this.incidents = Objects.requireNonNull(incidents);
+    this.policy = new TerritoryActionPolicy();
   }
 
   public Decision authorize(Request request) {
     UUID city = cache.city(request.world(), request.chunkX(), request.chunkZ()).orElse(null);
-    if (city == null) return new Decision(true, null, Reason.WILDERNESS);
-    if (request.bypass()) return new Decision(true, city, Reason.BYPASS);
-    if (cache.owner(city, request.actor())) return new Decision(true, city, Reason.OWNER);
-    var override = cache.override(city, request.actor(), request.action());
-    if (override.isPresent())
-      return new Decision(
-          override.orElseThrow(), city, override.orElseThrow() ? Reason.OVERRIDE : Reason.DENIED);
-    GovernmentRole role = cache.role(city, request.actor()).orElse(null);
-    if (role != null) {
-      if (role == GovernmentRole.RECRUIT)
-        return new Decision(
-            request.action() == Action.INTERACT,
+    UUID sourceCity =
+        request.sourceWorld() == null
+            ? null
+            : cache
+                .city(request.sourceWorld(), request.sourceChunkX(), request.sourceChunkZ())
+                .orElse(null);
+    return policy.decide(
+        new TerritoryActionPolicy.Context(
+            request.actor(),
+            request.action(),
             city,
-            request.action() == Action.INTERACT ? Reason.MEMBER : Reason.DENIED);
-      if (COMMON_MEMBER_ACTIONS.contains(request.action()))
-        return new Decision(true, city, Reason.MEMBER);
-      boolean trusted =
-          role == GovernmentRole.MAYOR
-              || role == GovernmentRole.ARCHITECT
-              || role == GovernmentRole.BUILDER_MASTER;
-      if (trusted && TRUSTED_MEMBER_ACTIONS.contains(request.action()))
-        return new Decision(true, city, Reason.ROLE);
-      return new Decision(false, city, Reason.DENIED);
-    }
-    if (request.action() == Action.BREAK && hostility.activeCampaign(request.actor(), city))
-      return new Decision(true, city, Reason.CAMPAIGN);
-    return new Decision(false, city, Reason.DENIED);
+            sourceCity,
+            city != null && cache.owner(city, request.actor()),
+            city == null ? null : cache.role(city, request.actor()).orElse(null),
+            city == null
+                ? null
+                : cache.override(city, request.actor(), request.action()).orElse(null),
+            city != null && hostility.activeCampaign(request.actor(), city),
+            city == null
+                ? TerritoryActionPolicy.TreatyContext.NONE
+                : treaties.context(request.actor(), city),
+            city == null
+                ? TerritoryActionPolicy.IncidentContext.NONE
+                : incidents.context(request.actor(), city),
+            request.bypass()));
   }
 
-  public boolean sameOwner(
-      UUID firstWorld,
-      int firstChunkX,
-      int firstChunkZ,
-      UUID secondWorld,
-      int secondChunkX,
-      int secondChunkZ) {
-    UUID first = cache.city(firstWorld, firstChunkX, firstChunkZ).orElse(null);
-    UUID second = cache.city(secondWorld, secondChunkX, secondChunkZ).orElse(null);
-    return Objects.equals(first, second);
+  public Decision authorizePropagation(PropagationRequest request) {
+    UUID source =
+        cache
+            .city(request.sourceWorld(), request.sourceChunkX(), request.sourceChunkZ())
+            .orElse(null);
+    UUID target =
+        cache
+            .city(request.targetWorld(), request.targetChunkX(), request.targetChunkZ())
+            .orElse(null);
+    return policy.decidePropagation(
+        new TerritoryActionPolicy.PropagationContext(
+            request.action(),
+            source,
+            target,
+            TerritoryActionPolicy.TreatyContext.NONE,
+            TerritoryActionPolicy.IncidentContext.NONE));
   }
 
   public enum Action {
@@ -78,6 +87,7 @@ public final class ClaimProtectionService {
     HANGING,
     BUCKET,
     FIRE,
+    EXPLOSION,
     TRAMPLE,
     VEHICLE,
     REDSTONE
@@ -91,16 +101,49 @@ public final class ClaimProtectionService {
     ROLE,
     OVERRIDE,
     CAMPAIGN,
+    SAME_TERRITORY,
+    CROSS_BOUNDARY,
     DENIED
   }
 
   public record Request(
-      UUID world, int chunkX, int chunkZ, UUID actor, Action action, boolean bypass) {}
+      UUID world,
+      int chunkX,
+      int chunkZ,
+      UUID sourceWorld,
+      int sourceChunkX,
+      int sourceChunkZ,
+      UUID actor,
+      Action action,
+      boolean bypass) {
+    public Request(UUID world, int chunkX, int chunkZ, UUID actor, Action action, boolean bypass) {
+      this(world, chunkX, chunkZ, null, 0, 0, actor, action, bypass);
+    }
+  }
+
+  public record PropagationRequest(
+      UUID sourceWorld,
+      int sourceChunkX,
+      int sourceChunkZ,
+      UUID targetWorld,
+      int targetChunkX,
+      int targetChunkZ,
+      Action action) {}
 
   public record Decision(boolean allowed, UUID city, Reason reason) {}
 
   @FunctionalInterface
   public interface HostilityView {
     boolean activeCampaign(UUID player, UUID defendingCity);
+  }
+
+  @FunctionalInterface
+  public interface TreatyView {
+    TerritoryActionPolicy.TreatyContext context(UUID player, UUID defendingCity);
+  }
+
+  @FunctionalInterface
+  public interface IncidentView {
+    TerritoryActionPolicy.IncidentContext context(UUID player, UUID defendingCity);
   }
 }

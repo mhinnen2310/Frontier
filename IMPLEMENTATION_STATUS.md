@@ -22,7 +22,7 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 | Area | Status | Evidence and remaining gap |
 |---|---|---|
 | Wallets, treasury and Harbor bootstrap | complete | Transactional player/city transfers, idempotency and audit plus config-driven low-tier stock/jobs/orders, non-arbitrage pricing and global/player daily caps have integration coverage |
-| Existing claim protection | partial | Central service and broad event coverage exist; the master action vocabulary, treaty/incident context and every newly listed interaction still require Sprint 4 verification |
+| Claim protection | complete | One cached `TerritoryActionPolicy` covers actor/action/source/target, ownership, roles, overrides, campaign, treaty, incident and bypass; all listed Paper actions plus cross-boundary propagation have exploit and handler-contract coverage |
 | Repair integrity | complete for current scope | Two-phase mutation, generations, leases, recovery, conflict quarantine and archive/re-break tests exist; Sprint 5 will remap every new acceptance phrase |
 | Settlement founding/lifecycle | partial | Core, fee/material saga, location, succession, ruins and merge exist; expeditions, founder confirmations, bans/revocation and strong disband UX are missing |
 | Districts | partial | Persistent bounded districts, managers, budgets, policies, workers, history and bonuses exist; district memberships/roles, logistics type and deeper balancing are incomplete |

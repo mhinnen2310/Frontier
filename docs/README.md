@@ -12,6 +12,7 @@ This directory is the maintained operator, player and developer manual for Front
 
 - [Administration](ADMIN.md): installation, diagnostics, recovery, security and performance.
 - [Permissions](PERMISSIONS.md): Bukkit nodes and settlement/kingdom authorization.
+- [Claim protection](CLAIM_PROTECTION.md): central action policy, role rules and covered Paper events.
 - [Configuration](CONFIGURATION.md): every configuration section and safe tuning.
 - [Upgrade guide](UPGRADE.md): backup, migration, rollback and verification procedure.
 - [Operations](OPERATIONS.md) and [verification evidence](VERIFICATION.md).

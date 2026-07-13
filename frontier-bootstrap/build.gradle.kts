@@ -3,6 +3,8 @@ plugins {
     id("com.gradleup.shadow")
 }
 
+import org.apache.tools.ant.filters.ReplaceTokens
+
 dependencies {
     compileOnly("io.papermc.paper:paper-api:26.2.build.60-beta")
     testImplementation("io.papermc.paper:paper-api:26.2.build.60-beta")
@@ -35,9 +37,7 @@ val frontierBuildValues = mapOf(
 
 tasks.processResources {
     inputs.properties(frontierBuildValues)
-    filesMatching("frontier-build.properties") {
-        expand(frontierBuildValues)
-    }
+    filter<ReplaceTokens>("tokens" to frontierBuildValues)
 }
 
 tasks.shadowJar {

@@ -4,11 +4,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import nl.frontier.api.SchedulerFacade;
+import nl.frontier.city.ClaimProtectionService;
 import nl.frontier.domain.Ids.WorldId;
 import nl.frontier.domain.Position.BlockPos;
 import nl.frontier.domain.Position.ChunkPos;
@@ -28,6 +28,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.block.BlockFromToEvent;
 import org.bukkit.event.block.BlockPistonExtendEvent;
 import org.bukkit.event.block.BlockPistonRetractEvent;
@@ -36,6 +37,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
 
 final class CampaignStructuralListener implements Listener {
+  private static final UUID ENVIRONMENT = new UUID(0, 0);
   private static final List<Material> PROTECTED =
       List.of(
           Material.BEDROCK,
@@ -47,6 +49,7 @@ final class CampaignStructuralListener implements Listener {
           Material.JIGSAW);
   private final SchedulerFacade schedulers;
   private final ChunkOwnershipCache ownership;
+  private final ClaimProtectionService protection;
   private final WarPolicyCache wars;
   private final WarDamageGateway damage;
   private final Duration breachWindow;
@@ -56,6 +59,7 @@ final class CampaignStructuralListener implements Listener {
   CampaignStructuralListener(
       SchedulerFacade schedulers,
       ChunkOwnershipCache ownership,
+      ClaimProtectionService protection,
       WarPolicyCache wars,
       WarDamageGateway damage,
       Duration breachWindow,
@@ -63,6 +67,7 @@ final class CampaignStructuralListener implements Listener {
       int maximumCapacity) {
     this.schedulers = schedulers;
     this.ownership = ownership;
+    this.protection = protection;
     this.wars = wars;
     this.damage = damage;
     this.breachWindow = breachWindow;
@@ -72,16 +77,17 @@ final class CampaignStructuralListener implements Listener {
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
   public void onBreak(BlockBreakEvent event) {
-    var claim = claim(event.getBlock());
-    if (claim == null || claim.owner() == null) return;
-    UUID playerCity = wars.city(event.getPlayer().getUniqueId()).orElse(null);
-    if (claim.owner().value().equals(playerCity)) return;
+    ClaimProtectionService.Decision decision =
+        decision(event.getBlock(), event.getPlayer(), ClaimProtectionService.Action.BREAK);
+    if (decision.allowed() && decision.reason() != ClaimProtectionService.Reason.CAMPAIGN) return;
     event.setCancelled(true);
-    authorize(
-        event.getPlayer(),
-        event.getBlock(),
-        "PLAYER_BREAK",
-        event.getPlayer().getInventory().getItemInMainHand().clone());
+    if (decision.reason() == ClaimProtectionService.Reason.CAMPAIGN)
+      authorize(
+          event.getPlayer(),
+          event.getBlock(),
+          "PLAYER_BREAK",
+          event.getPlayer().getInventory().getItemInMainHand().clone());
+    else deny(event.getPlayer(), "This settlement claim is protected.");
   }
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -90,20 +96,46 @@ final class CampaignStructuralListener implements Listener {
     for (Block block : List.copyOf(event.blockList())) {
       var claim = claim(block);
       if (claim == null || claim.owner() == null) continue;
-      event.blockList().remove(block);
-      if (attacker != null) authorize(attacker, block, "EXPLOSION", new ItemStack(Material.AIR));
+      ClaimProtectionService.Decision decision =
+          decision(block, attacker, ClaimProtectionService.Action.EXPLOSION);
+      if (!decision.allowed() || decision.reason() == ClaimProtectionService.Reason.CAMPAIGN)
+        event.blockList().remove(block);
+      if (attacker != null && decision.reason() == ClaimProtectionService.Reason.CAMPAIGN)
+        authorize(attacker, block, "EXPLOSION", new ItemStack(Material.AIR));
     }
   }
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+  public void onBlockExplosion(BlockExplodeEvent event) {
+    event
+        .blockList()
+        .removeIf(
+            block ->
+                !propagationAllowed(
+                    event.getBlock(), block, ClaimProtectionService.Action.EXPLOSION));
+  }
+
+  @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
   public void onFlow(BlockFromToEvent event) {
-    if (!sameOwner(event.getBlock(), event.getToBlock())) event.setCancelled(true);
+    if (!propagationAllowed(
+        event.getBlock(), event.getToBlock(), ClaimProtectionService.Action.AUTOMATION))
+      event.setCancelled(true);
   }
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
   public void onPistonExtend(BlockPistonExtendEvent event) {
+    if (!propagationAllowed(
+        event.getBlock(),
+        event.getBlock().getRelative(event.getDirection()),
+        ClaimProtectionService.Action.AUTOMATION)) {
+      event.setCancelled(true);
+      return;
+    }
     for (Block block : event.getBlocks()) {
-      if (!sameOwner(block, block.getRelative(event.getDirection()))) {
+      if (!propagationAllowed(
+          block,
+          block.getRelative(event.getDirection()),
+          ClaimProtectionService.Action.AUTOMATION)) {
         event.setCancelled(true);
         return;
       }
@@ -112,8 +144,18 @@ final class CampaignStructuralListener implements Listener {
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
   public void onPistonRetract(BlockPistonRetractEvent event) {
+    if (!propagationAllowed(
+        event.getBlock(),
+        event.getBlock().getRelative(event.getDirection()),
+        ClaimProtectionService.Action.AUTOMATION)) {
+      event.setCancelled(true);
+      return;
+    }
     for (Block block : event.getBlocks()) {
-      if (!sameOwner(block, block.getRelative(event.getDirection()))) {
+      if (!propagationAllowed(
+          block,
+          block.getRelative(event.getDirection()),
+          ClaimProtectionService.Action.AUTOMATION)) {
         event.setCancelled(true);
         return;
       }
@@ -243,12 +285,31 @@ final class CampaignStructuralListener implements Listener {
         .orElse(null);
   }
 
-  private boolean sameOwner(Block first, Block second) {
-    ChunkOwnershipCache.Entry a = claim(first);
-    ChunkOwnershipCache.Entry b = claim(second);
-    UUID firstOwner = a == null || a.owner() == null ? null : a.owner().value();
-    UUID secondOwner = b == null || b.owner() == null ? null : b.owner().value();
-    return Objects.equals(firstOwner, secondOwner);
+  private boolean propagationAllowed(
+      Block source, Block target, ClaimProtectionService.Action action) {
+    return protection
+        .authorizePropagation(
+            new ClaimProtectionService.PropagationRequest(
+                source.getWorld().getUID(),
+                source.getChunk().getX(),
+                source.getChunk().getZ(),
+                target.getWorld().getUID(),
+                target.getChunk().getX(),
+                target.getChunk().getZ(),
+                action))
+        .allowed();
+  }
+
+  private ClaimProtectionService.Decision decision(
+      Block block, Player actor, ClaimProtectionService.Action action) {
+    return protection.authorize(
+        new ClaimProtectionService.Request(
+            block.getWorld().getUID(),
+            block.getChunk().getX(),
+            block.getChunk().getZ(),
+            actor == null ? ENVIRONMENT : actor.getUniqueId(),
+            action,
+            actor != null && actor.hasPermission("frontier.protection.bypass")));
   }
 
   private static boolean contains(CampaignGateway.ObjectiveSnapshot value, Block block) {

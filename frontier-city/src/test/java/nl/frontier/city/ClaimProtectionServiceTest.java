@@ -36,15 +36,19 @@ final class ClaimProtectionServiceTest {
     for (ClaimProtectionService.Action action : ClaimProtectionService.Action.values()) {
       assertTrue(decide(service, world, owner, action, false));
       assertTrue(decide(service, world, outsider, action, true));
-      if (action == ClaimProtectionService.Action.BREAK)
+      if (action == ClaimProtectionService.Action.BREAK
+          || action == ClaimProtectionService.Action.EXPLOSION)
         assertTrue(decide(service, world, outsider, action, false));
       else assertFalse(decide(service, world, outsider, action, false));
     }
     assertTrue(decide(service, world, citizen, ClaimProtectionService.Action.CONTAINER, false));
     assertFalse(decide(service, world, citizen, ClaimProtectionService.Action.REDSTONE, false));
+    assertFalse(decide(service, world, citizen, ClaimProtectionService.Action.EXPLOSION, false));
     assertTrue(decide(service, world, architect, ClaimProtectionService.Action.REDSTONE, false));
+    assertTrue(decide(service, world, architect, ClaimProtectionService.Action.EXPLOSION, false));
     assertTrue(decide(service, world, recruit, ClaimProtectionService.Action.INTERACT, false));
     assertFalse(decide(service, world, recruit, ClaimProtectionService.Action.BUILD, false));
+    assertFalse(decide(service, world, recruit, ClaimProtectionService.Action.REDSTONE, false));
   }
 
   @Test
@@ -88,9 +92,22 @@ final class ClaimProtectionServiceTest {
             new ExploitVector("block-place", ClaimProtectionService.Action.BUILD),
             new ExploitVector("inventory-open", ClaimProtectionService.Action.CONTAINER),
             new ExploitVector("inventory-move", ClaimProtectionService.Action.AUTOMATION),
+            new ExploitVector("hopper-boundary", ClaimProtectionService.Action.AUTOMATION),
+            new ExploitVector("piston-extend", ClaimProtectionService.Action.AUTOMATION),
+            new ExploitVector("piston-retract", ClaimProtectionService.Action.AUTOMATION),
+            new ExploitVector("liquid-flow", ClaimProtectionService.Action.AUTOMATION),
+            new ExploitVector("explosion", ClaimProtectionService.Action.EXPLOSION),
             new ExploitVector("door", ClaimProtectionService.Action.INTERACT),
+            new ExploitVector("trapdoor", ClaimProtectionService.Action.INTERACT),
             new ExploitVector("button", ClaimProtectionService.Action.INTERACT),
             new ExploitVector("lever", ClaimProtectionService.Action.INTERACT),
+            new ExploitVector("pressure-plate", ClaimProtectionService.Action.REDSTONE),
+            new ExploitVector("bed", ClaimProtectionService.Action.INTERACT),
+            new ExploitVector("lectern", ClaimProtectionService.Action.INTERACT),
+            new ExploitVector("sign", ClaimProtectionService.Action.INTERACT),
+            new ExploitVector("furnace", ClaimProtectionService.Action.CONTAINER),
+            new ExploitVector("anvil", ClaimProtectionService.Action.INTERACT),
+            new ExploitVector("brewing-stand", ClaimProtectionService.Action.CONTAINER),
             new ExploitVector("hanging-place", ClaimProtectionService.Action.HANGING),
             new ExploitVector("hanging-break", ClaimProtectionService.Action.HANGING),
             new ExploitVector("armor-stand", ClaimProtectionService.Action.ENTITY),
@@ -100,12 +117,64 @@ final class ClaimProtectionServiceTest {
             new ExploitVector("ignite", ClaimProtectionService.Action.FIRE),
             new ExploitVector("crop-trample", ClaimProtectionService.Action.TRAMPLE),
             new ExploitVector("entity-interact", ClaimProtectionService.Action.ENTITY),
+            new ExploitVector("entity-inventory", ClaimProtectionService.Action.CONTAINER),
+            new ExploitVector("boat-place", ClaimProtectionService.Action.VEHICLE),
+            new ExploitVector("minecart-place", ClaimProtectionService.Action.VEHICLE),
             new ExploitVector("vehicle-place", ClaimProtectionService.Action.VEHICLE),
             new ExploitVector("redstone", ClaimProtectionService.Action.REDSTONE));
     assertTrue(vectors.stream().map(ExploitVector::name).distinct().count() == vectors.size());
     vectors.forEach(
         vector ->
             assertFalse(decide(service, world, outsider, vector.action(), false), vector.name()));
+  }
+
+  @Test
+  void propagationCannotCrossSettlementOrWildernessBoundaries() {
+    UUID world = UUID.randomUUID();
+    UUID first = UUID.randomUUID();
+    UUID second = UUID.randomUUID();
+    ClaimProtectionCache cache = new ClaimProtectionCache();
+    cache.replace(
+        new ClaimProtectionGateway.Snapshot(
+            Map.of(
+                new ClaimProtectionGateway.ClaimKey(world, 1, 2), first,
+                new ClaimProtectionGateway.ClaimKey(world, 2, 2), second,
+                new ClaimProtectionGateway.ClaimKey(world, 1, 3), first),
+            Map.of(),
+            List.of(),
+            List.of(),
+            Instant.now()));
+    ClaimProtectionService service = new ClaimProtectionService(cache, (player, city) -> false);
+
+    assertTrue(propagate(service, world, 1, 2, 1, 3));
+    assertTrue(propagate(service, world, 9, 9, 9, 10));
+    assertFalse(propagate(service, world, 1, 2, 2, 2));
+    assertFalse(propagate(service, world, 1, 2, 9, 9));
+    assertFalse(propagate(service, world, 9, 9, 1, 2));
+  }
+
+  @Test
+  void treatyAndIncidentContextNeverGrantImplicitPropertyAccess() {
+    UUID world = UUID.randomUUID();
+    UUID city = UUID.randomUUID();
+    UUID outsider = UUID.randomUUID();
+    ClaimProtectionCache cache = new ClaimProtectionCache();
+    cache.replace(
+        new ClaimProtectionGateway.Snapshot(
+            Map.of(new ClaimProtectionGateway.ClaimKey(world, 1, 2), city),
+            Map.of(),
+            List.of(),
+            List.of(),
+            Instant.now()));
+    ClaimProtectionService service =
+        new ClaimProtectionService(
+            cache,
+            (player, claim) -> false,
+            (player, claim) -> TerritoryActionPolicy.TreatyContext.ALLIED,
+            (player, claim) -> TerritoryActionPolicy.IncidentContext.OPEN);
+
+    assertFalse(decide(service, world, outsider, ClaimProtectionService.Action.CONTAINER, false));
+    assertFalse(decide(service, world, outsider, ClaimProtectionService.Action.BUILD, false));
   }
 
   private static boolean decide(
@@ -120,4 +189,24 @@ final class ClaimProtectionServiceTest {
   }
 
   private record ExploitVector(String name, ClaimProtectionService.Action action) {}
+
+  private static boolean propagate(
+      ClaimProtectionService service,
+      UUID world,
+      int sourceX,
+      int sourceZ,
+      int targetX,
+      int targetZ) {
+    return service
+        .authorizePropagation(
+            new ClaimProtectionService.PropagationRequest(
+                world,
+                sourceX,
+                sourceZ,
+                world,
+                targetX,
+                targetZ,
+                ClaimProtectionService.Action.AUTOMATION))
+        .allowed();
+  }
 }

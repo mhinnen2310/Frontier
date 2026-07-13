@@ -10,7 +10,7 @@ The design explicitly leaves these choices open. The initial release uses conser
 | Campaign timing | 24-hour preparation, 14-day maximum | Matches Chapter 4 configuration baseline |
 | Offline damage | 10% structural multiplier | Sabotage remains possible without offline wiping |
 | Private insurance | Disabled | Automatic repair remains limited to registered public structures |
-| Vanilla automation | Unrestricted | Restrictions need playtest evidence, not guesses |
+| Vanilla automation | Allowed within one territory owner; blocked across ownership/wilderness boundaries | Keeps normal settlement machinery usable while closing actorless claim bypasses |
 | Folia | Architecture-compatible schedulers; Paper is the certified target | Avoids an unsupported compatibility claim |
 | Paper dependency | `26.2.build.60-beta` | Latest official 26.2 beta at project bootstrap (2026-07-12) |
 
@@ -111,3 +111,7 @@ The design explicitly leaves these choices open. The initial release uses conser
 | Master 2 | Future waypoints, cartography, map-wall and web configs exist as typed, validated, disabled controls with no speculative gameplay keys. | This satisfies stable file layout without shipping unused switches or implying that missing modules are implemented. |
 | Master 3 | Harbor may trade only bread, wheat, oak logs, cobblestone and iron ingots; config may remove but cannot add commodities to that starter allowlist. | A server typo must not turn the guaranteed NPC market into a diamond/netherite source or a late-game price floor. |
 | Master 3 | The daily source is capped at the configured daily budget, each player's configured starter-job total is capped, and overlapping buy/sell offers must retain a loss-making spread. | These invariants keep Harbor a bounded launch aid instead of an inflation or arbitrage engine. |
+| Master 4 | `TerritoryActionPolicy` is the single authorization vocabulary for Paper claim events; listeners only translate events and read the atomic projection. | Synchronous Paper events cannot block on PostgreSQL, and role/campaign behavior cannot drift between listeners. |
+| Master 4 | Treaties and incidents are explicit policy context but never grant implicit property access; only explicit protection overrides can extend action rights. | Diplomatic friendliness must not silently become container, build or redstone permission. |
+| Master 4 | Actorless movement and propagation are allowed only when source and target resolve to the same territory owner, including wilderness-to-wilderness. | Pistons, liquids, hoppers, fire, block explosions and redstone cannot be used to bypass a claim boundary. |
+| Master 4 | Campaign attackers may pass only break/explosion policy, after which the objective/breach/journal service remains authoritative for mutation. | An active war cannot become a general interaction bypass and every structural mutation remains recoverable and auditable. |

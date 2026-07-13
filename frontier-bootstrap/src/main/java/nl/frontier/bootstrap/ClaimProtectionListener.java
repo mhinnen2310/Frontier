@@ -8,6 +8,7 @@ import nl.frontier.city.ClaimProtectionService;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
@@ -18,6 +19,8 @@ import org.bukkit.event.block.BlockIgniteEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.BlockRedstoneEvent;
 import org.bukkit.event.block.BlockSpreadEvent;
+import org.bukkit.event.entity.EntityChangeBlockEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityPlaceEvent;
 import org.bukkit.event.hanging.HangingBreakByEntityEvent;
 import org.bukkit.event.hanging.HangingBreakEvent;
@@ -29,6 +32,8 @@ import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 
 final class ClaimProtectionListener implements Listener {
   private static final UUID ENVIRONMENT = new UUID(0, 0);
@@ -68,6 +73,8 @@ final class ClaimProtectionListener implements Listener {
   public void onInventoryOpen(InventoryOpenEvent event) {
     if (!(event.getPlayer() instanceof Player player)) return;
     Location location = event.getInventory().getLocation();
+    InventoryHolder holder = event.getInventory().getHolder();
+    if (location == null && holder instanceof Entity entity) location = entity.getLocation();
     if (location != null && !allowed(location, player, ClaimProtectionService.Action.CONTAINER)) {
       event.setCancelled(true);
       denied(player);
@@ -76,9 +83,11 @@ final class ClaimProtectionListener implements Listener {
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
   public void onInventoryMove(InventoryMoveItemEvent event) {
-    Location source = event.getSource().getLocation();
-    Location destination = event.getDestination().getLocation();
-    if (source != null && destination != null && !sameOwner(source, destination))
+    Location source = inventoryLocation(event.getSource());
+    Location destination = inventoryLocation(event.getDestination());
+    if (source != null
+        && destination != null
+        && !propagationAllowed(source, destination, ClaimProtectionService.Action.AUTOMATION))
       event.setCancelled(true);
   }
 
@@ -86,11 +95,18 @@ final class ClaimProtectionListener implements Listener {
   public void onInteract(PlayerInteractEvent event) {
     Block block = event.getClickedBlock();
     if (block == null) return;
-    ClaimProtectionService.Action action =
-        event.getAction() == org.bukkit.event.block.Action.PHYSICAL
-                && block.getType() == Material.FARMLAND
-            ? ClaimProtectionService.Action.TRAMPLE
-            : ClaimProtectionService.Action.INTERACT;
+    if (event.getItem() != null && isVehicle(event.getItem().getType())) {
+      Location target =
+          event.getItem().getType().name().contains("MINECART")
+              ? block.getLocation()
+              : block.getRelative(event.getBlockFace()).getLocation();
+      if (!allowed(target, event.getPlayer(), ClaimProtectionService.Action.VEHICLE)) {
+        event.setCancelled(true);
+        denied(event.getPlayer());
+      }
+      return;
+    }
+    ClaimProtectionService.Action action = interactionAction(event.getAction(), block.getType());
     if (!allowed(block.getLocation(), event.getPlayer(), action)) {
       event.setCancelled(true);
       denied(event.getPlayer());
@@ -106,6 +122,24 @@ final class ClaimProtectionListener implements Listener {
       event.setCancelled(true);
       denied(event.getPlayer());
     }
+  }
+
+  @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+  public void onEntityDamage(EntityDamageByEntityEvent event) {
+    if (event.getEntity() instanceof Player) return;
+    Player player = playerSource(event.getDamager());
+    if (player == null) return;
+    if (!allowed(event.getEntity().getLocation(), player, ClaimProtectionService.Action.ENTITY)) {
+      event.setCancelled(true);
+      denied(player);
+    }
+  }
+
+  @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+  public void onEntityTrample(EntityChangeBlockEvent event) {
+    if (event.getBlock().getType() != Material.FARMLAND || event.getTo() != Material.DIRT) return;
+    if (!allowed(event.getBlock().getLocation(), null, ClaimProtectionService.Action.TRAMPLE))
+      event.setCancelled(true);
   }
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -165,8 +199,10 @@ final class ClaimProtectionListener implements Listener {
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
   public void onFireSpread(BlockSpreadEvent event) {
     if (event.getSource().getType() == Material.FIRE
-        && !sameOwner(event.getSource().getLocation(), event.getBlock().getLocation()))
-      event.setCancelled(true);
+        && !propagationAllowed(
+            event.getSource().getLocation(),
+            event.getBlock().getLocation(),
+            ClaimProtectionService.Action.FIRE)) event.setCancelled(true);
   }
 
   @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -198,7 +234,7 @@ final class ClaimProtectionListener implements Listener {
     if (environment.reason() == ClaimProtectionService.Reason.WILDERNESS) return;
     for (int[] offset : CARDINAL) {
       Location adjacent = origin.clone().add(offset[0], offset[1], offset[2]);
-      if (!sameOwner(origin, adjacent)) {
+      if (!propagationAllowed(origin, adjacent, ClaimProtectionService.Action.REDSTONE)) {
         event.setNewCurrent(event.getOldCurrent());
         return;
       }
@@ -221,14 +257,43 @@ final class ClaimProtectionListener implements Listener {
             player != null && player.hasPermission("frontier.protection.bypass")));
   }
 
-  private boolean sameOwner(Location first, Location second) {
-    return protection.sameOwner(
-        first.getWorld().getUID(),
-        first.getBlockX() >> 4,
-        first.getBlockZ() >> 4,
-        second.getWorld().getUID(),
-        second.getBlockX() >> 4,
-        second.getBlockZ() >> 4);
+  private boolean propagationAllowed(
+      Location source, Location target, ClaimProtectionService.Action action) {
+    return protection
+        .authorizePropagation(
+            new ClaimProtectionService.PropagationRequest(
+                source.getWorld().getUID(),
+                source.getBlockX() >> 4,
+                source.getBlockZ() >> 4,
+                target.getWorld().getUID(),
+                target.getBlockX() >> 4,
+                target.getBlockZ() >> 4,
+                action))
+        .allowed();
+  }
+
+  static ClaimProtectionService.Action interactionAction(
+      org.bukkit.event.block.Action eventAction, Material material) {
+    if (eventAction == org.bukkit.event.block.Action.PHYSICAL) {
+      if (material == Material.FARMLAND) return ClaimProtectionService.Action.TRAMPLE;
+      return ClaimProtectionService.Action.REDSTONE;
+    }
+    String name = material.name();
+    if (material == Material.LEVER || name.endsWith("_BUTTON") || name.endsWith("_PRESSURE_PLATE"))
+      return ClaimProtectionService.Action.REDSTONE;
+    return ClaimProtectionService.Action.INTERACT;
+  }
+
+  static boolean isVehicle(Material material) {
+    String name = material.name();
+    return name.contains("MINECART") || name.endsWith("_BOAT") || name.endsWith("_RAFT");
+  }
+
+  private static Location inventoryLocation(Inventory inventory) {
+    Location location = inventory.getLocation();
+    if (location == null && inventory.getHolder() instanceof Entity entity)
+      return entity.getLocation();
+    return location;
   }
 
   private static Player playerSource(org.bukkit.entity.Entity source) {

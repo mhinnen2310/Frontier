@@ -12,6 +12,6 @@ Wildcard permissions are not declared. Use a permissions plugin to assign these 
 
 ## Domain authorization
 
-Bukkit nodes do not replace settlement authorization. Every protected action evaluates campaign status, claim owner, settlement membership/role, explicit city permission overrides, and bypass. Treasury, districts, buildings, war and lifecycle operations require the appropriate mayor/officer/manager role. Kingdom actions additionally require king, council, marshal or diplomat authority and, where configured, a recorded vote or war approval.
+Bukkit nodes do not replace settlement authorization. Every protected action is evaluated by the central [territory action policy](CLAIM_PROTECTION.md), including campaign/treaty/incident context, claim owner, settlement membership/role, explicit city permission overrides, source/target boundary and bypass. Treasury, districts, buildings, war and lifecycle operations require the appropriate mayor/officer/manager role. Kingdom actions additionally require king, council, marshal or diplomat authority and, where configured, a recorded vote or war approval.
 
 Listeners and commands call the same transactional authorization services. Online status, a Dialog token, physical access to a container, or client-supplied UUID never proves authority by itself.

@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 4 — Complete Claim Protection
+
+- Added one pure `TerritoryActionPolicy` with actor, action, target/source territory, ownership, role, override, campaign, treaty, incident and bypass context.
+- Routed ordinary actions and actorless piston, liquid, hopper, fire, block-explosion and redstone propagation through the same cached policy; no Paper listener performs database work or owns permission rules.
+- Completed coverage for entity inventories/damage, item frames/hanging entities, specialized redstone controls, vehicle items, entity/block explosions and safe structural-campaign handoff.
+- Added a 30-plus-vector exploit matrix, territory-boundary/treaty tests and a Paper event-handler contract test.
+- Replaced the build metadata expansion closure with a configuration-cache-safe deterministic resource filter.
+
 ## Master Roadmap Sprint 3 — Fresh-World Economy Bootstrap
 
 - Moved Harbor capital, daily budget/source cap, per-player reward cap, jobs, starter commodities, initial stock and daily buy/sell offers into validated typed economy configuration.

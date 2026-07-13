@@ -31,6 +31,11 @@ Dependencies point inward: bootstrap/Paper and PostgreSQL adapters depend on ser
 4. A service locks aggregates in a fixed order, validates authorization and idempotency, writes state/audit/outbox atomically, then commits.
 5. Caches and visible NPCs update from committed state. A restart reconstructs both safely.
 
+Claim events are a specialized read-only hot path: Paper adapters create a complete actor/action/
+source/target context, `TerritoryActionPolicy` decides from the in-memory projection, and only an
+authorized campaign break/explosion enters the transactional structural-damage journal. Actorless
+propagation uses the same policy and cannot cross territory-owner boundaries.
+
 ## Integrity rules
 
 - Monetary values and quantities are integer units; no floating-point accounting.
