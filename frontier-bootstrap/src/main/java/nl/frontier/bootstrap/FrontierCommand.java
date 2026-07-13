@@ -46,6 +46,7 @@ import nl.frontier.economy.MarketEngine;
 import nl.frontier.economy.ProductionApplicationService;
 import nl.frontier.observability.BuildInformationService;
 import nl.frontier.observability.FrontierMetrics;
+import nl.frontier.repair.BuilderGuildGateway;
 import nl.frontier.repair.RepairGateway;
 import nl.frontier.repair.RepairOrder;
 import nl.frontier.warfare.CampaignGateway;
@@ -88,6 +89,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           "contracts",
           "war",
           "repair",
+          "guild",
           "world",
           "kingdom",
           "market",
@@ -118,6 +120,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final CampaignGateway campaigns;
   private final CampaignOutcomeService campaignOutcomes;
   private final RepairGateway repairs;
+  private final BuilderGuildGateway guilds;
+  private final BuilderGuildCoordinator guildCoordinator;
   private final WorldSimulationGateway worldSimulation;
   private final CivilizationGateway civilization;
   private final KingdomIntegrationService kingdomIntegration;
@@ -157,6 +161,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       CampaignGateway campaigns,
       CampaignOutcomeService campaignOutcomes,
       RepairGateway repairs,
+      BuilderGuildGateway guilds,
+      BuilderGuildCoordinator guildCoordinator,
       WorldSimulationGateway worldSimulation,
       CivilizationGateway civilization,
       KingdomIntegrationService kingdomIntegration,
@@ -194,6 +200,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.campaigns = Objects.requireNonNull(campaigns);
     this.campaignOutcomes = Objects.requireNonNull(campaignOutcomes);
     this.repairs = Objects.requireNonNull(repairs);
+    this.guilds = Objects.requireNonNull(guilds);
+    this.guildCoordinator = Objects.requireNonNull(guildCoordinator);
     this.worldSimulation = Objects.requireNonNull(worldSimulation);
     this.civilization = Objects.requireNonNull(civilization);
     this.kingdomIntegration = Objects.requireNonNull(kingdomIntegration);
@@ -339,6 +347,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     }
     if (root.equals("repair") && sender instanceof Player player) {
       repair(player, Arrays.copyOfRange(args, 1, args.length));
+      return true;
+    }
+    if (root.equals("guild") && sender instanceof Player player) {
+      guild(player, Arrays.copyOfRange(args, 1, args.length));
       return true;
     }
     if (root.equals("world")) {
@@ -2457,6 +2469,190 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     }
   }
 
+  private void guild(Player player, String[] args) {
+    String action = args.length == 0 ? "overview" : args[0].toLowerCase(Locale.ROOT);
+    try {
+      switch (action) {
+        case "overview", "queue" ->
+            withCity(
+                player,
+                city -> guilds.overview(city.id(), player.getUniqueId(), Instant.now()),
+                overview -> {
+                  String projects =
+                      overview.projects().isEmpty()
+                          ? "none"
+                          : overview.projects().stream()
+                              .map(
+                                  project ->
+                                      project.id()
+                                          + " "
+                                          + project.priority()
+                                          + " "
+                                          + project.completed()
+                                          + "/"
+                                          + project.total()
+                                          + (project.blockedReasons().isEmpty()
+                                              ? ""
+                                              : " blocked=" + project.blockedReasons()))
+                              .collect(java.util.stream.Collectors.joining("; "));
+                  return "Builder Guild tier "
+                      + overview.tier()
+                      + ": depot "
+                      + overview.stored()
+                      + "/"
+                      + overview.capacity()
+                      + ", teams "
+                      + overview.teams().size()
+                      + "/"
+                      + overview.teamCapacity()
+                      + ", builders "
+                      + overview.availableBuilders()
+                      + ", shortage "
+                      + overview.workerShortage()
+                      + ", foreman "
+                      + (overview.foreman() == null ? "none" : overview.foreman())
+                      + "\nProjects: "
+                      + projects;
+                });
+        case "foreman" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier guild foreman <worker-uuid>");
+          UUID worker = UUID.fromString(args[1]);
+          withCity(
+              player,
+              city -> guilds.appointForeman(city.id(), player.getUniqueId(), worker, Instant.now()),
+              overview -> "Builder Guild foreman is now " + overview.foreman());
+        }
+        case "team" -> {
+          if (args.length < 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier guild team <name> <foreman-uuid> <builder-uuid...>");
+          String name = args[1];
+          UUID foreman = UUID.fromString(args[2]);
+          List<UUID> builders = Arrays.stream(args, 3, args.length).map(UUID::fromString).toList();
+          withCity(
+              player,
+              city ->
+                  guilds.createTeam(
+                      city.id(), player.getUniqueId(), name, foreman, builders, Instant.now()),
+              team ->
+                  "Created builder team "
+                      + team.name()
+                      + " with "
+                      + team.builders()
+                      + "/"
+                      + team.capacity()
+                      + " builders.");
+        }
+        case "priority" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier guild priority <repair-uuid> <priority>");
+          UUID order = UUID.fromString(args[1]);
+          RepairOrder.Priority priority =
+              RepairOrder.Priority.valueOf(args[2].toUpperCase(Locale.ROOT));
+          withCity(
+              player,
+              city ->
+                  guilds.prioritize(
+                      city.id(), player.getUniqueId(), order, priority, Instant.now()),
+              project -> "Repair priority is now " + project.priority() + ".");
+        }
+        case "emergency" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier guild emergency <repair-uuid>");
+          UUID order = UUID.fromString(args[1]);
+          withCity(
+              player,
+              city -> guilds.emergency(city.id(), player.getUniqueId(), order, Instant.now()),
+              project -> "Emergency repair activated for " + project.id() + ".");
+        }
+        case "deliver" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier guild deliver <repair-uuid> <amount>");
+          UUID order = UUID.fromString(args[1]);
+          int amount = Integer.parseInt(args[2]);
+          withCityEntity(
+              player, city -> guildCoordinator.deliver(player, city.id(), order, amount));
+        }
+        case "boost" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier guild boost <repair-uuid> <points>");
+          UUID order = UUID.fromString(args[1]);
+          int points = Integer.parseInt(args[2]);
+          withCity(
+              player,
+              city ->
+                  guilds.boost(
+                      city.id(),
+                      player.getUniqueId(),
+                      order,
+                      points,
+                      UUID.randomUUID(),
+                      Instant.now()),
+              contribution -> "Project boosted by " + contribution.units() + " points.");
+        }
+        case "inspect" ->
+            withCityEntity(
+                player,
+                city -> {
+                  var target = player.getTargetBlockExact(8);
+                  if (target == null) {
+                    player.sendMessage(
+                        Component.text(
+                            "Look at a repair block within 8 blocks.", NamedTextColor.RED));
+                    return;
+                  }
+                  execute(
+                      player,
+                      () ->
+                          guilds.inspect(
+                              city.id(),
+                              player.getUniqueId(),
+                              target.getWorld().getUID(),
+                              target.getX(),
+                              target.getY(),
+                              target.getZ(),
+                              Instant.now()),
+                      zone ->
+                          "Repair task "
+                              + zone.task()
+                              + " is "
+                              + zone.taskStatus()
+                              + "; target="
+                              + zone.targetData()
+                              + (zone.blockedReason() == null
+                                  ? ""
+                                  : "; blocked=" + zone.blockedReason())
+                              + (zone.conflict() == null ? "" : "; conflict=" + zone.conflict()));
+                });
+        case "resolve" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier guild resolve <conflict-uuid>");
+          UUID conflict = UUID.fromString(args[1]);
+          withCity(
+              player,
+              city ->
+                  guilds.resolveConflict(city.id(), player.getUniqueId(), conflict, Instant.now()),
+              zone -> "Conflict resolved; task " + zone.task() + " is " + zone.taskStatus() + ".");
+        }
+        case "assist" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier guild assist <repair-uuid>");
+          UUID order = UUID.fromString(args[1]);
+          withCityEntity(player, city -> guildCoordinator.begin(player, city.id(), order));
+        }
+        default ->
+            throw new IllegalArgumentException(
+                "guild actions: overview, queue, foreman, team, priority, emergency, deliver, boost, inspect, resolve, assist");
+      }
+    } catch (IllegalArgumentException failure) {
+      player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
+    }
+  }
+
   private void dynamicEvents(Player player, String[] args) {
     String action = args.length == 0 ? "list" : args[0].toLowerCase(Locale.ROOT);
     try {
@@ -3517,6 +3713,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
             NamedTextColor.GRAY));
     sender.sendMessage(Component.text("/frontier repair list|quote|buy", NamedTextColor.GRAY));
     sender.sendMessage(
+        Component.text(
+            "/frontier guild overview|queue|foreman|team|priority|emergency|deliver|boost|inspect|resolve|assist",
+            NamedTextColor.GRAY));
+    sender.sendMessage(
         Component.text("/frontier world regions|events|season", NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text(
@@ -3724,6 +3924,21 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           args[3]);
     if (args.length == 2 && args[0].equalsIgnoreCase("repair"))
       return matching(List.of("list", "quote", "buy"), args[1]);
+    if (args.length == 2 && args[0].equalsIgnoreCase("guild"))
+      return matching(
+          List.of(
+              "overview",
+              "queue",
+              "foreman",
+              "team",
+              "priority",
+              "emergency",
+              "deliver",
+              "boost",
+              "inspect",
+              "resolve",
+              "assist"),
+          args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("world"))
       return matching(List.of("regions", "events", "season"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("kingdom"))

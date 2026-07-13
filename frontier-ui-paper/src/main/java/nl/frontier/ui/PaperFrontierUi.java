@@ -97,6 +97,9 @@ public final class PaperFrontierUi implements FrontierUi {
         "Repair order " + repair.value(),
         List.of(
             command("Repair list", "frontier repair list"),
+            command("Builder Guild", "frontier guild overview"),
+            command("Controlled repair mode", "frontier guild assist " + repair.value(), true),
+            command("Emergency priority", "frontier guild emergency " + repair.value(), true),
             command("Repair menu", "frontier menu repair"),
             command("Back", "frontier menu")));
   }
@@ -273,7 +276,11 @@ public final class PaperFrontierUi implements FrontierUi {
       case REPAIR ->
           List.of(
               text("campaign_id", "Campaign UUID", ""),
-              text("repair_id", "Campaign UUID to purchase", ""));
+              text("repair_id", "Repair order UUID", ""),
+              text("repair_priority", "Repair priority", "NORMAL"),
+              text("material_amount", "Held material amount", "16"),
+              text("boost_points", "Project boost points", "10"),
+              text("conflict_id", "Repair conflict UUID", ""));
       case WAR ->
           List.of(
               text("campaign_id", "Campaign UUID", ""),

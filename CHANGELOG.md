@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 18 — Builder Guild Gameplay
+
+- Turned Builder Guild depots into a complete transactional settlement service with a foreman, tier-limited builder teams, material capacity, repair queue progress, worker shortages and explicit blocked reasons.
+- Made contributed depot stock authoritative and usable by the existing repair reservation/consumption engine before warehouse stock, including idempotent contribution replay.
+- Added project reprioritization, emergency repair activation, capped daily player labor boosts, repair-zone inspection and controlled conflict resolution.
+- Added ten-minute controlled repair mode: Paper validates the expected and target block plus hostile proximity, PostgreSQL revalidates membership/session/task state, and any failed commit rolls back the block and returns the item.
+- Added Flyway V51, typed Builder Guild balance settings, complete Repair Dialog actions, `/frontier guild`, startup recovery for expired assist sessions and PostgreSQL/adapter contract coverage.
+
 ## Master Roadmap Sprint 17 — Worker Scheduling and Visible Activity
 
 - Added one durable priority activity queue per worker with explicit queued, travelling, working, completed and cancelled states, path state, simulation mode, leases, attempts and cooldowns through Flyway V50.

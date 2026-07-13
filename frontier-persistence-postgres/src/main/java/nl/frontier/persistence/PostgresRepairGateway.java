@@ -298,9 +298,11 @@ public final class PostgresRepairGateway implements RepairGateway {
           if (!consumption.status.equals("PREPARED"))
             throw new DomainException("repair consumption is not prepared");
           ReservationRow reservation = reservation(connection, consumption.reservation);
-          try (PreparedStatement statement =
-              connection.prepareStatement(
-                  "UPDATE warehouse_stock SET reserved_quantity=reserved_quantity-1,version=version+1 WHERE warehouse_id=? AND commodity_key=? AND reserved_quantity>=1")) {
+          String stockSql =
+              reservation.sourceType.equals("DEPOT")
+                  ? "UPDATE builder_depot_stock SET reserved_quantity=reserved_quantity-1,version=version+1 WHERE depot_id=? AND commodity_key=? AND reserved_quantity>=1"
+                  : "UPDATE warehouse_stock SET reserved_quantity=reserved_quantity-1,version=version+1 WHERE warehouse_id=? AND commodity_key=? AND reserved_quantity>=1";
+          try (PreparedStatement statement = connection.prepareStatement(stockSql)) {
             statement.setObject(1, reservation.source);
             statement.setString(2, reservation.commodity);
             if (statement.executeUpdate() != 1)
@@ -614,12 +616,19 @@ public final class PostgresRepairGateway implements RepairGateway {
   private static boolean reserveRequirements(
       Connection connection, UUID order, UUID city, Quote quote, Instant now) throws SQLException {
     UUID warehouse = warehouse(connection, city);
+    UUID depot = ensureDepot(connection, city);
     boolean full = true;
     for (Requirement requirement : quote.requirements()) {
+      long depotAvailable = depotAvailable(connection, depot, requirement.commodity());
+      long depotQuantity = Math.min(depotAvailable, requirement.required());
+      if (depotQuantity > 0) {
+        reserveDepotStock(connection, depot, order, requirement.commodity(), depotQuantity, now);
+      }
+      long remaining = requirement.required() - depotQuantity;
       lockStock(connection, warehouse, requirement.commodity());
       long available = stockAvailable(connection, warehouse, requirement.commodity());
-      long quantity = Math.min(available, requirement.required());
-      if (quantity < requirement.required()) full = false;
+      long quantity = Math.min(available, remaining);
+      if (depotQuantity + quantity < requirement.required()) full = false;
       if (quantity == 0) continue;
       try (PreparedStatement statement =
           connection.prepareStatement(
@@ -668,10 +677,16 @@ public final class PostgresRepairGateway implements RepairGateway {
         continue;
       }
       UUID warehouse = warehouse(connection, snapshot.city());
+      UUID depot = ensureDepot(connection, snapshot.city());
       for (Map.Entry<String, Long> shortage : snapshot.shortages().entrySet()) {
+        long depotQuantity =
+            Math.min(depotAvailable(connection, depot, shortage.getKey()), shortage.getValue());
+        if (depotQuantity > 0)
+          reserveDepotStock(connection, depot, order, shortage.getKey(), depotQuantity, now);
+        long remaining = shortage.getValue() - depotQuantity;
         lockStock(connection, warehouse, shortage.getKey());
         long quantity =
-            Math.min(stockAvailable(connection, warehouse, shortage.getKey()), shortage.getValue());
+            Math.min(stockAvailable(connection, warehouse, shortage.getKey()), remaining);
         if (quantity == 0) continue;
         try (PreparedStatement statement =
             connection.prepareStatement(
@@ -843,16 +858,17 @@ public final class PostgresRepairGateway implements RepairGateway {
   private static ReservationRow reservation(Connection connection, UUID id) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT id,source_id,commodity_key,reserved_quantity,consumed_quantity FROM material_reservations WHERE id=? FOR UPDATE")) {
+            "SELECT id,source_type,source_id,commodity_key,reserved_quantity,consumed_quantity FROM material_reservations WHERE id=? FOR UPDATE")) {
       statement.setObject(1, id);
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) throw new DomainException("material reservation missing");
         return new ReservationRow(
             result.getObject(1, UUID.class),
-            result.getObject(2, UUID.class),
-            result.getString(3),
-            result.getLong(4),
-            result.getLong(5));
+            result.getString(2),
+            result.getObject(3, UUID.class),
+            result.getString(4),
+            result.getLong(5),
+            result.getLong(6));
       }
     }
   }
@@ -861,17 +877,18 @@ public final class PostgresRepairGateway implements RepairGateway {
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT id,source_id,commodity_key,reserved_quantity,consumed_quantity FROM material_reservations WHERE repair_order_id=? AND commodity_key=? AND status IN ('RESERVED','ISSUED') AND consumed_quantity<reserved_quantity ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED")) {
+            "SELECT id,source_type,source_id,commodity_key,reserved_quantity,consumed_quantity FROM material_reservations WHERE repair_order_id=? AND commodity_key=? AND status IN ('RESERVED','ISSUED') AND consumed_quantity<reserved_quantity ORDER BY source_type,id LIMIT 1 FOR UPDATE SKIP LOCKED")) {
       statement.setObject(1, order);
       statement.setString(2, commodity);
       try (ResultSet result = statement.executeQuery()) {
         return result.next()
             ? new ReservationRow(
                 result.getObject(1, UUID.class),
-                result.getObject(2, UUID.class),
-                result.getString(3),
-                result.getLong(4),
-                result.getLong(5))
+                result.getString(2),
+                result.getObject(3, UUID.class),
+                result.getString(4),
+                result.getLong(5),
+                result.getLong(6))
             : null;
       }
     }
@@ -1132,6 +1149,7 @@ public final class PostgresRepairGateway implements RepairGateway {
   }
 
   private static UUID ensureDepot(Connection connection, UUID city) throws SQLException {
+    advisoryLock(connection, "builder-depot:" + city);
     try (PreparedStatement statement =
         connection.prepareStatement("SELECT id FROM builder_depots WHERE city_id=? FOR UPDATE")) {
       statement.setObject(1, city);
@@ -1201,6 +1219,46 @@ public final class PostgresRepairGateway implements RepairGateway {
         result.next();
         return result.getLong(1);
       }
+    }
+  }
+
+  private static long depotAvailable(Connection connection, UUID depot, String commodity)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT coalesce(available_quantity,0) FROM builder_depot_stock WHERE depot_id=? AND commodity_key=? FOR UPDATE")) {
+      statement.setObject(1, depot);
+      statement.setString(2, commodity);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next() ? result.getLong(1) : 0;
+      }
+    }
+  }
+
+  private static void reserveDepotStock(
+      Connection connection, UUID depot, UUID order, String commodity, long quantity, Instant now)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE builder_depot_stock SET available_quantity=available_quantity-?,reserved_quantity=reserved_quantity+?,version=version+1 WHERE depot_id=? AND commodity_key=? AND available_quantity>=?")) {
+      statement.setLong(1, quantity);
+      statement.setLong(2, quantity);
+      statement.setObject(3, depot);
+      statement.setString(4, commodity);
+      statement.setLong(5, quantity);
+      if (statement.executeUpdate() != 1)
+        throw new DomainException("Builder Guild depot stock changed concurrently");
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO material_reservations(id,repair_order_id,source_type,source_id,commodity_key,reserved_quantity,consumed_quantity,status,expires_at,version) VALUES(?,?,'DEPOT',?,?,?,0,'RESERVED',?,0)")) {
+      statement.setObject(1, UUID.randomUUID());
+      statement.setObject(2, order);
+      statement.setObject(3, depot);
+      statement.setString(4, commodity);
+      statement.setLong(5, quantity);
+      statement.setTimestamp(6, Timestamp.from(now.plusSeconds(86_400)));
+      statement.executeUpdate();
     }
   }
 
@@ -1461,7 +1519,7 @@ public final class PostgresRepairGateway implements RepairGateway {
   private record PositionKey(UUID world, int x, int y, int z) {}
 
   private record ReservationRow(
-      UUID id, UUID source, String commodity, long reserved, long consumed) {}
+      UUID id, String sourceType, UUID source, String commodity, long reserved, long consumed) {}
 
   private record ConsumptionRow(UUID id, UUID reservation, String status) {}
 

@@ -1,6 +1,6 @@
 # Frontier implementation status
 
-This is the truthful baseline for the 60-sprint Master Remediation & Expansion Roadmap, initially audited on 2026-07-13 against commit `f04db67` and maintained through Sprint 17 with real Paper 26.2/PostgreSQL gates. A class, table or command name alone does not count as a complete feature.
+This is the truthful baseline for the 60-sprint Master Remediation & Expansion Roadmap, initially audited on 2026-07-13 against commit `f04db67` and maintained through Sprint 18 with real Paper 26.2/PostgreSQL gates. A class, table or command name alone does not count as a complete feature.
 
 ## Inventory
 
@@ -8,11 +8,11 @@ This is the truthful baseline for the 60-sprint Master Remediation & Expansion R
 |---|---:|
 | Gradle modules | 14 |
 | Application/domain service classes | 19 |
-| Command roots | 25 |
+| Command roots | 26 |
 | Paper Dialog screens | 15 |
 | Paper listener adapters | 8 |
-| Flyway migrations | 50 (V1–V50) |
-| PostgreSQL public gameplay tables | 166 |
+| Flyway migrations | 51 (V1–V51) |
+| PostgreSQL public gameplay tables | 172 |
 | Bukkit permissions | 3 |
 
 The runtime modules are domain, API, city, influence, economy, warfare, repair, NPC, world, Paper UI, PostgreSQL persistence, observability and bootstrap. Testkit is build-only. `/frontier admin build` reports the packaged version, Git source revision/time, Java runtime, Paper target, live schema version and these module states.
@@ -23,12 +23,12 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 |---|---|---|
 | Wallets, treasury and Harbor bootstrap | complete | Transactional player/city transfers, idempotency and audit plus config-driven low-tier stock/jobs/orders, non-arbitrage pricing and global/player daily caps have integration coverage |
 | Claim protection | complete | One cached `TerritoryActionPolicy` covers actor/action/source/target, ownership, roles, overrides, campaign, treaty, incident and bypass; all listed Paper actions plus cross-boundary propagation have exploit and handler-contract coverage |
-| Repair integrity | complete | Generation-linked breach accounting, two-phase mutation/material consumption, idempotent purchase/commit, multi-task progress, lease/restart recovery, unload defer, conflict quarantine and completion-based archive/re-break tests pass |
+| Repair integrity | complete through Sprint 18 | Generation-linked breach accounting, two-phase mutation/material consumption, idempotent purchase/commit, multi-task progress, lease/restart recovery, unload defer, conflict quarantine and completion-based archive/re-break tests pass. Builder Guild foremen/teams/depots, queue controls, emergency mode, blocked reports and controlled player repair now use the same engine. |
 | Settlement founding/lifecycle | complete for Sprints 6–7 | Physical expedition founding, charter/founders, configurable fee/material/location rules, invitations/revocation, leave/kick/ban, role-safe transfer/succession, delayed disband, abandonment, asset-frozen ruins/recovery, merge and complete audit history have transactional integration coverage |
 | Districts | complete for Sprint 10 | Name-based management and complete Dialog reports feed a config-driven effective specialization projection requiring valid buildings plus connected infrastructure, with diminishing returns, adjacency, over-specialization and real cost/capacity trade-offs |
 | Buildings | complete for Sprint 13 | All ten types have safe config-driven physical rules; the Architect Dialog and tagged selection tool provide timeout, particles, overlap preview, reports and confirm/cancel; transactional revalidation/unregister/history and two-mayor parcel ownership transfer have PostgreSQL coverage |
 | Roads/infrastructure | complete for Sprint 15 | Configured bounded physical validation feeds exact dirty coordinates and leased reinspection; physical/bridge health, critical-path priority, blocked/destroyed capacity loss, shipment rerouting, daily/event decay, warnings, funded maintenance and repair-engine reinspection have pure/PostgreSQL coverage. |
-| Workers/population | complete for Sprint 17 | Eight constrained professions and nine readable states expose the full worker profile; role-checked management, history, migration and retirement pass. A bounded leased scheduler now drives work, warehouse, guild, repair, farm and guard activities with 128-block physical materialization, far-away simulation and restart recovery. Builder Guild player contribution remains Sprint 18. |
+| Workers/population | complete for Sprint 18 | Eight constrained professions and nine readable states expose the full worker profile; a bounded leased scheduler drives physical/abstract work with restart recovery. Builder Guild foremen, tier-limited teams, player material/labor/manual repair contribution and worker-shortage reports pass. Expanded population depth remains Sprint 19. |
 | Ambient settlement life | partial | Harbor/worker/caravan presentation and announcements exist; citizen/guard/market/day-night activity is incomplete |
 | Cargo/caravans/contracts | partial | Database cargo, shipment reservation, abstract/physical caravan handoff, escort and delivery exist; capture, always-attackable cargo, raid locks and multi-escort contribution are missing |
 | Crime/incidents/stolen cargo | missing | No criminality, evidence, bounty, laundering, restitution or incident/casus-belli domain |
@@ -48,7 +48,7 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 
 - No code `TODO`, `FIXME`, `XXX`, `HACK`, placeholder or no-op markers were found. One `unsupported road node type` exception is intentional validation.
 - No scattered `getConfig()` reads remain in gameplay/bootstrap wiring. Seven previously unconsumed legacy keys were removed during the version-1 migration rather than retained as misleading switches.
-- Ten tables have no direct Java SQL reference: `builder_depot_stock`, `campaign_participants`, `city_roles`, `city_upgrades`, `economic_metrics`, `economy_cycle_state`, `idempotency_tokens`, `production_chain_steps`, `production_chains`, and `regional_modifiers`. Some are schema constraints/history foundations, but none may be called active gameplay without Sprint-level evidence.
+- Nine tables have no direct Java SQL reference: `campaign_participants`, `city_roles`, `city_upgrades`, `economic_metrics`, `economy_cycle_state`, `idempotency_tokens`, `production_chain_steps`, `production_chains`, and `regional_modifiers`. Some are schema constraints/history foundations, but none may be called active gameplay without Sprint-level evidence.
 - The supplied failed startup used two plugin JARs and a stopped PostgreSQL listener. The duplicate snapshot was removed, PostgreSQL was started on port 55432, the committed RC1 JAR replaced it, and Java 26/Paper 26.2 startup now passes.
 
 ## Blocked

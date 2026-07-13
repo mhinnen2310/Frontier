@@ -57,6 +57,7 @@ import nl.frontier.influence.TerritoryState;
 import nl.frontier.npc.NpcMaterializationGateway;
 import nl.frontier.npc.PlayerObservation;
 import nl.frontier.npc.WorkerActivityGateway;
+import nl.frontier.repair.BuilderGuildGateway;
 import nl.frontier.repair.RepairGateway;
 import nl.frontier.repair.RepairOrder;
 import nl.frontier.warfare.CampaignGateway;
@@ -376,7 +377,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(50, result.getInt(1));
+        assertEquals(51, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1933,7 +1934,8 @@ class DatabaseIntegrationTest {
           EnumSet.of(GovernmentRole.MAYOR),
           Instant.now());
       economy.deposit(defender.id(), defenderOwner, "minecraft:stone_bricks", 2, Instant.now());
-      production.hire(defender.id(), defenderOwner, "BUILDER", 80, 25, Instant.now());
+      var guildBuilder =
+          production.hire(defender.id(), defenderOwner, "BUILDER", 80, 25, Instant.now());
       PostgresRepairGateway repairs = new PostgresRepairGateway(store);
       RepairGateway.Quote repairQuote =
           repairs.quote(
@@ -2164,6 +2166,214 @@ class DatabaseIntegrationTest {
           assertTrue(result.next());
           assertEquals("REVIEW_REQUIRED", result.getString(1));
           assertEquals("RELEASED", result.getString(2));
+        }
+      }
+      PostgresBuilderGuildGateway builderGuild = new PostgresBuilderGuildGateway(store);
+      BuilderGuildGateway.Overview guildOverview =
+          builderGuild.overview(defender.id(), defenderOwner, Instant.now());
+      assertThrows(
+          DomainException.class,
+          () -> builderGuild.overview(defender.id(), attackerOwner, Instant.now()));
+      assertEquals(1, guildOverview.tier());
+      assertEquals(10_000, guildOverview.capacity());
+      assertTrue(
+          guildOverview.projects().stream()
+              .filter(project -> project.id().equals(conflictOrder.id()))
+              .findFirst()
+              .orElseThrow()
+              .blockedReasons()
+              .contains("CONFLICT"));
+      assertEquals(
+          guildBuilder.id(),
+          builderGuild
+              .appointForeman(defender.id(), defenderOwner, guildBuilder.id(), Instant.now())
+              .foreman());
+      BuilderGuildGateway.Team builderTeam =
+          builderGuild.createTeam(
+              defender.id(),
+              defenderOwner,
+              "First Shift",
+              guildBuilder.id(),
+              List.of(guildBuilder.id()),
+              Instant.now());
+      assertEquals(1, builderTeam.builders());
+      assertThrows(
+          DomainException.class,
+          () ->
+              builderGuild.createTeam(
+                  defender.id(),
+                  defenderOwner,
+                  "Overflow",
+                  guildBuilder.id(),
+                  List.of(guildBuilder.id()),
+                  Instant.now()));
+      assertEquals(
+          RepairOrder.Priority.HIGH,
+          builderGuild
+              .prioritize(
+                  defender.id(),
+                  defenderOwner,
+                  conflictOrder.id(),
+                  RepairOrder.Priority.HIGH,
+                  Instant.now())
+              .priority());
+      assertTrue(
+          builderGuild
+              .emergency(defender.id(), defenderOwner, conflictOrder.id(), Instant.now())
+              .emergency());
+      try (var connection = database.dataSource().getConnection()) {
+        try (var statement =
+            connection.prepareStatement(
+                "UPDATE warehouse_stock s SET available_quantity=available_quantity+r.reserved_quantity-r.consumed_quantity,reserved_quantity=s.reserved_quantity-(r.reserved_quantity-r.consumed_quantity),version=s.version+1 FROM material_reservations r WHERE r.repair_order_id=? AND r.source_type='WAREHOUSE' AND r.source_id=s.warehouse_id AND r.commodity_key=s.commodity_key AND r.status IN ('RESERVED','ISSUED')")) {
+          statement.setObject(1, conflictOrder.id());
+          statement.executeUpdate();
+        }
+        try (var statement =
+            connection.prepareStatement(
+                "UPDATE material_reservations SET status='EXPIRED',version=version+1 WHERE repair_order_id=? AND status IN ('RESERVED','ISSUED')")) {
+          statement.setObject(1, conflictOrder.id());
+          statement.executeUpdate();
+        }
+      }
+      UUID materialContribution = UUID.randomUUID();
+      BuilderGuildGateway.Contribution delivered;
+      try (var deliveryExecutors = Executors.newFixedThreadPool(2)) {
+        var firstDelivery =
+            deliveryExecutors.submit(
+                () ->
+                    builderGuild.deliver(
+                        defender.id(),
+                        defenderOwner,
+                        conflictOrder.id(),
+                        "minecraft:stone_bricks",
+                        1,
+                        materialContribution,
+                        Instant.now()));
+        var replayDelivery =
+            deliveryExecutors.submit(
+                () ->
+                    builderGuild.deliver(
+                        defender.id(),
+                        defenderOwner,
+                        conflictOrder.id(),
+                        "minecraft:stone_bricks",
+                        1,
+                        materialContribution,
+                        Instant.now()));
+        delivered = firstDelivery.get(10, TimeUnit.SECONDS);
+        assertEquals(delivered.id(), replayDelivery.get(10, TimeUnit.SECONDS).id());
+      }
+      assertEquals(
+          delivered.id(),
+          builderGuild
+              .deliver(
+                  defender.id(),
+                  defenderOwner,
+                  conflictOrder.id(),
+                  "minecraft:stone_bricks",
+                  1,
+                  materialContribution,
+                  Instant.now())
+              .id());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT count(*) FROM material_reservations WHERE repair_order_id=? AND source_type='DEPOT' AND status='RESERVED'")) {
+        statement.setObject(1, conflictOrder.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals(1, result.getInt(1));
+        }
+      }
+      assertEquals(
+          10,
+          builderGuild
+              .boost(
+                  defender.id(),
+                  defenderOwner,
+                  conflictOrder.id(),
+                  10,
+                  UUID.randomUUID(),
+                  Instant.now())
+              .units());
+      BuilderGuildGateway.RepairZone conflictedZone =
+          builderGuild.inspect(defender.id(), defenderOwner, warWorld, 807, 64, 805, Instant.now());
+      assertEquals("CONFLICT", conflictedZone.blockedReason());
+      BuilderGuildGateway.RepairZone resolvedZone =
+          builderGuild.resolveConflict(
+              defender.id(), defenderOwner, conflictedZone.conflict(), Instant.now());
+      assertEquals("READY", resolvedZone.taskStatus());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement("UPDATE workers SET state='UNAVAILABLE' WHERE id=?")) {
+        statement.setObject(1, guildBuilder.id());
+        statement.executeUpdate();
+      }
+      assertEquals(
+          1, builderGuild.overview(defender.id(), defenderOwner, Instant.now()).workerShortage());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement("UPDATE workers SET state='IDLE' WHERE id=?")) {
+        statement.setObject(1, guildBuilder.id());
+        statement.executeUpdate();
+      }
+      Instant assistNow = Instant.now();
+      BuilderGuildGateway.AssistPlan assist =
+          builderGuild.beginAssist(
+              defender.id(),
+              defenderOwner,
+              conflictOrder.id(),
+              assistNow,
+              assistNow.plusSeconds(600));
+      BuilderGuildGateway.AssistTask manualTask =
+          assist.tasks().stream()
+              .filter(task -> task.id().equals(conflictTask.id()))
+              .findFirst()
+              .orElseThrow();
+      UUID manualIdempotency = UUID.randomUUID();
+      BuilderGuildGateway.ManualResult manualResult =
+          builderGuild.completeManual(
+              assist.session(),
+              defenderOwner,
+              manualTask.id(),
+              manualTask.world(),
+              manualTask.x(),
+              manualTask.y(),
+              manualTask.z(),
+              manualTask.targetData(),
+              manualIdempotency,
+              assistNow.plusSeconds(1));
+      assertEquals("COMPLETED", manualResult.status());
+      assertEquals(
+          manualResult,
+          builderGuild.completeManual(
+              assist.session(),
+              defenderOwner,
+              manualTask.id(),
+              manualTask.world(),
+              manualTask.x(),
+              manualTask.y(),
+              manualTask.z(),
+              manualTask.targetData(),
+              manualIdempotency,
+              assistNow.plusSeconds(2)));
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate("UPDATE cities SET level=5 WHERE id='" + defender.id() + "'");
+      }
+      BuilderGuildGateway.Overview tierThree =
+          builderGuild.overview(defender.id(), defenderOwner, Instant.now());
+      assertEquals(3, tierThree.tier());
+      assertEquals(30_000, tierThree.capacity());
+      assertEquals(3, tierThree.teamCapacity());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT count(*) FROM builder_guild_history WHERE depot_id=?")) {
+        statement.setObject(1, tierThree.depot());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertTrue(result.getInt(1) >= 5);
         }
       }
 

@@ -24,7 +24,7 @@ Population depends on housing, food, safety and prosperity. Workers have profess
 
 ## War, damage and repair
 
-Campaigns move through preparation, active, ceasefire and resolution. [Claim protection](CLAIM_PROTECTION.md) checks actor/action/source/target, campaign, treaty, incident, ownership, role, overrides and bypass for the complete Paper interaction surface. Automation, liquids, fire and redstone cannot cross a territory boundary. Authorized campaign structural damage is journaled once per generation. [Paid repair](REPAIR_INTEGRITY.md) progresses `REGISTERED` → `RESERVED` → `REPAIRING` → `COMPLETED` → `ARCHIVED`; leases and prepared consumption make restart, disconnect and chunk-unload recovery safe.
+Campaigns move through preparation, active, ceasefire and resolution. [Claim protection](CLAIM_PROTECTION.md) checks actor/action/source/target, campaign, treaty, incident, ownership, role, overrides and bypass for the complete Paper interaction surface. Automation, liquids, fire and redstone cannot cross a territory boundary. Authorized campaign structural damage is journaled once per generation. [Paid repair](REPAIR_INTEGRITY.md) progresses `REGISTERED` → `RESERVED` → `REPAIRING` → `COMPLETED` → `ARCHIVED`; leases and prepared consumption make restart, disconnect and chunk-unload recovery safe. The [Builder Guild](BUILDER_GUILD.md) adds foremen, teams, depot supply, queue control, emergency work and controlled player contribution without bypassing that lifecycle.
 
 Results include occupation, liberation, conquest, annexation, territory concession, reparations, tribute, independence, civil war and kingdom intervention. Transfers include claims and their buildings, roads, infrastructure, workers and storage.
 

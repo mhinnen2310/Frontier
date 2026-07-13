@@ -109,7 +109,20 @@ public final class DialogScreenCatalog {
           List.of(
               read("Repair orders", "frontier repair list"),
               mutate("Get quote", "frontier repair quote $(campaign_id)"),
-              mutate("Buy repair", "frontier repair buy $(repair_id)"),
+              mutate("Buy repair", "frontier repair buy $(campaign_id)"),
+              read("Builder Guild", "frontier guild overview"),
+              read("Guild repair queue", "frontier guild queue"),
+              mutate(
+                  "Set project priority",
+                  "frontier guild priority $(repair_id) $(repair_priority)"),
+              mutate("Emergency repair", "frontier guild emergency $(repair_id)"),
+              mutate(
+                  "Deliver held materials",
+                  "frontier guild deliver $(repair_id) $(material_amount)"),
+              mutate("Boost project", "frontier guild boost $(repair_id) $(boost_points)"),
+              read("Inspect looked-at block", "frontier guild inspect"),
+              mutate("Resolve conflict", "frontier guild resolve $(conflict_id)"),
+              mutate("Controlled repair mode", "frontier guild assist $(repair_id)"),
               back());
       case WAR ->
           List.of(

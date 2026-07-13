@@ -10,3 +10,14 @@ placement:
 damage-recovery:
   cycle-seconds: 10
   maximum-per-cycle: 128
+builder-guild:
+  level-offset: 2
+  maximum-tier: 3
+  capacity-units-per-tier: 10000
+  teams-per-tier: 1
+  base-workers-per-team: 2
+  maximum-delivery-units: 2304
+  maximum-boost-per-action: 25
+  daily-boost-limit: 100
+  assist-session-seconds: 600
+  maximum-assist-tasks: 64

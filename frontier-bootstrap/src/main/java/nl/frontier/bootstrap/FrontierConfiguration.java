@@ -116,7 +116,8 @@ public record FrontierConfiguration(
       long archiveAfterHours,
       double unsafeRadius,
       long damageRecoveryCycleSeconds,
-      int maximumDamageRecoveryPerCycle) {}
+      int maximumDamageRecoveryPerCycle,
+      nl.frontier.repair.BuilderGuildPolicy builderGuild) {}
 
   public record Population(
       Control control,

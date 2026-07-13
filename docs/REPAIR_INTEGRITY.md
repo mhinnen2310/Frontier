@@ -48,10 +48,18 @@ Purchase idempotency is serialized with an advisory transaction lock, while elig
 are locked before order creation. Concurrent replay returns the same order; distinct commands
 cannot purchase the same damage twice.
 
+Builder Guild depot reservations use the same consumption rows and task leases as warehouse
+reservations. Controlled player repair is a separate idempotent completion route: an expiring
+session exposes at most 64 eligible coordinates, Paper verifies expected/target block data and
+hostile proximity, then PostgreSQL locks and revalidates membership/session/task state. A manual
+block supplies its own material, so one unused reservation is released back to its source. A failed
+database completion restores the previous world block and returns the player's item.
+
 ## Verification matrix
 
 The PostgreSQL integration journey covers concurrent damage, duplicate mutation confirmation,
 phantom/rejected generation rollback, older-spend preservation, concurrent purchase replay,
 two-block partial progress, retry/re-prepare, expired coordinator recovery, unload defer/resume,
-duplicate commit, manual-edit quarantine and completion-based archival. The pure lifecycle and
-dependency-cycle rules remain covered in `RepairTest`.
+duplicate commit, manual-edit quarantine, Guild depot reservation, conflict resolution, controlled
+manual completion/replay and completion-based archival. The pure lifecycle and dependency-cycle
+rules remain covered in `RepairTest`.

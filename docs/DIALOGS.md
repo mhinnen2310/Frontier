@@ -10,7 +10,7 @@
 | `district` | List/create/select plus Overview, Manager, Buildings, Workers, Budget, Production, Maintenance, Reports, Policies and History views; contextual mutation buttons call the same transactional commands |
 | `kingdom` | List, overview, create, approve war, tax and policy |
 | `treasury` | Player/settlement balances, audit, deposit, withdraw and pay |
-| `repair` | Orders, quotes and purchase |
+| `repair` | Orders, quotes, purchase, Builder Guild queue, priority/emergency controls, depot delivery, project boost, inspection/conflict resolution and controlled repair mode |
 | `war` | Campaign list, declaration, ceasefire and resolution |
 | `market` | Orders, warehouse, buy and sell |
 | `workers` | Workers, population, production and hiring |

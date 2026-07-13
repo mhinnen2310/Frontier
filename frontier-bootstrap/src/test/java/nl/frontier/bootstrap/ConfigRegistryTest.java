@@ -28,6 +28,9 @@ class ConfigRegistryTest {
     assertEquals(75, config.influence().contestedThreshold());
     assertEquals(300, config.economy().harborRefreshSeconds());
     assertEquals(96.0, config.repairs().unsafeRadius());
+    assertEquals(3, config.repairs().builderGuild().maximumTier());
+    assertEquals(10_000, config.repairs().builderGuild().capacityUnitsPerTier());
+    assertEquals(600, config.repairs().builderGuild().assistSessionSeconds());
     assertEquals(2_500, config.settlements().foundingFeeMinor());
     assertEquals(256, config.settlements().harborExclusionRadius());
     assertEquals(java.util.Set.of("NORMAL"), config.settlements().allowedEnvironments());

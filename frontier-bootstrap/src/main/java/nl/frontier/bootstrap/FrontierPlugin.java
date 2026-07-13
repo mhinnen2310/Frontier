@@ -48,6 +48,7 @@ import nl.frontier.observability.FrontierMetrics;
 import nl.frontier.persistence.DatabaseManager;
 import nl.frontier.persistence.JdbcTransactionalStore;
 import nl.frontier.persistence.PostgresAdminDiagnostics;
+import nl.frontier.persistence.PostgresBuilderGuildGateway;
 import nl.frontier.persistence.PostgresBuildingValidationGateway;
 import nl.frontier.persistence.PostgresCampaignGateway;
 import nl.frontier.persistence.PostgresCampaignOutcomeGateway;
@@ -124,6 +125,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private DynamicEventSupervisor dynamicEventSupervisor;
   private InfrastructureDirtySupervisor infrastructureDirtySupervisor;
   private InfrastructureHealthSupervisor infrastructureHealthSupervisor;
+  private BuilderGuildCoordinator builderGuildCoordinator;
   private volatile boolean acceptingWrites;
   private ConfigRegistry configRegistry;
 
@@ -259,6 +261,17 @@ public final class FrontierPlugin extends JavaPlugin {
               infrastructureGateway, infrastructureValidator, new CriticalPathAnalyzer());
       InfrastructureDirtyTracker infrastructureDirty =
           new InfrastructureDirtyTracker(config.infrastructure().maximumDirtyQueue());
+      PostgresBuilderGuildGateway builderGuildGateway =
+          new PostgresBuilderGuildGateway(store, config.repairs().builderGuild());
+      builderGuildCoordinator =
+          new BuilderGuildCoordinator(
+              this,
+              schedulers,
+              builderGuildGateway,
+              config.repairs().builderGuild(),
+              warPolicyCache,
+              config.repairs().unsafeRadius(),
+              getLogger());
       FrontierCommand handler =
           new FrontierCommand(
               this::health,
@@ -317,6 +330,8 @@ public final class FrontierPlugin extends JavaPlugin {
               campaignGateway,
               campaignOutcomes,
               repairGateway,
+              builderGuildGateway,
+              builderGuildCoordinator,
               worldSimulationGateway,
               civilizationGateway,
               kingdomIntegration,
@@ -333,6 +348,8 @@ public final class FrontierPlugin extends JavaPlugin {
         throw new IllegalStateException("frontier command is missing from plugin.yml");
       command.setExecutor(handler);
       command.setTabCompleter(handler);
+      if (config.enabled("repairs"))
+        getServer().getPluginManager().registerEvents(builderGuildCoordinator, this);
       if (config.enabled("buildings"))
         getServer()
             .getPluginManager()
@@ -586,6 +603,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (logisticsSupervisor != null) logisticsSupervisor.stop();
     if (infrastructureDirtySupervisor != null) infrastructureDirtySupervisor.stop();
     if (infrastructureHealthSupervisor != null) infrastructureHealthSupervisor.stop();
+    if (builderGuildCoordinator != null) builderGuildCoordinator.stop();
     if (npcMaterializationSupervisor != null) npcMaterializationSupervisor.stop();
     if (campaignSupervisor != null) campaignSupervisor.stop();
     if (objectiveSupervisor != null) objectiveSupervisor.stop();

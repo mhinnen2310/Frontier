@@ -227,6 +227,18 @@ public final class ConfigRegistry {
     double unsafeRadius = repairs.getDouble("placement.unsafe-radius");
     if (!Double.isFinite(unsafeRadius) || unsafeRadius <= 0 || unsafeRadius > 1024)
       throw invalid("repairs placement.unsafe-radius must be between 0 and 1024");
+    int guildMaximumTier = positive(repairs, "builder-guild.maximum-tier", 5);
+    int guildTeamsPerTier = positive(repairs, "builder-guild.teams-per-tier", 5);
+    int guildBaseWorkers = positive(repairs, "builder-guild.base-workers-per-team", 7);
+    if (guildMaximumTier * guildTeamsPerTier > 5)
+      throw invalid("builder-guild tier team capacity cannot exceed 5");
+    if (guildBaseWorkers + guildMaximumTier > 8)
+      throw invalid("builder-guild tier worker capacity cannot exceed 8");
+    int guildMaximumBoost = positive(repairs, "builder-guild.maximum-boost-per-action", 10_000);
+    int guildDailyBoost = positive(repairs, "builder-guild.daily-boost-limit", 10_000);
+    if (guildDailyBoost < guildMaximumBoost)
+      throw invalid(
+          "builder-guild daily-boost-limit cannot be smaller than maximum-boost-per-action");
     var repairConfig =
         new FrontierConfiguration.Repairs(
             control(repairs),
@@ -236,7 +248,18 @@ public final class ConfigRegistry {
             positiveLong(repairs, "tasks.archive-after-hours"),
             unsafeRadius,
             positiveLong(repairs, "damage-recovery.cycle-seconds"),
-            positive(repairs, "damage-recovery.maximum-per-cycle", Integer.MAX_VALUE));
+            positive(repairs, "damage-recovery.maximum-per-cycle", Integer.MAX_VALUE),
+            new nl.frontier.repair.BuilderGuildPolicy(
+                nonNegative(repairs, "builder-guild.level-offset", 10),
+                guildMaximumTier,
+                positiveLong(repairs, "builder-guild.capacity-units-per-tier"),
+                guildTeamsPerTier,
+                guildBaseWorkers,
+                positive(repairs, "builder-guild.maximum-delivery-units", 100_000),
+                guildMaximumBoost,
+                guildDailyBoost,
+                positive(repairs, "builder-guild.assist-session-seconds", 1_800),
+                positive(repairs, "builder-guild.maximum-assist-tasks", 1_024)));
     YamlConfiguration population = modules.get("population");
     var populationConfig =
         new FrontierConfiguration.Population(
@@ -937,7 +960,17 @@ public final class ConfigRegistry {
             "tasks.archive-after-hours",
             "placement.unsafe-radius",
             "damage-recovery.cycle-seconds",
-            "damage-recovery.maximum-per-cycle"));
+            "damage-recovery.maximum-per-cycle",
+            "builder-guild.level-offset",
+            "builder-guild.maximum-tier",
+            "builder-guild.capacity-units-per-tier",
+            "builder-guild.teams-per-tier",
+            "builder-guild.base-workers-per-team",
+            "builder-guild.maximum-delivery-units",
+            "builder-guild.maximum-boost-per-action",
+            "builder-guild.daily-boost-limit",
+            "builder-guild.assist-session-seconds",
+            "builder-guild.maximum-assist-tasks"));
     keys.put(
         "population",
         leaves(

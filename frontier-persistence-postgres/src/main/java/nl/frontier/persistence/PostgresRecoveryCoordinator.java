@@ -45,6 +45,11 @@ public final class PostgresRecoveryCoordinator implements RecoveryCoordinator {
           }
           try (PreparedStatement statement =
               connection.prepareStatement(
+                  "UPDATE repair_assist_sessions SET status='EXPIRED',version=version+1 WHERE status='ACTIVE' AND expires_at<now()")) {
+            statement.executeUpdate();
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
                   "UPDATE workers w SET state='IDLE',task_id=NULL,lease_expires_at=NULL,version=w.version+1 FROM work_packages p WHERE p.worker_id=w.id AND p.status IN ('ISSUED','ACTIVE') AND p.expires_at<now()")) {
             statement.executeUpdate();
           }
