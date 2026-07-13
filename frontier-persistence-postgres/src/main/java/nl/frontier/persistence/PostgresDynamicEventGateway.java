@@ -31,6 +31,12 @@ public final class PostgresDynamicEventGateway implements DynamicEventGateway {
           int skipped = 0;
           for (Candidate candidate : candidates) {
             if (detected >= maximum) break;
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(?,2))")) {
+              statement.setString(1, candidate.source);
+              statement.executeQuery().close();
+            }
             if (cooldown(connection, candidate.source, now)) {
               skipped++;
               continue;

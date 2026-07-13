@@ -173,7 +173,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(29, result.getInt(1));
+        assertEquals(30, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1495,8 +1495,14 @@ class DatabaseIntegrationTest {
       }
       DynamicEventService dynamicEvents =
           new DynamicEventService(new PostgresDynamicEventGateway(store));
-      var dynamicCycle = dynamicEvents.cycle(100, Instant.now());
-      assertTrue(dynamicCycle.detected() >= 7);
+      try (var eventExecutors = Executors.newFixedThreadPool(2)) {
+        var firstDetection = eventExecutors.submit(() -> dynamicEvents.cycle(100, Instant.now()));
+        var secondDetection = eventExecutors.submit(() -> dynamicEvents.cycle(100, Instant.now()));
+        assertTrue(
+            firstDetection.get(10, TimeUnit.SECONDS).detected()
+                    + secondDetection.get(10, TimeUnit.SECONDS).detected()
+                >= 7);
+      }
       var eventKeys =
           dynamicEvents.available(populationOwner, Instant.now()).stream()
               .map(value -> value.key())
@@ -1551,6 +1557,7 @@ class DatabaseIntegrationTest {
       assertTrue(diagnostics.heatmap(warWorld, 50, 50, 2).getFirst().contains("heatmap"));
       assertFalse(diagnostics.chunkOwnership(warWorld, 50, 50).isEmpty());
       assertTrue(diagnostics.liveMetrics().containsKey("activeCampaigns"));
+      assertEquals("PASS securityAudit", diagnostics.securityAudit().getLast());
     }
   }
 

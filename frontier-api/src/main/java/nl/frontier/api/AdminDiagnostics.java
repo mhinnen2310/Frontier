@@ -19,5 +19,7 @@ public interface AdminDiagnostics {
 
   Map<String, Long> liveMetrics();
 
+  List<String> securityAudit();
+
   record Snapshot(Map<String, Long> counts, long oldestOutboxLagSeconds) {}
 }

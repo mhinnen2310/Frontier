@@ -240,6 +240,79 @@ public final class PostgresAdminDiagnostics implements AdminDiagnostics {
         });
   }
 
+  @Override
+  public List<String> securityAudit() {
+    return store.inTransaction(
+        connection -> {
+          List<String> rows = new ArrayList<>();
+          securityCheck(
+              connection,
+              rows,
+              "nonNegativeAccounts",
+              "SELECT count(*) FROM accounts WHERE balance_minor<0");
+          securityCheck(
+              connection,
+              rows,
+              "stockInvariant",
+              "SELECT count(*) FROM warehouse_stock WHERE available_quantity<0 OR reserved_quantity<0");
+          securityCheck(
+              connection,
+              rows,
+              "campaignPairUniqueness",
+              "SELECT count(*) FROM (SELECT least(attacker_city_id::text,defender_city_id::text),greatest(attacker_city_id::text,defender_city_id::text),count(*) FROM campaigns WHERE phase IN ('DECLARED','PREPARATION','ACTIVE','CEASEFIRE','RESOLUTION') GROUP BY 1,2 HAVING count(*)>1)s");
+          securityCheck(
+              connection,
+              rows,
+              "dynamicEventReplay",
+              "SELECT count(*) FROM (SELECT payload->>'sourceKey',count(*) FROM world_events WHERE payload ?? 'sourceKey' AND state IN ('SCHEDULED','ANNOUNCED','ACTIVE') GROUP BY 1 HAVING count(*)>1)s");
+          securityCheck(
+              connection,
+              rows,
+              "ledgerReplayKeys",
+              "SELECT count(*) FROM (SELECT idempotency_key,count(*) FROM ledger_entries GROUP BY idempotency_key HAVING count(*)>1)s");
+          securityCheck(
+              connection,
+              rows,
+              "damageCoordinateUniqueness",
+              "SELECT count(*) FROM (SELECT campaign_id,world_id,x,y,z,count(*) FROM damage_journal GROUP BY 1,2,3,4,5 HAVING count(*)>1)s");
+          securityCheck(
+              connection,
+              rows,
+              "staleAuthorizedDamage",
+              "SELECT count(*) FROM damage_journal WHERE mutation_state='AUTHORIZED' AND authorized_at<now()-interval '10 minutes'");
+          securityCheck(
+              connection,
+              rows,
+              "overConsumedRepairMaterials",
+              "SELECT count(*) FROM material_reservations WHERE consumed_quantity>reserved_quantity");
+          securityCheck(
+              connection,
+              rows,
+              "expiredActiveReservations",
+              "SELECT count(*) FROM stock_reservations WHERE status='ACTIVE' AND expires_at<now()-interval '1 hour'");
+          long missingIndexes =
+              scalar(
+                  connection,
+                  "SELECT count(*) FROM (VALUES('uq_dynamic_event_source_open'),('uq_active_campaign_pair'),('idx_damage_reconcile'),('ledger_entries_idempotency_key_key')) required(name) WHERE NOT EXISTS(SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname=required.name)");
+          rows.add(
+              (missingIndexes == 0 ? "PASS " : "FAIL ")
+                  + "requiredSecurityIndexes="
+                  + missingIndexes);
+          rows.add(
+              rows.stream().noneMatch(value -> value.startsWith("FAIL"))
+                  ? "PASS securityAudit"
+                  : "FAIL securityAudit");
+          return List.copyOf(rows);
+        });
+  }
+
+  private static void securityCheck(
+      java.sql.Connection connection, List<String> rows, String name, String sql)
+      throws java.sql.SQLException {
+    long findings = scalar(connection, sql);
+    rows.add((findings == 0 ? "PASS " : "FAIL ") + name + "=" + findings);
+  }
+
   private static long scalar(java.sql.Connection connection, String sql)
       throws java.sql.SQLException {
     try (PreparedStatement statement = connection.prepareStatement(sql);

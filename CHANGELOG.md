@@ -161,6 +161,16 @@
 - Added `/frontier endgame catalog|rankings|history|unlocks` and Dialog access to rankings.
 - Added Flyway migration V29 and clean-database coverage for catalog seeds, unlocks, world history and rankings.
 
+### Sprint 18 — Security Audit
+
+- Completed and documented the permission, SQL injection, race, deadlock, dupe, chunk, disconnect, inventory, replay, packet/command, economy, repair and war exploit audit in `SECURITY_AUDIT.md`.
+- Closed menu-only and operator command-spam bypasses by rate limiting every player Frontier invocation.
+- Added whole-transaction retries, capped at three, for PostgreSQL serialization failures and deadlocks.
+- Serialized dynamic-event detection per source and added a partial unique index for every open source event.
+- Added unique war-approval consumption, bounded event contributions and stale security indexes in Flyway migration V30.
+- Added `/frontier admin security` to verify live invariants and required indexes without mutating gameplay.
+- Added permission/Dialog boundary tests, concurrent event detection coverage and full runtime security-audit assertions.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

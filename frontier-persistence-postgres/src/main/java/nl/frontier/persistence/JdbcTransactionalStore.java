@@ -14,18 +14,37 @@ public final class JdbcTransactionalStore implements TransactionalStore {
 
   @Override
   public <T> T inTransaction(SqlWork<T> work) {
-    try (Connection connection = dataSource.getConnection()) {
-      connection.setAutoCommit(false);
-      try {
-        T result = work.execute(connection);
-        connection.commit();
-        return result;
-      } catch (SQLException | RuntimeException failure) {
-        connection.rollback();
-        throw failure;
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      try (Connection connection = dataSource.getConnection()) {
+        connection.setAutoCommit(false);
+        try {
+          T result = work.execute(connection);
+          connection.commit();
+          return result;
+        } catch (SQLException | RuntimeException failure) {
+          try {
+            connection.rollback();
+          } catch (SQLException rollbackFailure) {
+            failure.addSuppressed(rollbackFailure);
+          }
+          throw failure;
+        }
+      } catch (SQLException failure) {
+        if (attempt < 3 && retryable(failure)) {
+          Thread.onSpinWait();
+          continue;
+        }
+        throw new PersistenceException("database transaction failed", failure);
       }
-    } catch (SQLException failure) {
-      throw new PersistenceException("database transaction failed", failure);
     }
+    throw new IllegalStateException("unreachable transaction retry state");
+  }
+
+  private static boolean retryable(SQLException failure) {
+    for (SQLException current = failure; current != null; current = current.getNextException()) {
+      if ("40001".equals(current.getSQLState()) || "40P01".equals(current.getSQLState()))
+        return true;
+    }
+    return false;
   }
 }

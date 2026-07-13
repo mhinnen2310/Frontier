@@ -199,19 +199,18 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       @NotNull Command command,
       @NotNull String label,
       String[] args) {
-    if (args.length == 0) {
-      if (sender instanceof Player player)
-        ui.openMenu(new PlayerId(player.getUniqueId()), FrontierUi.Screen.FRONTIER);
-      else help(sender);
-      return true;
-    }
     metrics.command();
     if (sender instanceof Player player
-        && !player.hasPermission("frontier.admin")
         && !rateLimiter.allow(player.getUniqueId(), Instant.now())) {
       metrics.rateLimited();
       player.sendMessage(
           Component.text("Too many Frontier commands; wait a moment.", NamedTextColor.RED));
+      return true;
+    }
+    if (args.length == 0) {
+      if (sender instanceof Player player)
+        ui.openMenu(new PlayerId(player.getUniqueId()), FrontierUi.Screen.FRONTIER);
+      else help(sender);
       return true;
     }
     String root = args[0].toLowerCase(Locale.ROOT);
@@ -2716,6 +2715,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                       databaseMetrics.forEach((key, value) -> rows.add(key + "=" + value));
                     adminRows(sender, rows, failure);
                   });
+      case "security" ->
+          schedulers
+              .async(diagnostics::securityAudit)
+              .whenComplete((rows, failure) -> adminRows(sender, rows, failure));
       case "audit" -> {
         int limit = args.length > 1 ? Integer.parseInt(args[1]) : 10;
         schedulers
@@ -2738,7 +2741,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       default ->
           sender.sendMessage(
               Component.text(
-                  "admin actions: health, recover, metrics, live, snapshot, inspect, audit, settlement, influence, road, repair, campaign, worker, economy, heatmap, chunk",
+                  "admin actions: health, recover, metrics, live, security, snapshot, inspect, audit, settlement, influence, road, repair, campaign, worker, economy, heatmap, chunk",
                   NamedTextColor.RED));
     }
   }
@@ -2897,6 +2900,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "recover",
               "metrics",
               "live",
+              "security",
               "snapshot",
               "inspect",
               "audit",
