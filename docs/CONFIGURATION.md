@@ -35,7 +35,7 @@ Every file has `config-version: 1`; every module has `enabled`. Values are loade
 | File | Functional settings | Default |
 |---|---|---|
 | `settlements.yml` | Simulation/protection cadence; founding fee, founder minimum, attempt/lease lifetime, core/Harbor distances, materials and allowed world environments; mayor/settlement inactivity and disband confirmation timing | enabled |
-| `districts.yml` | District subsystem control | enabled |
+| `districts.yml` | Integrity activation thresholds; diminishing contribution count/rate; adjacency range/count/rate; over-specialization threshold/penalty; effective cap; Industrial/Military cost and Commercial/Logistics capacity modifiers | enabled; 40 integrity, 50% diminishing to 3 buildings, 10% adjacency up to 2 within 16 blocks, 20% penalty beyond 2 same-type districts, 30% cap |
 | `buildings.yml` | Physical validation/registration control | enabled |
 | `influence.yml` | Cadence/bound, contested threshold and lead hysteresis | enabled |
 | `economy.yml` | Market/production/logistics cadence; Harbor budgets, source/player caps, low-tier stock, jobs and limited daily orders | enabled |
@@ -55,6 +55,8 @@ Every file has `config-version: 1`; every module has `enabled`. Values are loade
 All durations and batch limits must be positive. Founding requires positive material counts and distance bounds, at most 100 founders, and a Harbor exclusion radius no smaller than the ordinary core distance; allowed environments are `NORMAL`, `NETHER`, `THE_END`, or `CUSTOM`. Membership defaults are 7 days of mayor inactivity, 30 days of settlement inactivity, a 30-second disband cooldown and a 10-minute request lifetime. Settlement inactivity cannot be shorter than mayor inactivity, and the request lifetime must exceed the cooldown. Web ports are 1–65535, visible NPCs are capped at 500, repair unsafe radius at 1024 blocks, breach base cannot exceed its maximum, and database/async pools cannot exceed 64. Enabled dependency chains are validated; for example repairs require warfare, warfare requires influence, and influence requires settlements.
 
 Harbor's commodity allowlist is additionally bounded in code to bread, wheat, oak logs, cobblestone and iron ingots. Config may choose a subset but cannot introduce high-tier goods. Starter-job totals cannot exceed the per-player daily cap, daily currency creation cannot exceed the Harbor budget, and overlapping buy/sell prices may not permit arbitrage.
+
+District balance percentages are constrained to 1–100, contribution/adjacency/same-type counts to 1–20, integrity to 1–100 and adjacency distance to 1–256 blocks. Changing balance settings requires a server restart; startup synchronizes the validated immutable policy to the authoritative database projection.
 
 ## Administration
 

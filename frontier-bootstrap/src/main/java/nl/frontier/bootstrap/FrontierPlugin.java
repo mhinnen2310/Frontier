@@ -53,6 +53,7 @@ import nl.frontier.persistence.PostgresCivilizationGateway;
 import nl.frontier.persistence.PostgresClaimProtectionGateway;
 import nl.frontier.persistence.PostgresCommercialGateway;
 import nl.frontier.persistence.PostgresContractGateway;
+import nl.frontier.persistence.PostgresDistrictBalanceSettings;
 import nl.frontier.persistence.PostgresDistrictGateway;
 import nl.frontier.persistence.PostgresDynamicEventGateway;
 import nl.frontier.persistence.PostgresEconomyGateway;
@@ -136,6 +137,7 @@ public final class FrontierPlugin extends JavaPlugin {
                   Duration.ofSeconds(10)));
       database.migrate(materializeMigrations());
       JdbcTransactionalStore store = new JdbcTransactionalStore(database.dataSource());
+      new PostgresDistrictBalanceSettings(store).apply(config.districts().balance(), Instant.now());
       recovery = new PostgresRecoveryCoordinator(store);
       recovery.recover();
       schedulers = new PaperSchedulerFacade(this, config.global().runtime().asyncThreads());

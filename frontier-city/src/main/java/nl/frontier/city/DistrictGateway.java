@@ -86,6 +86,18 @@ public interface DistrictGateway {
 
   record BuildingAssignment(UUID district, UUID building, BuildingType type, String status) {}
 
+  record Specialization(
+      boolean active,
+      int validBuildings,
+      int infrastructureNodes,
+      int compatibleAdjacencies,
+      int sameTypeDistricts,
+      int effectiveFactorPercent,
+      int maintenancePenaltyPercent,
+      int wagePenaltyPercent,
+      int marketOrderCapacityBonus,
+      int warehouseCapacityBonusPercent) {}
+
   record HistoryEntry(String action, String details, UUID actor, Instant occurredAt) {}
 
   record DistrictReport(
@@ -97,5 +109,6 @@ public interface DistrictGateway {
       long budgetSpentMinor,
       List<WorkerAssignment> workerAssignments,
       List<BuildingAssignment> buildingAssignments,
+      Specialization specialization,
       List<HistoryEntry> history) {}
 }

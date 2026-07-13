@@ -17,6 +17,7 @@ import nl.frontier.economy.EconomyGateway;
 import nl.frontier.economy.MarketEngine;
 
 public final class PostgresEconomyGateway implements EconomyGateway {
+  private static final int BASE_MARKET_ORDER_CAPACITY = 8;
   private static final Set<String> ECONOMY_ROLES = Set.of("MAYOR", "TREASURER");
   private static final Set<String> STOCK_ROLES = Set.of("MAYOR", "TREASURER", "ARCHITECT");
   private final TransactionalStore store;
@@ -75,6 +76,14 @@ public final class PostgresEconomyGateway implements EconomyGateway {
           requireRole(connection, city, actor, ECONOMY_ROLES);
           OrderSnapshot existing = byIdempotency(connection, idempotencyKey);
           if (existing != null) return existing;
+          int openOrders =
+              Math.toIntExact(
+                  scalar(
+                      connection,
+                      "SELECT count(*) FROM market_orders WHERE settlement_id=? AND status IN ('OPEN','PARTIAL')",
+                      city));
+          if (openOrders >= marketOrderCapacity(connection, city))
+            throw new DomainException("settlement market order capacity exceeded");
           UUID order = UUID.randomUUID();
           UUID reservation = null;
           UUID escrow = null;
@@ -436,7 +445,19 @@ public final class PostgresEconomyGateway implements EconomyGateway {
   }
 
   private static long capacity(Connection connection, UUID warehouse) throws SQLException {
-    return scalar(connection, "SELECT capacity FROM warehouses WHERE id=?", warehouse);
+    return scalar(
+        connection,
+        "SELECT w.capacity*(100+coalesce((SELECT max(de.warehouse_capacity_bonus_percent) FROM district_effects de WHERE de.city_id=w.city_id),0))/100 FROM warehouses w WHERE w.id=?",
+        warehouse);
+  }
+
+  private static int marketOrderCapacity(Connection connection, UUID city) throws SQLException {
+    return BASE_MARKET_ORDER_CAPACITY
+        + Math.toIntExact(
+            scalar(
+                connection,
+                "SELECT coalesce(max(market_order_capacity_bonus),0) FROM district_effects WHERE city_id=?",
+                city));
   }
 
   private static long usedCapacity(Connection connection, UUID warehouse) throws SQLException {

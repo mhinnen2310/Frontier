@@ -226,6 +226,25 @@ public final class ConfigRegistry {
             control(population),
             positiveLong(population, "presentation.materialization-cycle-seconds"),
             positive(population, "presentation.maximum-visible-per-settlement", 500));
+    YamlConfiguration districts = modules.get("districts");
+    var districtConfig =
+        new FrontierConfiguration.Districts(
+            control(districts),
+            new nl.frontier.city.DistrictBalancePolicy(
+                positive(districts, "balance.minimum-building-integrity", 100),
+                positive(districts, "balance.minimum-infrastructure-integrity", 100),
+                positive(districts, "balance.diminishing-return-percent", 100),
+                positive(districts, "balance.maximum-building-contributions", 20),
+                positive(districts, "balance.adjacency-bonus-percent", 100),
+                positive(districts, "balance.maximum-adjacency-bonuses", 20),
+                positive(districts, "balance.adjacency-distance-blocks", 256),
+                positive(districts, "balance.over-specialization-threshold", 20),
+                positive(districts, "balance.over-specialization-penalty-percent", 100),
+                positive(districts, "balance.maximum-effective-bonus-percent", 100),
+                positive(districts, "balance.industrial-maintenance-penalty-percent", 100),
+                positive(districts, "balance.military-wage-penalty-percent", 100),
+                positive(districts, "balance.commercial-market-orders-per-building", 100),
+                positive(districts, "balance.logistics-warehouse-capacity-percent", 100)));
     YamlConfiguration kingdoms = modules.get("kingdoms");
     var kingdomConfig =
         new FrontierConfiguration.Kingdoms(
@@ -257,7 +276,7 @@ public final class ConfigRegistry {
         new FrontierConfiguration(
             globalConfig,
             settlementConfig,
-            control(modules.get("districts")),
+            districtConfig,
             control(modules.get("buildings")),
             influenceConfig,
             economyConfig,
@@ -667,6 +686,25 @@ public final class ConfigRegistry {
             "simulation.maximum-settlements-per-cycle",
             "simulation.contested-threshold",
             "simulation.required-lead-cycles"));
+    keys.put(
+        "districts",
+        leaves(
+            "config-version",
+            "enabled",
+            "balance.minimum-building-integrity",
+            "balance.minimum-infrastructure-integrity",
+            "balance.diminishing-return-percent",
+            "balance.maximum-building-contributions",
+            "balance.adjacency-bonus-percent",
+            "balance.maximum-adjacency-bonuses",
+            "balance.adjacency-distance-blocks",
+            "balance.over-specialization-threshold",
+            "balance.over-specialization-penalty-percent",
+            "balance.maximum-effective-bonus-percent",
+            "balance.industrial-maintenance-penalty-percent",
+            "balance.military-wage-penalty-percent",
+            "balance.commercial-market-orders-per-building",
+            "balance.logistics-warehouse-capacity-percent"));
     keys.put(
         "economy",
         leaves(

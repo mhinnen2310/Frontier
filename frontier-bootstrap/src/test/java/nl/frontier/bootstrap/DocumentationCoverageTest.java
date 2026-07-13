@@ -60,7 +60,7 @@ class DocumentationCoverageTest {
 
     String database = Files.readString(docs.resolve("DATABASE.md"));
     assertTrue(database.contains("V1–V3"));
-    assertTrue(database.contains("V30–V42"));
+    assertTrue(database.contains("V30–V43"));
     assertTrue(database.contains("flyway_schema_history"));
   }
 

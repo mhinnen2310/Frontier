@@ -1,3 +1,20 @@
 # District management. Disable only before server start.
 config-version: 1
 enabled: true
+
+# Specializations activate only with a compatible validated building and usable infrastructure.
+balance:
+  minimum-building-integrity: 40
+  minimum-infrastructure-integrity: 40
+  diminishing-return-percent: 50
+  maximum-building-contributions: 3
+  adjacency-bonus-percent: 10
+  maximum-adjacency-bonuses: 2
+  adjacency-distance-blocks: 16
+  over-specialization-threshold: 2
+  over-specialization-penalty-percent: 20
+  maximum-effective-bonus-percent: 30
+  industrial-maintenance-penalty-percent: 10
+  military-wage-penalty-percent: 10
+  commercial-market-orders-per-building: 4
+  logistics-warehouse-capacity-percent: 25

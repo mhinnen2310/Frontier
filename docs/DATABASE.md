@@ -1,6 +1,6 @@
 # Database schema
 
-PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persistence-postgres/src/main/resources/db/migration/index.txt`; never modify a migration already used by a server. UUID primary keys identify aggregates, integer columns hold cents/units, timestamps are UTC, constraints protect lifecycle values, V31 indexes cover active work/lookups, V32 hardens repair occurrence/completion integrity, V33–V34 add recoverable settlement-founding expeditions, V35–V36 add membership governance, V37–V41 normalize the district aggregate and V42 adds constrained production/repair priorities.
+PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persistence-postgres/src/main/resources/db/migration/index.txt`; never modify a migration already used by a server. UUID primary keys identify aggregates, integer columns hold cents/units, timestamps are UTC, constraints protect lifecycle values, V31 indexes cover active work/lookups, V32 hardens repair occurrence/completion integrity, V33–V34 add recoverable settlement-founding expeditions, V35–V36 add membership governance, V37–V41 normalize the district aggregate, V42 adds constrained operational priorities and V43 adds the effective specialization projection/settings.
 
 ## Table families
 
@@ -8,7 +8,7 @@ PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persi
 |---|---|
 | Identity/audit | `accounts`, `idempotency_tokens`, `audit_log`, `ledger_entries`, `financial_transfers`, `outbox_events`, `server_history` |
 | Settlements/claims | `cities`, `city_members`, `city_roles`, `city_permission_overrides`, `city_claims`, `city_policies`, `city_upgrades`, `settlement_bans`, `settlement_disband_requests`, `settlement_ruin_market_orders`, `settlement_founding_expeditions`, `settlement_founding_expedition_members`, `settlement_founding_expedition_history`, other `settlement_*`, `influence_*`, `dirty_settlements` |
-| Districts/buildings | `districts`, `district_regions`, `district_memberships`, `district_roles`, `district_policies`, `district_workers`, `district_storage`, `district_budgets`, `district_history`, `district_effects`, `city_buildings`, `building_validation_history` |
+| Districts/buildings | `districts`, `district_regions`, `district_memberships`, `district_roles`, `district_policies`, `district_workers`, `district_storage`, `district_budgets`, `district_history`, `district_balance_settings`, `district_effects`, `city_buildings`, `building_validation_history` |
 | Economy | `warehouses`, `warehouse_stock`, `market_orders`, `trades`, `trade_history`, `price_history`, `companies`, `commercial_*`, `company_loans`, `business_tax_*`, `government_procurements`, `emergency_purchases` |
 | Production/population | `recipes`, `recipe_*`, `production_*`, `workers`, `work_packages`, `city_population_state`, `population_history`, `demographic_history`, `migration_*` |
 | Logistics/caravans | `road_nodes`, `road_edges`, `shipments`, `shipment_*`, `contracts`, `delivery_contract_terms`, `caravans`, `caravan_history` |
@@ -27,6 +27,6 @@ PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persi
 | V16–V20 | Player wallets/Harbor, repair integrity, building lifecycle, districts and settlement lifecycle |
 | V21–V24 | Physical infrastructure, caravans, population and complete economy |
 | V25–V29 | Campaign outcomes, kingdom integration, world simulation, dynamic events and endgame |
-| V30–V42 | Security/performance and repair integrity, settlement founding/membership governance, normalized district regions/roles/policies, UUID building assignment and operational priorities |
+| V30–V43 | Security/performance and repair integrity, settlement founding/membership governance, normalized district aggregates, operational priorities and effective specialization balance |
 
 For exact columns, foreign keys, checks and indexes, read the corresponding migration rather than relying on an independently generated schema dump. Backups must contain the complete database, including `flyway_schema_history`.

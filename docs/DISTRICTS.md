@@ -24,4 +24,12 @@ District references accept a case-insensitive name or UUID. Listing and ordinary
 
 Mayors and architects create, rename and resize districts. Mayors appoint, replace or remove a manager and delete districts. Treasurers allocate budget. An appointed manager or settlement planner can allocate workers/buildings and choose production/repair priorities. Every mutation runs in the corresponding transactional service and appends district history.
 
-The Overview, Manager, Buildings, Workers, Budget, Production, Maintenance, Reports, Policies and History Dialog views use the same command-to-service path as the fallback commands. Reports include concrete assignment rows instead of only totals. Sprint 10 applies specialization balance rules beyond the bounded base bonuses.
+The Overview, Manager, Buildings, Workers, Budget, Production, Maintenance, Reports, Policies and History Dialog views use the same command-to-service path as the fallback commands. Reports include concrete assignment rows instead of only totals.
+
+## Effective specialization
+
+A district type by itself grants nothing. Its specialization activates only when it contains a compatible registered building in `ACTIVE` or `DAMAGED` state above the configured integrity threshold and at least one healthy in-bounds road node connected to a healthy edge. Reports show the qualifying building/node counts and why a specialization is inactive.
+
+The first building supplies the base effect. Further valid buildings add a diminishing configured contribution up to a hard count, compatible neighboring district types add a small bounded modifier, and excessive active districts of the same type subtract a penalty. The result is clamped to the configured maximum. Production, housing, maintenance, defense, trade ordering, worker efficiency and repair ordering read this effective value, not the type's theoretical base.
+
+Industrial specialization increases settlement maintenance and Military specialization increases wages. Commercial specialization adds bounded market-order slots; Logistics adds bounded effective warehouse capacity. These penalties sum, while capacity benefits use the strongest active district so duplicating a district cannot stack them without limit.

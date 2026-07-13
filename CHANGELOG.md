@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 10 — District Specialization and Balancing Foundation
+
+- Replaced unconditional district type bonuses with an effective specialization projection that requires compatible validated buildings and connected, healthy infrastructure.
+- Added bounded diminishing building contributions, compatible adjacency modifiers, same-type over-specialization penalties and a configurable effective-bonus cap.
+- Applied effective bonuses to production, population/housing, worker efficiency, maintenance, defense, market priority and repair ordering.
+- Added real trade-offs: active Industrial districts increase maintenance, Military districts increase wages, Commercial districts add market-order capacity and Logistics districts add warehouse capacity.
+- Added typed district balance configuration, startup synchronization, Flyway V43, player-visible activation diagnostics and domain/PostgreSQL regression coverage.
+
 ## Master Roadmap Sprint 9 — District Management Gameplay
 
 - Completed name-or-UUID district lookup and player commands for selection/info, creation, rename, resize, deletion, manager assignment/removal, budgets, workers, buildings, production priority, repair priority, policies and reports.

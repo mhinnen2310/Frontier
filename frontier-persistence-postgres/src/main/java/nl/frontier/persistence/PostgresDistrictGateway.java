@@ -157,6 +157,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
               spent,
               workerAssignments,
               buildingAssignments,
+              specialization(connection, district),
               List.copyOf(history));
         });
   }
@@ -682,7 +683,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT d.id,d.city_id,d.name,d.district_type,r.world_id,r.min_x,r.min_y,r.min_z,r.max_x,r.max_y,r.max_z,r.center_x,r.center_y,r.center_z,d.manager_id,d.status,d.tier,d.budget_minor,d.maintenance_minor,d.priority,d.production_priority,d.repair_priority,d.version FROM districts d JOIN district_regions r ON r.district_id=d.id WHERE d.id=? AND d.status='ACTIVE'")) {
+            "SELECT d.id,d.city_id,d.name,d.district_type,r.world_id,r.min_x,r.min_y,r.min_z,r.max_x,r.max_y,r.max_z,r.center_x,r.center_y,r.center_z,d.manager_id,d.status,d.tier,d.budget_minor,d.maintenance_minor,d.priority,d.production_priority,d.repair_priority,d.version,coalesce(e.production_bonus,0),coalesce(e.housing_bonus,0),coalesce(e.maintenance_bonus,0),coalesce(e.defense_bonus,0),coalesce(e.trade_bonus,0),coalesce(e.worker_efficiency_bonus,0),coalesce(e.repair_priority_bonus,0) FROM districts d JOIN district_regions r ON r.district_id=d.id LEFT JOIN district_effects e ON e.district_id=d.id WHERE d.id=? AND d.status='ACTIVE'")) {
       statement.setObject(1, district);
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) throw new DomainException("district not found");
@@ -714,7 +715,14 @@ public final class PostgresDistrictGateway implements DistrictGateway {
             result.getInt(21),
             result.getInt(22),
             policies(connection, district),
-            type.bonuses(),
+            new DistrictType.Bonuses(
+                result.getInt(24),
+                result.getInt(25),
+                result.getInt(26),
+                result.getInt(27),
+                result.getInt(28),
+                result.getInt(29),
+                result.getInt(30)),
             result.getLong(23));
       }
     }
@@ -732,6 +740,29 @@ public final class PostgresDistrictGateway implements DistrictGateway {
       }
     }
     return Map.copyOf(values);
+  }
+
+  private static Specialization specialization(Connection connection, UUID district)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT specialization_active,valid_buildings,infrastructure_nodes,compatible_adjacencies,same_type_districts,effective_factor_percent,maintenance_penalty_percent,wage_penalty_percent,market_order_capacity_bonus,warehouse_capacity_bonus_percent FROM district_effects WHERE district_id=?")) {
+      statement.setObject(1, district);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) return new Specialization(false, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        return new Specialization(
+            result.getBoolean(1),
+            result.getInt(2),
+            result.getInt(3),
+            result.getInt(4),
+            result.getInt(5),
+            result.getInt(6),
+            result.getInt(7),
+            result.getInt(8),
+            result.getInt(9),
+            result.getInt(10));
+      }
+    }
   }
 
   private static void validateBounds(

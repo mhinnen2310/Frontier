@@ -234,7 +234,9 @@ public final class PostgresSettlementSimulationGateway implements SettlementSimu
                 + "(SELECT coalesce(sum(s.available_quantity),0) FROM warehouse_stock s JOIN warehouses w ON w.id=s.warehouse_id WHERE w.city_id=c.id AND w.status='ACTIVE' AND s.commodity_key='minecraft:bread'),"
                 + "coalesce((SELECT trim(both '\"' from policy_value::text) FROM city_policies p WHERE p.city_id=c.id AND p.policy_key='TAX_PROFILE'),'STANDARD'),"
                 + "coalesce((SELECT max(housing_bonus) FROM district_effects d WHERE d.city_id=c.id),0),"
-                + "coalesce((SELECT max(maintenance_bonus) FROM district_effects d WHERE d.city_id=c.id),0) "
+                + "coalesce((SELECT max(maintenance_bonus) FROM district_effects d WHERE d.city_id=c.id),0),"
+                + "coalesce((SELECT sum(maintenance_penalty_percent) FROM district_effects d WHERE d.city_id=c.id),0),"
+                + "coalesce((SELECT sum(wage_penalty_percent) FROM district_effects d WHERE d.city_id=c.id),0) "
                 + "FROM cities c JOIN accounts a ON a.owner_type='CITY' AND a.owner_id=c.id WHERE c.id=?")) {
       statement.setObject(1, city);
       try (ResultSet row = statement.executeQuery()) {
@@ -255,6 +257,8 @@ public final class PostgresSettlementSimulationGateway implements SettlementSimu
             row.getString(13),
             row.getInt(14),
             row.getInt(15),
+            row.getInt(16),
+            row.getInt(17),
             row.getLong(5));
       }
     }

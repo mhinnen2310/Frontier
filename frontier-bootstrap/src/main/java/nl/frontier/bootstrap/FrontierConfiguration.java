@@ -1,12 +1,13 @@
 package nl.frontier.bootstrap;
 
 import java.util.Set;
+import nl.frontier.city.DistrictBalancePolicy;
 import nl.frontier.economy.HarborPolicy;
 
 public record FrontierConfiguration(
     Global global,
     Settlements settlements,
-    Control districts,
+    Districts districts,
     Control buildings,
     Influence influence,
     Economy economy,
@@ -56,6 +57,8 @@ public record FrontierConfiguration(
       allowedEnvironments = Set.copyOf(allowedEnvironments);
     }
   }
+
+  public record Districts(Control control, DistrictBalancePolicy balance) {}
 
   public record Influence(
       Control control,
@@ -112,7 +115,7 @@ public record FrontierConfiguration(
   public boolean enabled(String module) {
     return switch (module) {
       case "settlements" -> settlements.control().enabled();
-      case "districts" -> districts.enabled();
+      case "districts" -> districts.control().enabled();
       case "buildings" -> buildings.enabled();
       case "influence" -> influence.control().enabled();
       case "economy" -> economy.control().enabled();

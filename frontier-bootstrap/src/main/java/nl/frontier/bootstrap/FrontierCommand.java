@@ -999,7 +999,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               + district.productionPriority()
               + "; production bonus "
               + district.bonuses().production()
-              + "%";
+              + "%; specialization "
+              + specializationStatus(report);
       case "maintenance" ->
           "Repair priority "
               + district.repairPriority()
@@ -1007,8 +1008,24 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               + district.maintenanceMinor()
               + " cents/day; maintenance bonus "
               + district.bonuses().maintenance()
+              + "%; penalty "
+              + report.specialization().maintenancePenaltyPercent()
+              + "%; specialization "
+              + specializationStatus(report);
+      case "reports" ->
+          "Stored "
+              + report.storedUnits()
+              + " units; effective bonuses "
+              + district.bonuses()
+              + "; "
+              + specializationStatus(report)
+              + "; wage penalty "
+              + report.specialization().wagePenaltyPercent()
+              + "%; market slots +"
+              + report.specialization().marketOrderCapacityBonus()
+              + "; warehouse capacity +"
+              + report.specialization().warehouseCapacityBonusPercent()
               + "%";
-      case "reports" -> "Stored " + report.storedUnits() + " units; bonuses " + district.bonuses();
       case "policies" -> "Policies " + district.policies();
       case "history" ->
           report.history().isEmpty()
@@ -1034,6 +1051,21 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               + "; manager "
               + district.manager();
     };
+  }
+
+  private static String specializationStatus(DistrictGateway.DistrictReport report) {
+    var value = report.specialization();
+    return value.active()
+        ? "active ("
+            + value.validBuildings()
+            + " buildings, "
+            + value.infrastructureNodes()
+            + " infrastructure, "
+            + value.compatibleAdjacencies()
+            + " adjacency, factor "
+            + value.effectiveFactorPercent()
+            + "%)"
+        : "inactive (requires a valid compatible building and connected infrastructure)";
   }
 
   private void policy(Player player, String[] args) {

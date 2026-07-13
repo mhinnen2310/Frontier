@@ -24,6 +24,7 @@ import nl.frontier.city.BuildingValidationService;
 import nl.frontier.city.BuildingValidator;
 import nl.frontier.city.ClaimProtectionGateway;
 import nl.frontier.city.DistrictApplicationService;
+import nl.frontier.city.DistrictBalancePolicy;
 import nl.frontier.city.DistrictType;
 import nl.frontier.city.FoundingPolicy;
 import nl.frontier.city.GovernmentRole;
@@ -370,7 +371,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(42, result.getInt(1));
+        assertEquals(43, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -381,6 +382,10 @@ class DatabaseIntegrationTest {
                     "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(gen_random_uuid(),'CITY',gen_random_uuid(),-1)"));
       }
       JdbcTransactionalStore store = new JdbcTransactionalStore(database.dataSource());
+      new PostgresDistrictBalanceSettings(store)
+          .apply(
+              new DistrictBalancePolicy(40, 40, 50, 3, 10, 2, 16, 2, 20, 30, 10, 10, 4, 25),
+              Instant.now());
       UUID harborWorld = UUID.randomUUID();
       PostgresHarborGateway harbor = new PostgresHarborGateway(store);
       HarborGateway.HarborSnapshot harborSnapshot =
@@ -798,7 +803,7 @@ class DatabaseIntegrationTest {
       var district =
           districtService.create(
               city.id(), owner, "Fields", DistrictType.AGRICULTURAL, districtBounds, Instant.now());
-      assertEquals(20, district.bonuses().production());
+      assertEquals(0, district.bonuses().production());
       assertEquals(1, district.tier());
       assertEquals("ACTIVE", district.status().name());
       assertEquals(25, district.maintenanceMinor());
@@ -881,6 +886,44 @@ class DatabaseIntegrationTest {
           districtService
               .building(district.id(), secondManager, registeredFarm.id(), Instant.now())
               .building());
+      SettlementGateway.Bounds secondFarmBounds =
+          new SettlementGateway.Bounds(world, 170, 60, 162, 173, 63, 165);
+      var secondFarm =
+          buildingValidation.validateAndRegister(
+              city.id(),
+              owner,
+              BuildingType.FARM,
+              secondFarmBounds,
+              district.id().toString(),
+              new BuildingSurvey(4, 4, 4, 32, 0, 0, 0, 0, 0, 0, 16, 1, 8, 0, 0, 0, Map.of()),
+              Instant.now());
+      UUID roadNodeA = UUID.randomUUID();
+      UUID roadNodeB = UUID.randomUUID();
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "INSERT INTO road_nodes(id,city_id,world_id,x,y,z,node_type,integrity) VALUES('"
+                + roadNodeA
+                + "','"
+                + city.id()
+                + "','"
+                + world
+                + "',164,64,164,'ROAD',100),('"
+                + roadNodeB
+                + "','"
+                + city.id()
+                + "','"
+                + world
+                + "',172,64,164,'ROAD',100)");
+        statement.executeUpdate(
+            "INSERT INTO road_edges(id,from_node,to_node,distance,capacity,integrity) VALUES('"
+                + UUID.randomUUID()
+                + "','"
+                + roadNodeA
+                + "','"
+                + roadNodeB
+                + "',8,100,100)");
+      }
       try (var connection = database.dataSource().getConnection();
           var statement =
               connection.prepareStatement(
@@ -894,13 +937,26 @@ class DatabaseIntegrationTest {
       assertEquals(1, districtReport.members());
       assertEquals(
           secondManager, districtService.memberships(district.id(), owner).getFirst().player());
-      assertEquals(1, districtReport.buildings());
-      assertEquals(registeredFarm.id(), districtReport.buildingAssignments().getFirst().building());
+      assertEquals(2, districtReport.buildings());
+      assertTrue(
+          districtReport.buildingAssignments().stream()
+              .anyMatch(value -> value.building().equals(registeredFarm.id())));
+      assertTrue(
+          districtReport.buildingAssignments().stream()
+              .anyMatch(value -> value.building().equals(secondFarm.id())));
       assertEquals(32, districtReport.storedUnits());
       assertEquals(500, districtReport.district().budgetMinor());
       assertEquals(80, districtReport.district().priority());
       assertEquals(90, districtReport.district().productionPriority());
       assertEquals(70, districtReport.district().repairPriority());
+      assertEquals(
+          30,
+          districtReport.district().bonuses().production(),
+          districtReport.specialization().toString());
+      assertTrue(districtReport.specialization().active());
+      assertEquals(2, districtReport.specialization().validBuildings());
+      assertEquals(2, districtReport.specialization().infrastructureNodes());
+      assertEquals(150, districtReport.specialization().effectiveFactorPercent());
       assertEquals("DAYLIGHT", districtReport.district().policies().get("WORK"));
       assertTrue(districtReport.history().size() >= 8);
       try (var connection = database.dataSource().getConnection();
@@ -2264,7 +2320,7 @@ class DatabaseIntegrationTest {
     try (var connection = database.dataSource().getConnection();
         var statement = connection.createStatement()) {
       statement.execute(
-          "DO $$ DECLARE names text; BEGIN SELECT string_agg(format('%I.%I',schemaname,tablename),',') INTO names FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('flyway_schema_history','commodity_definitions','recipes','recipe_inputs','recipe_outputs','endgame_research_definitions','endgame_wonder_definitions','endgame_mega_definitions'); IF names IS NOT NULL THEN EXECUTE 'TRUNCATE TABLE '||names||' CASCADE'; END IF; END $$");
+          "DO $$ DECLARE names text; BEGIN SELECT string_agg(format('%I.%I',schemaname,tablename),',') INTO names FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('flyway_schema_history','commodity_definitions','recipes','recipe_inputs','recipe_outputs','endgame_research_definitions','endgame_wonder_definitions','endgame_mega_definitions','district_balance_settings'); IF names IS NOT NULL THEN EXECUTE 'TRUNCATE TABLE '||names||' CASCADE'; END IF; END $$");
       statement.execute(
           "INSERT INTO global_objectives(id,objective_key,status,progress,target,version) VALUES(gen_random_uuid(),'CONNECT_CAPITALS','ACTIVE',0,1,0),(gen_random_uuid(),'BUILD_WORLD_WONDERS','ACTIVE',0,1,0),(gen_random_uuid(),'SURVIVE_WORLD_CRISIS','ACTIVE',0,1,0),(gen_random_uuid(),'RESTORE_WAR_RUINS','ACTIVE',0,1,0)");
     }

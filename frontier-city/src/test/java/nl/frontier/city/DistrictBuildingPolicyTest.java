@@ -15,11 +15,18 @@ class DistrictBuildingPolicyTest {
         DistrictType.INDUSTRIAL,
         DistrictType.COMMERCIAL,
         DistrictType.LOGISTICS,
-        DistrictType.HARBOR);
+        DistrictType.HARBOR,
+        DistrictType.MINING,
+        DistrictType.FORESTRY);
     assertCompatible(BuildingType.HOUSING, DistrictType.RESIDENTIAL);
     assertCompatible(BuildingType.FARM, DistrictType.AGRICULTURAL);
-    assertCompatible(BuildingType.BUILDER_GUILD, DistrictType.INDUSTRIAL, DistrictType.GOVERNMENT);
-    assertCompatible(BuildingType.MARKET, DistrictType.COMMERCIAL, DistrictType.HARBOR);
+    assertCompatible(
+        BuildingType.BUILDER_GUILD,
+        DistrictType.INDUSTRIAL,
+        DistrictType.GOVERNMENT,
+        DistrictType.RESEARCH);
+    assertCompatible(
+        BuildingType.MARKET, DistrictType.COMMERCIAL, DistrictType.HARBOR, DistrictType.CULTURE);
     assertCompatible(BuildingType.BARRACKS, DistrictType.MILITARY);
   }
 

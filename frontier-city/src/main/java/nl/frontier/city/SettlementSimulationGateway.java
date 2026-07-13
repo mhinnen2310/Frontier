@@ -33,5 +33,7 @@ public interface SettlementSimulationGateway {
       String taxProfile,
       int housingBonus,
       int maintenanceBonus,
+      int maintenancePenalty,
+      int wagePenalty,
       long version) {}
 }

@@ -30,6 +30,9 @@ class ConfigRegistryTest {
     assertEquals(java.util.Set.of("NORMAL"), config.settlements().allowedEnvironments());
     assertEquals(7, config.settlements().mayorInactivityDays());
     assertEquals(30, config.settlements().settlementInactivityDays());
+    assertEquals(40, config.districts().balance().minimumBuildingIntegrity());
+    assertEquals(3, config.districts().balance().maximumBuildingContributions());
+    assertEquals(25, config.districts().balance().logisticsWarehouseCapacityPercent());
     assertTrue(config.enabled("settlements"));
     assertFalse(config.enabled("waypoints"));
     assertFalse(config.enabled("cartography"));
@@ -70,6 +73,14 @@ class ConfigRegistryTest {
             IllegalStateException.class,
             () -> ConfigRegistry.parse(resource("config.yml"), invalidMembership, ignored -> {}));
     assertTrue(membershipFailure.getMessage().contains("mayor-inactivity-days"));
+
+    var invalidDistricts = moduleResources();
+    invalidDistricts.get("districts").set("balance.maximum-effective-bonus-percent", 101);
+    var districtFailure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> ConfigRegistry.parse(resource("config.yml"), invalidDistricts, ignored -> {}));
+    assertTrue(districtFailure.getMessage().contains("maximum-effective-bonus-percent"));
   }
 
   @Test

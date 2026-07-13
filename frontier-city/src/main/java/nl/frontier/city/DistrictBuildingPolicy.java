@@ -12,13 +12,18 @@ public final class DistrictBuildingPolicy {
                   DistrictType.INDUSTRIAL,
                   DistrictType.COMMERCIAL,
                   DistrictType.LOGISTICS,
-                  DistrictType.HARBOR)
+                  DistrictType.HARBOR,
+                  DistrictType.MINING,
+                  DistrictType.FORESTRY)
               .contains(district);
       case HOUSING -> district == DistrictType.RESIDENTIAL;
       case FARM -> district == DistrictType.AGRICULTURAL;
       case BUILDER_GUILD ->
-          Set.of(DistrictType.INDUSTRIAL, DistrictType.GOVERNMENT).contains(district);
-      case MARKET -> Set.of(DistrictType.COMMERCIAL, DistrictType.HARBOR).contains(district);
+          Set.of(DistrictType.INDUSTRIAL, DistrictType.GOVERNMENT, DistrictType.RESEARCH)
+              .contains(district);
+      case MARKET ->
+          Set.of(DistrictType.COMMERCIAL, DistrictType.HARBOR, DistrictType.CULTURE)
+              .contains(district);
       case BARRACKS -> district == DistrictType.MILITARY;
     };
   }

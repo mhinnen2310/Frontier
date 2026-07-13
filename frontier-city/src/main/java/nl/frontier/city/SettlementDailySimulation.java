@@ -43,11 +43,15 @@ public final class SettlementDailySimulation {
         Math.addExact(
             Math.addExact(snapshot.level().level() * 1_000L, snapshot.buildings() * 250L),
             Math.addExact(snapshot.workers() * 100L, snapshot.roadSegments() * 10L));
-    long maintenance = baseMaintenance * (100L - snapshot.maintenanceBonus()) / 100L;
+    long maintenance =
+        baseMaintenance
+            * Math.max(0L, 100L - snapshot.maintenanceBonus() + snapshot.maintenancePenalty())
+            / 100L;
     long funds = Math.addExact(snapshot.treasuryMinor(), taxIncome);
     boolean paid = funds >= maintenance;
     long afterMaintenance = paid ? funds - maintenance : funds;
-    boolean wagesPaid = afterMaintenance >= snapshot.workerWagesMinor();
+    long wages = snapshot.workerWagesMinor() * (100L + snapshot.wagePenalty()) / 100L;
+    boolean wagesPaid = afterMaintenance >= wages;
     int requiredFood = Math.toIntExact(Math.max(0, (snapshot.population() + 3L) / 4L));
     long availableFoodUnits =
         Math.addExact(snapshot.wheatAvailable(), Math.multiplyExact(snapshot.breadAvailable(), 4));
@@ -73,7 +77,7 @@ public final class SettlementDailySimulation {
         taxIncome,
         maintenance,
         paid,
-        snapshot.workerWagesMinor(),
+        wages,
         wagesPaid,
         requiredFood,
         wheatConsumed,

@@ -51,27 +51,52 @@ class SettlementTest {
           @Override
           public void release(UUID worker, UUID city) {}
         };
+    var simulation = new SettlementDailySimulation(gateway);
     var result =
-        new SettlementDailySimulation(gateway)
-            .calculate(
-                new SettlementSimulationGateway.Snapshot(
-                    UUID.randomUUID(),
-                    SettlementLevel.CAMP,
-                    100,
-                    70,
-                    10,
-                    100_000,
-                    10,
-                    0,
-                    0,
-                    0,
-                    100,
-                    100,
-                    "STANDARD",
-                    20,
-                    10,
-                    0));
+        simulation.calculate(
+            new SettlementSimulationGateway.Snapshot(
+                UUID.randomUUID(),
+                SettlementLevel.CAMP,
+                100,
+                70,
+                10,
+                100_000,
+                10,
+                0,
+                0,
+                0,
+                100,
+                100,
+                "STANDARD",
+                20,
+                10,
+                0,
+                0,
+                0));
     assertEquals(3_150, result.maintenanceMinor());
     assertEquals(2, result.populationDelta());
+    var penalized =
+        simulation.calculate(
+            new SettlementSimulationGateway.Snapshot(
+                UUID.randomUUID(),
+                SettlementLevel.CAMP,
+                100,
+                70,
+                10,
+                100_000,
+                10,
+                10,
+                0,
+                1_000,
+                100,
+                100,
+                "STANDARD",
+                20,
+                10,
+                10,
+                10,
+                0));
+    assertEquals(4_500, penalized.maintenanceMinor());
+    assertEquals(1_100, penalized.workerWagesMinor());
   }
 }
