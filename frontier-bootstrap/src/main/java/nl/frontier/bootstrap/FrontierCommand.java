@@ -936,7 +936,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                       Instant.now()),
               FrontierCommand::transferText);
         }
-        case "audit" -> {
+        case "audit", "history" -> {
           int limit = args.length == 2 ? Integer.parseInt(args[1]) : 10;
           withCity(
               player,
@@ -950,7 +950,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         }
         default ->
             throw new IllegalArgumentException(
-                "treasury actions: status, deposit, withdraw, pay, audit");
+                "treasury actions: status, deposit, withdraw, pay, history");
       }
     } catch (IllegalArgumentException failure) {
       player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
@@ -2963,7 +2963,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
             NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text(
-            "/frontier balance | pay <player> <cents> | treasury status|deposit|withdraw|pay|audit",
+            "/frontier balance | pay <player> <cents> | treasury status|deposit|withdraw|pay|history",
             NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text("/frontier harbor tutorial|jobs|work|status", NamedTextColor.GRAY));
@@ -3137,6 +3137,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "emergency",
               "history"),
           args[1]);
+    if (args.length == 2 && args[0].equalsIgnoreCase("treasury"))
+      return matching(List.of("status", "deposit", "withdraw", "pay", "history"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("contracts"))
       return matching(List.of("list", "post", "accept", "deliver"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("war"))

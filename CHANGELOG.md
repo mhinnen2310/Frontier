@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 3 — Fresh-World Economy Bootstrap
+
+- Moved Harbor capital, daily budget/source cap, per-player reward cap, jobs, starter commodities, initial stock and daily buy/sell offers into validated typed economy configuration.
+- Enforced a hard low-tier commodity allowlist, positive finite stock/offer limits, a non-arbitrage spread and daily global/player anti-inflation caps.
+- Preserved the transactional wallet, player payment, treasury deposit/withdraw/payout, immutable ledger/audit and idempotent transfer flows.
+- Added `/frontier treasury history` as the documented player command while retaining `audit` as a compatibility alias.
+- Added policy unit tests and a custom-policy PostgreSQL test proving configured bootstrap/jobs/orders plus replay-safe single payment.
+
 ## Master Roadmap Sprint 2 — Central Typed Configuration
 
 - Replaced dispersed Bukkit configuration reads with immutable typed global/module records and one `ConfigRegistry`.

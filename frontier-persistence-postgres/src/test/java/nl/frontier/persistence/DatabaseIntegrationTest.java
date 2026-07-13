@@ -11,7 +11,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -36,6 +38,7 @@ import nl.frontier.economy.ContractGateway;
 import nl.frontier.economy.EconomyGateway;
 import nl.frontier.economy.FinanceApplicationService;
 import nl.frontier.economy.HarborGateway;
+import nl.frontier.economy.HarborPolicy;
 import nl.frontier.economy.InfrastructureSurvey;
 import nl.frontier.economy.InfrastructureType;
 import nl.frontier.economy.InfrastructureValidator;
@@ -60,6 +63,51 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 class DatabaseIntegrationTest {
+  @Test
+  void configuredHarborPolicyControlsBootstrapJobsMarketsAndReplay() throws Exception {
+    String url = System.getProperty("frontier.test.database.url");
+    Assumptions.assumeTrue(url != null && !url.isBlank(), "integration database not configured");
+    try (DatabaseManager database =
+        new DatabaseManager(
+            new DatabaseManager.Configuration(url, "frontier", "", 2, Duration.ofSeconds(5)))) {
+      database.migrate();
+      resetData(database);
+      JdbcTransactionalStore store = new JdbcTransactionalStore(database.dataSource());
+      HarborPolicy policy =
+          new HarborPolicy(
+              1_000,
+              500,
+              300,
+              10_000,
+              Set.of("minecraft:bread", "minecraft:cobblestone"),
+              Map.of("minecraft:bread", 50L, "minecraft:cobblestone", 100L),
+              List.of(new HarborPolicy.StarterJobDefinition("TEST_JOB", "Test work", 300)),
+              List.of(new HarborPolicy.MarketOffer("minecraft:cobblestone", 5, 2)),
+              List.of(new HarborPolicy.MarketOffer("minecraft:bread", 2, 20)));
+      PostgresHarborGateway harbor = new PostgresHarborGateway(store, policy);
+      var snapshot = harbor.bootstrap(UUID.randomUUID(), 0, 0, Instant.now());
+      assertEquals(1, snapshot.openBuyOrders());
+      assertEquals(1, snapshot.openSellOrders());
+      assertEquals(1_000, snapshot.budgetRemainingMinor());
+      UUID player = UUID.randomUUID();
+      var job = harbor.jobs(player, Instant.now()).getFirst();
+      assertEquals(300, job.rewardMinor());
+      var first = harbor.completeJob(player, job.id(), Instant.now());
+      var replay = harbor.completeJob(player, job.id(), Instant.now());
+      assertEquals(300, first.playerBalanceMinor());
+      assertEquals(first, replay);
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT daily_budget_minor,spent_today_minor FROM harbor_state WHERE singleton");
+          var result = statement.executeQuery()) {
+        assertTrue(result.next());
+        assertEquals(1_000, result.getLong(1));
+        assertEquals(300, result.getLong(2));
+      }
+    }
+  }
+
   @Test
   void concurrentMarketMatchersCannotDuplicateLastReservedUnit() throws Exception {
     String url = System.getProperty("frontier.test.database.url");

@@ -7,7 +7,7 @@
 | UI/health | `/frontier [menu <screen>]`, `/frontier help`, `/frontier status` |
 | Settlement | `/frontier city create <name> [\| <charter>]`, `info`, `invite <player>`, `accept <invitation>`, `role <player> <role>`, `claim`, `building <type> [radius] [district]`, `upgrade`, `policy tax <LOW\|STANDARD\|HIGH>`, `transfer <player>`, `succession`, `abandon`, `disband`, `recover`, `merge <city>`, `merge-accept <proposal>`, `history` |
 | District | `/frontier district list`, `create <type> <radius> <name>`, `delete <district>`, `resize <district> <radius>`, `rename <district> <name>`, `manager-assign <district> <player>`, `manager-transfer <district> <player>`, `budget <district> <cents>`, `priority <district> <0-100>`, `policy <district> <key> <value>`, `worker-assign <district> <worker> [priority]`, `worker-remove <district> <worker>`, `view <district> <overview\|budget\|workers\|buildings\|reports\|policies\|history>` |
-| Money | `/frontier balance`, `/frontier pay <player> <cents>`, `/frontier treasury status`, `deposit <cents>`, `withdraw <cents>`, `pay <player> <cents>`, `audit [limit]` |
+| Money | `/frontier balance`, `/frontier pay <player> <cents>`, `/frontier treasury status`, `deposit <cents>`, `withdraw <cents>`, `pay <player> <cents>`, `history [limit]` (`audit` remains a compatibility alias) |
 | Harbor | `/frontier harbor tutorial`, `jobs`, `work [job]`, `status` |
 | Market | `/frontier market list`, `warehouse`, `deposit <quantity>`, `buy <commodity> <quantity> <unit-price-cents>`, `sell ...`, `cancel <order>` |
 | Production | `/frontier production list`, `queue <building> <recipe> <quantity> [priority]`, `hire <profession> <skill> <daily-salary-cents>` |

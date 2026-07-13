@@ -1,5 +1,7 @@
 package nl.frontier.bootstrap;
 
+import nl.frontier.economy.HarborPolicy;
+
 public record FrontierConfiguration(
     Global global,
     Settlements settlements,
@@ -51,7 +53,8 @@ public record FrontierConfiguration(
       int maximumProductionOrdersPerCycle,
       long logisticsCycleSeconds,
       int maximumShipmentsPerCycle,
-      long harborRefreshSeconds) {}
+      long harborRefreshSeconds,
+      HarborPolicy harborPolicy) {}
 
   public record Warfare(
       Control control,

@@ -17,15 +17,21 @@ import java.util.UUID;
 import nl.frontier.api.TransactionalStore;
 import nl.frontier.domain.DomainException;
 import nl.frontier.economy.HarborGateway;
+import nl.frontier.economy.HarborPolicy;
 
 public final class PostgresHarborGateway implements HarborGateway {
   private static final UUID HARBOR_CITY = named("frontier:harbor:city");
   private static final UUID HARBOR_ACTOR = named("frontier:harbor:system-actor");
-  private static final long DAILY_BUDGET = 250_000;
   private final TransactionalStore store;
+  private final HarborPolicy policy;
 
   public PostgresHarborGateway(TransactionalStore store) {
+    this(store, HarborPolicy.defaults());
+  }
+
+  public PostgresHarborGateway(TransactionalStore store, HarborPolicy policy) {
     this.store = store;
+    this.policy = policy;
   }
 
   @Override
@@ -112,6 +118,9 @@ public final class PostgresHarborGateway implements HarborGateway {
           if (row.status.equals("COMPLETED")) return receipt(connection, row);
           if (!row.status.equals("POSTED") || !row.expiresAt.isAfter(now))
             throw new DomainException("starter job is no longer available");
+          if (completedRewardToday(connection, player, now) + row.reward
+              > policy.maximumPlayerRewardPerDayMinor())
+            throw new DomainException("Frontier Harbor player daily reward cap is exhausted");
           HarborRow harbor = lockHarbor(connection);
           if (harbor.spent + row.reward > harbor.budget)
             throw new DomainException("Frontier Harbor daily job budget is exhausted");
@@ -199,8 +208,8 @@ public final class PostgresHarborGateway implements HarborGateway {
         });
   }
 
-  private static void insertHarbor(
-      Connection connection, UUID world, int chunkX, int chunkZ, Instant now) throws SQLException {
+  private void insertHarbor(Connection connection, UUID world, int chunkX, int chunkZ, Instant now)
+      throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
             "INSERT INTO cities(id,name,owner_id,level,population,prosperity,civilization,created_at,version,settlement_kind) VALUES(?,'Frontier Harbor',?,4,250,75,60,?,0,'SERVER')")) {
@@ -222,14 +231,14 @@ public final class PostgresHarborGateway implements HarborGateway {
         world,
         chunkX,
         chunkZ);
-    UUID account = account(connection, "CITY", HARBOR_CITY, 10_000_000);
+    UUID account = account(connection, "CITY", HARBOR_CITY, policy.initialCapitalMinor());
     ledger(
         connection,
         account,
         null,
         "HARBOR_INITIAL_CAPITAL",
-        10_000_000,
-        10_000_000,
+        policy.initialCapitalMinor(),
+        policy.initialCapitalMinor(),
         HARBOR_CITY,
         named("harbor:initial-capital"),
         null,
@@ -240,11 +249,8 @@ public final class PostgresHarborGateway implements HarborGateway {
         "INSERT INTO warehouses(id,city_id,capacity,status,version) VALUES(?,?,1000000,'ACTIVE',0)",
         warehouse,
         HARBOR_CITY);
-    stock(connection, warehouse, "minecraft:bread", 10_000);
-    stock(connection, warehouse, "minecraft:wheat", 20_000);
-    stock(connection, warehouse, "minecraft:oak_log", 10_000);
-    stock(connection, warehouse, "minecraft:cobblestone", 20_000);
-    stock(connection, warehouse, "minecraft:iron_ingot", 2_000);
+    for (var entry : policy.initialStock().entrySet())
+      stock(connection, warehouse, entry.getKey(), entry.getValue());
     UUID road = named("frontier:harbor:road-node");
     execute(
         connection,
@@ -262,7 +268,7 @@ public final class PostgresHarborGateway implements HarborGateway {
         "INSERT INTO harbor_state(singleton,city_id,system_actor_id,daily_budget_minor,spent_today_minor,budget_resets_at,version) VALUES(true,?,?,?,0,?,0)",
         HARBOR_CITY,
         HARBOR_ACTOR,
-        DAILY_BUDGET,
+        policy.dailyBudgetMinor(),
         nextDay(now));
     execute(
         connection,
@@ -289,13 +295,23 @@ public final class PostgresHarborGateway implements HarborGateway {
         skill);
   }
 
-  private static void refreshBudget(Connection connection, Instant now) throws SQLException {
+  private void refreshBudget(Connection connection, Instant now) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE harbor_state SET daily_budget_minor=?,version=version+1 WHERE singleton AND daily_budget_minor<>?")) {
+      statement.setLong(1, policy.dailyBudgetMinor());
+      statement.setLong(2, policy.dailyBudgetMinor());
+      statement.executeUpdate();
+    }
     HarborRow current = lockHarbor(connection);
     if (now.isBefore(current.resetsAt)) return;
     Instant next = nextDay(now);
     UUID account = account(connection, "CITY", current.city, 0);
     long balance = balance(connection, account);
-    long grant = Math.max(0, DAILY_BUDGET - Math.min(DAILY_BUDGET, balance));
+    long grant =
+        Math.min(
+            policy.maximumDailySourceMinor(),
+            Math.max(0, policy.dailyBudgetMinor() - Math.min(policy.dailyBudgetMinor(), balance)));
     if (grant > 0) {
       setBalance(connection, account, balance + grant);
       ledger(
@@ -318,14 +334,12 @@ public final class PostgresHarborGateway implements HarborGateway {
     }
   }
 
-  private static void refreshMarket(Connection connection, Instant now) throws SQLException {
+  private void refreshMarket(Connection connection, Instant now) throws SQLException {
     LocalDate day = LocalDate.ofInstant(now, ZoneOffset.UTC);
-    seedSell(connection, day, "minecraft:bread", 128, 150, now);
-    seedSell(connection, day, "minecraft:oak_log", 256, 90, now);
-    seedSell(connection, day, "minecraft:iron_ingot", 64, 450, now);
-    seedBuy(connection, day, "minecraft:cobblestone", 512, 8, now);
-    seedBuy(connection, day, "minecraft:wheat", 256, 12, now);
-    seedBuy(connection, day, "minecraft:oak_log", 128, 20, now);
+    for (HarborPolicy.MarketOffer offer : policy.sellOrders())
+      seedSell(connection, day, offer.commodity(), offer.quantity(), offer.unitPriceMinor(), now);
+    for (HarborPolicy.MarketOffer offer : policy.buyOrders())
+      seedBuy(connection, day, offer.commodity(), offer.quantity(), offer.unitPriceMinor(), now);
     try (PreparedStatement statement =
         connection.prepareStatement(
             "UPDATE harbor_state SET last_market_refresh_at=?,version=version+1 WHERE singleton")) {
@@ -437,28 +451,25 @@ public final class PostgresHarborGateway implements HarborGateway {
     }
   }
 
-  private static void ensureJobs(Connection connection, UUID player, Instant now)
-      throws SQLException {
+  private void ensureJobs(Connection connection, UUID player, Instant now) throws SQLException {
     LocalDate day = LocalDate.ofInstant(now, ZoneOffset.UTC);
     Instant expires = day.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
-    insertJob(
-        connection, player, day, "DOCK_HELP", "Help unload supplies at the docks", 750, expires);
-    insertJob(
-        connection,
-        player,
-        day,
-        "COURIER",
-        "Deliver Harbor notices to the settlement board",
-        900,
-        expires);
-    insertJob(
-        connection,
-        player,
-        day,
-        "CLEANUP",
-        "Clear storm debris around Frontier Harbor",
-        600,
-        expires);
+    for (HarborPolicy.StarterJobDefinition job : policy.starterJobs())
+      insertJob(connection, player, day, job.type(), job.description(), job.rewardMinor(), expires);
+  }
+
+  private static long completedRewardToday(Connection connection, UUID player, Instant now)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT coalesce(sum(reward_minor),0) FROM harbor_jobs WHERE player_id=? AND job_day=? AND status='COMPLETED'")) {
+      statement.setObject(1, player);
+      statement.setDate(2, Date.valueOf(LocalDate.ofInstant(now, ZoneOffset.UTC)));
+      try (ResultSet result = statement.executeQuery()) {
+        result.next();
+        return result.getLong(1);
+      }
+    }
   }
 
   private static void insertJob(

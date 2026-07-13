@@ -2,6 +2,9 @@ package nl.frontier.bootstrap;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -12,6 +15,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Consumer;
+import nl.frontier.economy.HarborPolicy;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -148,7 +152,8 @@ public final class ConfigRegistry {
             positive(economy, "production.maximum-orders-per-cycle", Integer.MAX_VALUE),
             positiveLong(economy, "logistics.cycle-seconds"),
             positive(economy, "logistics.maximum-shipments-per-cycle", Integer.MAX_VALUE),
-            positiveLong(economy, "harbor.refresh-seconds"));
+            positiveLong(economy, "harbor.refresh-seconds"),
+            harborPolicy(economy));
     YamlConfiguration warfare = modules.get("warfare");
     int breachBase = positive(warfare, "breach.base-points", Integer.MAX_VALUE);
     int breachMaximum = positive(warfare, "breach.maximum-points", Integer.MAX_VALUE);
@@ -246,7 +251,7 @@ public final class ConfigRegistry {
       File file = new File(plugin.getDataFolder(), "modules/" + module + ".yml");
       if (createMissing && !file.isFile()) plugin.saveResource("modules/" + module + ".yml", false);
       if (!file.isFile()) throw invalid("missing module configuration: " + file);
-      documents.put(module, YamlConfiguration.loadConfiguration(file));
+      documents.put(module, loadWithDefaults(file, "modules/" + module + ".yml"));
     }
     if (legacy) migrateLegacy(documents);
     FrontierConfiguration parsed =
@@ -434,6 +439,79 @@ public final class ConfigRegistry {
     return new FrontierConfiguration.Control(CONFIG_VERSION, document.getBoolean("enabled"));
   }
 
+  private YamlConfiguration loadWithDefaults(File file, String resource) {
+    YamlConfiguration document = YamlConfiguration.loadConfiguration(file);
+    try (InputStream input = plugin.getResource(resource)) {
+      if (input == null) throw invalid("missing packaged module defaults: " + resource);
+      YamlConfiguration defaults =
+          YamlConfiguration.loadConfiguration(new InputStreamReader(input, StandardCharsets.UTF_8));
+      Set<String> before = document.getKeys(true);
+      document.addDefaults(defaults);
+      document.options().copyDefaults(true);
+      if (!before.containsAll(defaults.getKeys(true))) document.save(file);
+      return document;
+    } catch (IOException failure) {
+      throw new IllegalStateException("could not merge module defaults: " + file, failure);
+    }
+  }
+
+  private static HarborPolicy harborPolicy(FileConfiguration document) {
+    Set<String> allowed = Set.copyOf(document.getStringList("harbor.allowed-commodities"));
+    Map<String, Long> stock = new LinkedHashMap<>();
+    org.bukkit.configuration.ConfigurationSection stockSection =
+        document.getConfigurationSection("harbor.initial-stock");
+    if (stockSection == null) throw invalid("economy harbor.initial-stock is required");
+    for (String commodity : stockSection.getKeys(false)) {
+      long quantity = stockSection.getLong(commodity);
+      if (quantity <= 0) throw invalid("Harbor initial stock must be positive: " + commodity);
+      stock.put(commodity, quantity);
+    }
+    List<HarborPolicy.StarterJobDefinition> jobs =
+        document.getMapList("harbor.starter-jobs").stream()
+            .map(
+                row ->
+                    new HarborPolicy.StarterJobDefinition(
+                        text(row, "type"), text(row, "description"), number(row, "reward-minor")))
+            .toList();
+    List<HarborPolicy.MarketOffer> buys = offers(document, "harbor.buy-orders");
+    List<HarborPolicy.MarketOffer> sells = offers(document, "harbor.sell-orders");
+    return new HarborPolicy(
+        positiveLong(document, "harbor.daily-budget-minor"),
+        positiveLong(document, "harbor.maximum-daily-source-minor"),
+        positiveLong(document, "harbor.maximum-player-reward-per-day-minor"),
+        positiveLong(document, "harbor.initial-capital-minor"),
+        allowed,
+        stock,
+        jobs,
+        buys,
+        sells);
+  }
+
+  private static List<HarborPolicy.MarketOffer> offers(FileConfiguration document, String key) {
+    return document.getMapList(key).stream()
+        .map(
+            row ->
+                new HarborPolicy.MarketOffer(
+                    text(row, "commodity"),
+                    number(row, "quantity"),
+                    number(row, "unit-price-minor")))
+        .toList();
+  }
+
+  private static String text(Map<?, ?> row, String key) {
+    Object value = row.get(key);
+    if (!(value instanceof String text) || text.isBlank())
+      throw invalid("Harbor list value is required: " + key);
+    return text;
+  }
+
+  private static long number(Map<?, ?> row, String key) {
+    Object value = row.get(key);
+    if (!(value instanceof Number number) || number.longValue() <= 0)
+      throw invalid("Harbor list number must be positive: " + key);
+    return number.longValue();
+  }
+
   private static int positive(FileConfiguration document, String key, int maximum) {
     int value = document.getInt(key);
     if (value <= 0 || value > maximum) throw invalid(key + " must be between 1 and " + maximum);
@@ -543,7 +621,20 @@ public final class ConfigRegistry {
             "production.maximum-orders-per-cycle",
             "logistics.cycle-seconds",
             "logistics.maximum-shipments-per-cycle",
-            "harbor.refresh-seconds"));
+            "harbor.refresh-seconds",
+            "harbor.daily-budget-minor",
+            "harbor.maximum-daily-source-minor",
+            "harbor.maximum-player-reward-per-day-minor",
+            "harbor.initial-capital-minor",
+            "harbor.allowed-commodities",
+            "harbor.initial-stock.minecraft:bread",
+            "harbor.initial-stock.minecraft:wheat",
+            "harbor.initial-stock.minecraft:oak_log",
+            "harbor.initial-stock.minecraft:cobblestone",
+            "harbor.initial-stock.minecraft:iron_ingot",
+            "harbor.starter-jobs",
+            "harbor.buy-orders",
+            "harbor.sell-orders"));
     keys.put(
         "warfare",
         leaves(

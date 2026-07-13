@@ -7,7 +7,7 @@
 3. Create a settlement with `/frontier city create <name>` after meeting its material, fee, player, location and distance requirements.
 4. Deposit money with `/frontier treasury deposit <cents>`, claim land, register valid buildings and upgrade.
 
-Harbor guarantees limited bad-price buy orders and starter contracts. Its daily budgets deliberately make it an early-game source and sink, not a competitive late-game market.
+Harbor guarantees limited bad-price buy orders and starter contracts. Typed server configuration controls only a hard low-tier commodity set, finite daily quantities, global currency creation and per-player rewards. Its enforced loss-making spread makes it an early-game source and sink, not a competitive late-game market.
 
 ## Settlement progression
 

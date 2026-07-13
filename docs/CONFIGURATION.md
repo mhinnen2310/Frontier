@@ -38,7 +38,7 @@ Every file has `config-version: 1`; every module has `enabled`. Values are loade
 | `districts.yml` | District subsystem control | enabled |
 | `buildings.yml` | Physical validation/registration control | enabled |
 | `influence.yml` | Cadence/bound, contested threshold and lead hysteresis | enabled |
-| `economy.yml` | Market, production, logistics and Harbor cadences/bounds | enabled |
+| `economy.yml` | Market/production/logistics cadence; Harbor budgets, source/player caps, low-tier stock, jobs and limited daily orders | enabled |
 | `infrastructure.yml` | Infrastructure subsystem control | enabled |
 | `caravans.yml` | Caravan subsystem control | enabled |
 | `warfare.yml` | Campaign timing/cost, breach budget and objective lifecycle | enabled |
@@ -53,6 +53,8 @@ Every file has `config-version: 1`; every module has `enabled`. Values are loade
 | `world-simulation.yml` | World cycle cadence and city bound | enabled |
 
 All durations and batch limits must be positive. Web ports are 1–65535, visible NPCs are capped at 500, repair unsafe radius at 1024 blocks, breach base cannot exceed its maximum, and database/async pools cannot exceed 64. Enabled dependency chains are validated; for example repairs require warfare, warfare requires influence, and influence requires settlements.
+
+Harbor's commodity allowlist is additionally bounded in code to bread, wheat, oak logs, cobblestone and iron ingots. Config may choose a subset but cannot introduce high-tier goods. Starter-job totals cannot exceed the per-player daily cap, daily currency creation cannot exceed the Harbor budget, and overlapping buy/sell prices may not permit arbitrage.
 
 ## Administration
 

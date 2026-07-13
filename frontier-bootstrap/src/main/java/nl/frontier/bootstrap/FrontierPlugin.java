@@ -149,7 +149,8 @@ public final class FrontierPlugin extends JavaPlugin {
       PostgresEconomyGateway economyGateway = new PostgresEconomyGateway(store);
       FinanceApplicationService finance =
           new FinanceApplicationService(new PostgresFinanceGateway(store));
-      HarborGateway harborGateway = new PostgresHarborGateway(store);
+      HarborGateway harborGateway =
+          new PostgresHarborGateway(store, config.economy().harborPolicy());
       HarborApplicationService harbor = new HarborApplicationService(harborGateway);
       World primaryWorld = getServer().getWorlds().getFirst();
       Location harborLocation = primaryWorld.getSpawnLocation();

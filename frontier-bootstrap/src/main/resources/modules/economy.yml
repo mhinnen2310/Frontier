@@ -11,3 +11,49 @@ logistics:
   maximum-shipments-per-cycle: 64
 harbor:
   refresh-seconds: 300
+  daily-budget-minor: 250000
+  maximum-daily-source-minor: 250000
+  maximum-player-reward-per-day-minor: 2250
+  initial-capital-minor: 10000000
+  allowed-commodities:
+    - minecraft:bread
+    - minecraft:wheat
+    - minecraft:oak_log
+    - minecraft:cobblestone
+    - minecraft:iron_ingot
+  initial-stock:
+    minecraft:bread: 10000
+    minecraft:wheat: 20000
+    minecraft:oak_log: 10000
+    minecraft:cobblestone: 20000
+    minecraft:iron_ingot: 2000
+  starter-jobs:
+    - type: DOCK_HELP
+      description: Help unload supplies at the docks
+      reward-minor: 750
+    - type: COURIER
+      description: Deliver Harbor notices to the settlement board
+      reward-minor: 900
+    - type: CLEANUP
+      description: Clear storm debris around Frontier Harbor
+      reward-minor: 600
+  buy-orders:
+    - commodity: minecraft:cobblestone
+      quantity: 512
+      unit-price-minor: 8
+    - commodity: minecraft:wheat
+      quantity: 256
+      unit-price-minor: 12
+    - commodity: minecraft:oak_log
+      quantity: 128
+      unit-price-minor: 20
+  sell-orders:
+    - commodity: minecraft:bread
+      quantity: 128
+      unit-price-minor: 150
+    - commodity: minecraft:oak_log
+      quantity: 256
+      unit-price-minor: 90
+    - commodity: minecraft:iron_ingot
+      quantity: 64
+      unit-price-minor: 450
