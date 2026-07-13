@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 23 — Final QA
+
+- Added a dedicated clean-database `finalQaTest` gate for the full normal-player journey, separate from development and scale databases.
+- Added a traceable acceptance matrix covering settlement founding/upgrading, districts, economy, population, roads, buildings, markets, workers, campaigns/conquest, repairs, kingdoms, events, wonders, migration, new-player and late-game integrity.
+- Required a newly generated Paper world startup with no Frontier admin command used to seed gameplay.
+- Documented the honest human-playtest boundary for subjective feel and real network clients.
+
 ## Sprint 22 — Documentation
 
 - Added one maintained documentation index and complete manuals for architecture, gameplay, commands, all Paper Dialog screens, administration, permissions, developer API, database schema, configuration and upgrades.

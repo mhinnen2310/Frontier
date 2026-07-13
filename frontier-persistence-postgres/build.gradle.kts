@@ -29,3 +29,13 @@ tasks.register<Test>("scaleTest") {
     filter.includeTestsMatching("nl.frontier.persistence.MultiplayerScaleTest")
     systemProperty("frontier.scale.database.url", System.getenv("FRONTIER_SCALE_DATABASE_URL") ?: "")
 }
+
+tasks.register<Test>("finalQaTest") {
+    group = "verification"
+    description = "Runs the complete clean-database player-journey and integrity acceptance test."
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform()
+    filter.includeTestsMatching("nl.frontier.persistence.DatabaseIntegrationTest")
+    systemProperty("frontier.test.database.url", System.getenv("FRONTIER_QA_DATABASE_URL") ?: "")
+}
