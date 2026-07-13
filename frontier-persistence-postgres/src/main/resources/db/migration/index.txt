@@ -21,3 +21,4 @@ V20__settlement_lifecycle.sql
 V21__physical_infrastructure.sql
 V22__caravan_simulation.sql
 V23__population_simulation.sql
+V24__complete_economy.sql

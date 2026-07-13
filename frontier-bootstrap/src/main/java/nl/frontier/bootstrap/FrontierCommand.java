@@ -31,6 +31,7 @@ import nl.frontier.domain.Ids.RepairOrderId;
 import nl.frontier.domain.Ids.SettlementId;
 import nl.frontier.domain.Ids.WarId;
 import nl.frontier.economy.CaravanService;
+import nl.frontier.economy.CommercialService;
 import nl.frontier.economy.ContractGateway;
 import nl.frontier.economy.EconomyApplicationService;
 import nl.frontier.economy.EconomyGateway;
@@ -67,6 +68,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           "caravan",
           "population",
           "workers",
+          "economy",
           "treasury",
           "production",
           "logistics",
@@ -90,6 +92,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final InfrastructureRegistrationCoordinator infrastructureRegistrations;
   private final CaravanService caravans;
   private final PopulationService population;
+  private final CommercialService commerce;
   private final FinanceApplicationService finance;
   private final HarborApplicationService harbor;
   private final EconomyApplicationService economy;
@@ -120,6 +123,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       InfrastructureRegistrationCoordinator infrastructureRegistrations,
       CaravanService caravans,
       PopulationService population,
+      CommercialService commerce,
       FinanceApplicationService finance,
       HarborApplicationService harbor,
       EconomyApplicationService economy,
@@ -148,6 +152,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.infrastructureRegistrations = Objects.requireNonNull(infrastructureRegistrations);
     this.caravans = Objects.requireNonNull(caravans);
     this.population = Objects.requireNonNull(population);
+    this.commerce = Objects.requireNonNull(commerce);
     this.finance = Objects.requireNonNull(finance);
     this.harbor = Objects.requireNonNull(harbor);
     this.economy = Objects.requireNonNull(economy);
@@ -216,6 +221,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     }
     if (root.equals("workers") && sender instanceof Player player) {
       workers(player);
+      return true;
+    }
+    if (root.equals("economy") && sender instanceof Player player) {
+      commercial(player, Arrays.copyOfRange(args, 1, args.length));
       return true;
     }
     if (root.equals("balance") && sender instanceof Player player) {
@@ -1404,6 +1413,188 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                     .collect(java.util.stream.Collectors.joining(" | ")));
   }
 
+  private void commercial(Player player, String[] args) {
+    try {
+      String action = args.length == 0 ? "companies" : args[0].toLowerCase(Locale.ROOT);
+      switch (action) {
+        case "companies" ->
+            execute(
+                player,
+                () -> commerce.companies(player.getUniqueId()),
+                values ->
+                    values.isEmpty()
+                        ? "You do not own a company."
+                        : values.stream()
+                            .map(
+                                value ->
+                                    value.id()
+                                        + " "
+                                        + value.name()
+                                        + " balance="
+                                        + value.balanceMinor())
+                            .collect(java.util.stream.Collectors.joining(" | ")));
+        case "company-create" -> {
+          if (args.length < 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier economy company-create <capital-cents> <name>");
+          long capital = Long.parseLong(args[1]);
+          String name = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
+          withCity(
+              player,
+              city ->
+                  commerce.createCompany(
+                      player.getUniqueId(),
+                      city.id(),
+                      name,
+                      capital,
+                      UUID.randomUUID(),
+                      Instant.now()),
+              value -> "Company created: " + value.name() + " (" + value.id() + ")");
+        }
+        case "invoice" -> {
+          if (args.length != 5)
+            throw new IllegalArgumentException(
+                "usage: /frontier economy invoice <company-uuid> <player> <cents> <due-days>");
+          UUID company = UUID.fromString(args[1]);
+          UUID target = resolvePlayer(player, args[2]);
+          long amount = Long.parseLong(args[3]);
+          int days = Integer.parseInt(args[4]);
+          execute(
+              player,
+              () ->
+                  commerce.invoice(
+                      company, player.getUniqueId(), target, amount, days, Instant.now()),
+              value -> "Invoice issued: " + value.id());
+        }
+        case "invoice-pay" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException(
+                "usage: /frontier economy invoice-pay <invoice-uuid>");
+          UUID invoice = UUID.fromString(args[1]);
+          execute(
+              player,
+              () ->
+                  commerce.payInvoice(
+                      invoice, player.getUniqueId(), UUID.randomUUID(), Instant.now()),
+              value -> "Invoice paid: " + value.id());
+        }
+        case "loan" -> {
+          if (args.length != 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier economy loan <company-uuid> <cents> <annual-basis-points>");
+          UUID company = UUID.fromString(args[1]);
+          long amount = Long.parseLong(args[2]);
+          int rate = Integer.parseInt(args[3]);
+          execute(
+              player,
+              () ->
+                  commerce.borrow(
+                      company,
+                      player.getUniqueId(),
+                      amount,
+                      rate,
+                      UUID.randomUUID(),
+                      Instant.now()),
+              value -> "Loan created: " + value.id());
+        }
+        case "loan-repay" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier economy loan-repay <loan-uuid> <cents>");
+          UUID loan = UUID.fromString(args[1]);
+          long amount = Long.parseLong(args[2]);
+          execute(
+              player,
+              () ->
+                  commerce.repay(
+                      loan, player.getUniqueId(), amount, UUID.randomUUID(), Instant.now()),
+              value ->
+                  "Loan outstanding: "
+                      + value.outstandingMinor()
+                      + " + "
+                      + value.accruedInterestMinor()
+                      + " interest");
+        }
+        case "tax" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException(
+                "usage: /frontier economy tax <business-basis-points>");
+          int rate = Integer.parseInt(args[1]);
+          withCity(
+              player,
+              city -> commerce.tax(city.id(), player.getUniqueId(), rate, Instant.now()),
+              value -> "Business tax is " + value.basisPoints() + " basis points");
+        }
+        case "procure" -> {
+          if (args.length != 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier economy procure <commodity> <quantity> <max-unit-cents>");
+          long quantity = Long.parseLong(args[2]);
+          long price = Long.parseLong(args[3]);
+          withCity(
+              player,
+              city ->
+                  commerce.procure(
+                      city.id(), player.getUniqueId(), args[1], quantity, price, Instant.now()),
+              value -> "Procurement posted: " + value.id());
+        }
+        case "fulfill" -> {
+          if (args.length != 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier economy fulfill <procurement-uuid> <company-uuid> <quantity>");
+          UUID procurement = UUID.fromString(args[1]);
+          UUID company = UUID.fromString(args[2]);
+          long quantity = Long.parseLong(args[3]);
+          execute(
+              player,
+              () ->
+                  commerce.fulfill(
+                      procurement, company, player.getUniqueId(), quantity, Instant.now()),
+              value ->
+                  "Procurement "
+                      + value.status()
+                      + " "
+                      + value.fulfilled()
+                      + "/"
+                      + value.quantity());
+        }
+        case "emergency" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier economy emergency <commodity> <quantity>");
+          long quantity = Long.parseLong(args[2]);
+          withCity(
+              player,
+              city ->
+                  commerce.emergencyBuy(
+                      city.id(),
+                      player.getUniqueId(),
+                      args[1],
+                      quantity,
+                      UUID.randomUUID(),
+                      Instant.now()),
+              value -> "Emergency purchase cost " + value.totalMinor() + " cents");
+        }
+        case "history" ->
+            withCity(
+                player,
+                city -> commerce.history(city.id(), player.getUniqueId()),
+                values ->
+                    values.isEmpty()
+                        ? "No commercial history."
+                        : values.stream()
+                            .limit(20)
+                            .map(value -> value.type() + " " + value.details())
+                            .collect(java.util.stream.Collectors.joining(" | ")));
+        default ->
+            throw new IllegalArgumentException(
+                "economy actions: companies, company-create, invoice, invoice-pay, loan, loan-repay, tax, procure, fulfill, emergency, history");
+      }
+    } catch (IllegalArgumentException failure) {
+      player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
+    }
+  }
+
   private void contracts(Player player, String[] args) {
     if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
       execute(
@@ -2188,6 +2379,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     sender.sendMessage(Component.text("/frontier caravan list|escort", NamedTextColor.GRAY));
     sender.sendMessage(Component.text("/frontier population | workers", NamedTextColor.GRAY));
     sender.sendMessage(
+        Component.text(
+            "/frontier economy companies|company-create|invoice|invoice-pay|loan|loan-repay|tax|procure|fulfill|emergency|history",
+            NamedTextColor.GRAY));
+    sender.sendMessage(
         Component.text("/frontier contracts list|post|accept|deliver", NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text(
@@ -2300,6 +2495,21 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           args[4]);
     if (args.length == 2 && args[0].equalsIgnoreCase("caravan"))
       return matching(List.of("list", "escort"), args[1]);
+    if (args.length == 2 && args[0].equalsIgnoreCase("economy"))
+      return matching(
+          List.of(
+              "companies",
+              "company-create",
+              "invoice",
+              "invoice-pay",
+              "loan",
+              "loan-repay",
+              "tax",
+              "procure",
+              "fulfill",
+              "emergency",
+              "history"),
+          args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("contracts"))
       return matching(List.of("list", "post", "accept", "deliver"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("war"))

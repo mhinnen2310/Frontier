@@ -84,6 +84,16 @@
 - Added `/frontier population` and `/frontier workers` reports plus a bounded population supervisor.
 - Added clean-database regression coverage for housing capacity, food/safety inputs, births, immigration, worker retirement and report output.
 
+### Sprint 10 — Complete Economy
+
+- Added player-capitalized companies with audited company accounts, ownership/shares and `/frontier economy` command flows.
+- Added company invoices and replay-safe player payments, settlement-backed company loans, daily interest, repayments and business-tax assessments.
+- Added government procurement fulfilled from a company settlement warehouse and punitive Harbor-backed emergency purchasing.
+- Added unified commercial history alongside the existing authoritative trade and price histories.
+- Added explicit multi-step production-chain definitions and a tool-kit chain extending the existing recipe/reservation engine.
+- Retained PostgreSQL-authoritative warehouses, shipment logistics, production reservations and player wallets; all new money and stock mutations are transactional.
+- Added Flyway migration V24 and clean-database coverage for company capital, invoices, overdue processing, loans/interest, taxes, procurement, emergency pricing and history.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

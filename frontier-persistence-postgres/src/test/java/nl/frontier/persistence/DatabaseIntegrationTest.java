@@ -168,7 +168,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(23, result.getInt(1));
+        assertEquals(24, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1201,6 +1201,77 @@ class DatabaseIntegrationTest {
       assertEquals(
           "RETIRED",
           population.workers(populationCity.id(), populationOwner).getFirst().employment());
+
+      UUID invoicePayer = UUID.randomUUID();
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(gen_random_uuid(),'PLAYER','"
+                + populationOwner
+                + "',5000), (gen_random_uuid(),'PLAYER','"
+                + invoicePayer
+                + "',500)");
+      }
+      PostgresCommercialGateway commercial = new PostgresCommercialGateway(store);
+      var company =
+          commercial.createCompany(
+              populationOwner,
+              populationCity.id(),
+              "Frontier Works",
+              1_000,
+              UUID.randomUUID(),
+              Instant.now());
+      assertEquals(1_000, company.balanceMinor());
+      var invoice =
+          commercial.issueInvoice(
+              company.id(),
+              populationOwner,
+              invoicePayer,
+              200,
+              Instant.now().plusSeconds(86_400),
+              Instant.now());
+      assertEquals(
+          "PAID",
+          commercial
+              .payInvoice(invoice.id(), invoicePayer, UUID.randomUUID(), Instant.now())
+              .status());
+      commercial.issueInvoice(
+          company.id(),
+          populationOwner,
+          invoicePayer,
+          100,
+          Instant.now().minusSeconds(1),
+          Instant.now());
+      var loan =
+          commercial.borrow(
+              company.id(), populationOwner, 1_000, 1_000, UUID.randomUUID(), Instant.now());
+      commercial.setBusinessTax(populationCity.id(), populationOwner, 1_000, Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "UPDATE company_loans SET next_interest_at=now()-interval '1 second' WHERE id=?")) {
+        statement.setObject(1, loan.id());
+        statement.executeUpdate();
+      }
+      var commercialCycle = commercial.cycle(100, Instant.now());
+      assertEquals(1, commercialCycle.interestAccruals());
+      assertEquals(1, commercialCycle.taxesCollected());
+      assertTrue(commercialCycle.overdueInvoices() >= 1);
+      var repaid =
+          commercial.repay(loan.id(), populationOwner, 1_100, UUID.randomUUID(), Instant.now());
+      assertEquals("PAID", repaid.status());
+      var procurement =
+          commercial.procure(buyer.id(), buyerOwner, "minecraft:wheat", 2, 10, Instant.now());
+      assertEquals(
+          "COMPLETED",
+          commercial
+              .fulfill(procurement.id(), company.id(), populationOwner, 2, Instant.now())
+              .status());
+      var emergency =
+          commercial.emergencyBuy(
+              buyer.id(), buyerOwner, "minecraft:wheat", 1, UUID.randomUUID(), Instant.now());
+      assertEquals(20, emergency.unitPriceMinor());
+      assertTrue(commercial.history(buyer.id(), buyerOwner, 100).size() >= 2);
 
       ArrayList<PostgresOutboxDispatcher.Event> published = new ArrayList<>();
       PostgresOutboxDispatcher outbox = new PostgresOutboxDispatcher(store, published::add);
