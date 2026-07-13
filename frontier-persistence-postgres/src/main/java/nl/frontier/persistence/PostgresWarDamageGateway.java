@@ -153,7 +153,7 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
           if (building != null) {
             try (PreparedStatement statement =
                 connection.prepareStatement(
-                    "UPDATE city_buildings SET integrity=greatest(0,integrity-1),status=CASE WHEN integrity-1<15 THEN 'DISABLED' WHEN integrity-1<40 THEN 'EMERGENCY' WHEN integrity-1<90 THEN 'DEGRADED' ELSE 'OPERATIONAL' END,version=version+1 WHERE id=?")) {
+                    "UPDATE city_buildings SET integrity=greatest(0,integrity-1),status=CASE WHEN integrity-1<=0 THEN 'DESTROYED' WHEN integrity-1<15 THEN 'DISABLED' WHEN integrity-1<90 THEN 'DAMAGED' ELSE 'ACTIVE' END,version=version+1 WHERE id=?")) {
               statement.setObject(1, building);
               statement.executeUpdate();
             }

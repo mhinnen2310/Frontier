@@ -18,10 +18,13 @@ public final class Building {
   }
 
   public enum Status {
-    OPERATIONAL,
-    DEGRADED,
-    EMERGENCY,
-    DISABLED
+    PLANNED,
+    UNDER_CONSTRUCTION,
+    VALIDATING,
+    ACTIVE,
+    DAMAGED,
+    DISABLED,
+    DESTROYED
   }
 
   private final BuildingId id;
@@ -50,18 +53,17 @@ public final class Building {
   }
 
   public Status status() {
+    if (integrity == 0) return Status.DESTROYED;
     if (integrity < 15) return Status.DISABLED;
-    if (integrity < 40) return Status.EMERGENCY;
-    if (integrity < 90) return Status.DEGRADED;
-    return Status.OPERATIONAL;
+    if (integrity < 90) return Status.DAMAGED;
+    return Status.ACTIVE;
   }
 
   public double efficiency() {
     return switch (status()) {
-      case OPERATIONAL -> 1.0;
-      case DEGRADED -> integrity >= 70 ? 0.85 : 0.55;
-      case EMERGENCY -> 0.20;
-      case DISABLED -> 0.0;
+      case ACTIVE -> 1.0;
+      case DAMAGED -> integrity >= 70 ? 0.85 : integrity >= 40 ? 0.55 : 0.20;
+      case PLANNED, UNDER_CONSTRUCTION, VALIDATING, DISABLED, DESTROYED -> 0.0;
     };
   }
 

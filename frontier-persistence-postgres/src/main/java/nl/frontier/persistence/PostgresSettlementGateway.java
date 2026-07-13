@@ -262,7 +262,7 @@ public final class PostgresSettlementGateway implements SettlementGateway {
           UUID id = UUID.randomUUID();
           update(
               connection,
-              "INSERT INTO city_buildings(id,city_id,category,bounds,integrity,status) VALUES(?,?,?,?::jsonb,100,'OPERATIONAL')",
+              "INSERT INTO city_buildings(id,city_id,category,bounds,integrity,status) VALUES(?,?,?,?::jsonb,100,'ACTIVE')",
               id,
               city,
               category.name(),
@@ -270,7 +270,7 @@ public final class PostgresSettlementGateway implements SettlementGateway {
           markDirty(connection, city, "BUILDING", now);
           audit(connection, actor, "BUILDING_REGISTERED", "BUILDING", id, null, bounds.json(), now);
           outbox(connection, "BUILDING", id, "BuildingRegistered", bounds.json(), now);
-          return new BuildingSnapshot(id, category, 100, "OPERATIONAL");
+          return new BuildingSnapshot(id, category, 100, "ACTIVE");
         });
   }
 

@@ -9,10 +9,15 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import nl.frontier.api.RecoveryCoordinator;
+import nl.frontier.city.BuildingSurvey;
+import nl.frontier.city.BuildingType;
+import nl.frontier.city.BuildingValidationService;
+import nl.frontier.city.BuildingValidator;
 import nl.frontier.city.ClaimProtectionGateway;
 import nl.frontier.city.GovernmentRole;
 import nl.frontier.city.SettlementDailySimulation;
@@ -156,7 +161,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(17, result.getInt(1));
+        assertEquals(18, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -215,6 +220,33 @@ class DatabaseIntegrationTest {
       SettlementGateway.CitySnapshot city =
           settlements.create(
               owner, "Test-" + owner.toString().substring(0, 8), world, 10, 10, Instant.now());
+      BuildingValidationService buildingValidation =
+          new BuildingValidationService(
+              new PostgresBuildingValidationGateway(store), new BuildingValidator());
+      SettlementGateway.Bounds farmBounds =
+          new SettlementGateway.Bounds(world, 162, 60, 162, 169, 66, 169);
+      var registeredFarm =
+          buildingValidation.validateAndRegister(
+              city.id(),
+              owner,
+              BuildingType.FARM,
+              farmBounds,
+              "AGRICULTURAL",
+              new BuildingSurvey(8, 7, 8, 48, 0, 0, 0, 0, 0, 0, 24, 1, 16, 0, 0, 0, Map.of()),
+              Instant.now());
+      assertEquals("ACTIVE", registeredFarm.state());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT status,(SELECT count(*) FROM building_validation_history WHERE building_id=?) FROM city_buildings WHERE id=?")) {
+        statement.setObject(1, registeredFarm.id());
+        statement.setObject(2, registeredFarm.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("ACTIVE", result.getString(1));
+          assertEquals(4, result.getInt(2));
+        }
+      }
       assertEquals(SettlementLevel.CAMP, city.level());
       assertEquals(
           "INFLUENCED",

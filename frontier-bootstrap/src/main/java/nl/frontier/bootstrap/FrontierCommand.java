@@ -17,7 +17,7 @@ import nl.frontier.api.FrontierUi;
 import nl.frontier.api.HealthStatus;
 import nl.frontier.api.RecoveryCoordinator;
 import nl.frontier.api.SchedulerFacade;
-import nl.frontier.city.Building;
+import nl.frontier.city.BuildingType;
 import nl.frontier.city.GovernmentRole;
 import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementGateway;
@@ -72,6 +72,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final FrontierMetrics metrics;
   private final CommandRateLimiter rateLimiter;
   private final SettlementApplicationService settlements;
+  private final BuildingRegistrationCoordinator buildingRegistrations;
   private final FinanceApplicationService finance;
   private final HarborApplicationService harbor;
   private final EconomyApplicationService economy;
@@ -95,6 +96,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       FrontierMetrics metrics,
       CommandRateLimiter rateLimiter,
       SettlementApplicationService settlements,
+      BuildingRegistrationCoordinator buildingRegistrations,
       FinanceApplicationService finance,
       HarborApplicationService harbor,
       EconomyApplicationService economy,
@@ -116,6 +118,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.metrics = Objects.requireNonNull(metrics);
     this.rateLimiter = Objects.requireNonNull(rateLimiter);
     this.settlements = Objects.requireNonNull(settlements);
+    this.buildingRegistrations = Objects.requireNonNull(buildingRegistrations);
     this.finance = Objects.requireNonNull(finance);
     this.harbor = Objects.requireNonNull(harbor);
     this.economy = Objects.requireNonNull(economy);
@@ -339,10 +342,12 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   }
 
   private void building(Player player, String[] args) {
-    if (args.length < 2 || args.length > 3)
-      throw new IllegalArgumentException("usage: /frontier city building <category> [radius]");
-    Building.Category category = Building.Category.valueOf(args[1].toUpperCase(Locale.ROOT));
-    int radius = args.length == 3 ? Integer.parseInt(args[2]) : 4;
+    if (args.length < 2 || args.length > 4)
+      throw new IllegalArgumentException(
+          "usage: /frontier city building <type> [radius] [district-type]");
+    BuildingType type = BuildingType.valueOf(args[1].toUpperCase(Locale.ROOT));
+    int radius = args.length >= 3 ? Integer.parseInt(args[2]) : 4;
+    String district = args.length == 4 ? args[3] : null;
     if (radius < 1 || radius > 16)
       throw new IllegalArgumentException("building radius must be 1-16");
     var location = player.getLocation();
@@ -355,12 +360,39 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
             location.getBlockX() + radius,
             Math.min(320, location.getBlockY() + 8),
             location.getBlockZ() + radius);
-    withCity(
-        player,
-        city ->
-            settlements.registerBuilding(
-                city.id(), player.getUniqueId(), category, bounds, Instant.now()),
-        building -> "Registered " + building.category() + " building " + building.id());
+    schedulers
+        .async(() -> settlements.city(player.getUniqueId()))
+        .whenComplete(
+            (city, error) ->
+                schedulers.forEntity(
+                    player.getUniqueId(),
+                    () -> {
+                      if (error != null) {
+                        player.sendMessage(Component.text(rootMessage(error), NamedTextColor.RED));
+                      } else if (city.isEmpty()) {
+                        player.sendMessage(
+                            Component.text("You are not in a settlement.", NamedTextColor.RED));
+                      } else {
+                        buildingRegistrations.register(
+                            player,
+                            city.orElseThrow().id(),
+                            type,
+                            bounds,
+                            district,
+                            registered ->
+                                player.sendMessage(
+                                    Component.text(
+                                        "Validated and activated "
+                                            + registered.type()
+                                            + " building "
+                                            + registered.id(),
+                                        NamedTextColor.GREEN)),
+                            failure ->
+                                player.sendMessage(
+                                    Component.text(rootMessage(failure), NamedTextColor.RED)));
+                      }
+                    },
+                    () -> {}));
   }
 
   private void policy(Player player, String[] args) {
@@ -1710,6 +1742,14 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "upgrade",
               "policy"),
           args[1]);
+    if (args.length == 3
+        && args[0].equalsIgnoreCase("city")
+        && args[1].equalsIgnoreCase("building"))
+      return matching(
+          Arrays.stream(BuildingType.values())
+              .map(type -> type.name().toLowerCase(Locale.ROOT))
+              .toList(),
+          args[2]);
     if (args.length == 2 && args[0].equalsIgnoreCase("market"))
       return matching(List.of("list", "warehouse", "deposit", "buy", "sell", "cancel"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("production"))

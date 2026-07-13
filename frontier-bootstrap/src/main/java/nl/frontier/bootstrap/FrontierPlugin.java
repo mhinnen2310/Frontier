@@ -15,6 +15,8 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import nl.frontier.api.HealthStatus;
+import nl.frontier.city.BuildingValidationService;
+import nl.frontier.city.BuildingValidator;
 import nl.frontier.city.ClaimProtectionCache;
 import nl.frontier.city.ClaimProtectionGateway;
 import nl.frontier.city.ClaimProtectionService;
@@ -33,6 +35,7 @@ import nl.frontier.observability.FrontierMetrics;
 import nl.frontier.persistence.DatabaseManager;
 import nl.frontier.persistence.JdbcTransactionalStore;
 import nl.frontier.persistence.PostgresAdminDiagnostics;
+import nl.frontier.persistence.PostgresBuildingValidationGateway;
 import nl.frontier.persistence.PostgresCampaignGateway;
 import nl.frontier.persistence.PostgresCivilizationGateway;
 import nl.frontier.persistence.PostgresClaimProtectionGateway;
@@ -142,6 +145,14 @@ public final class FrontierPlugin extends JavaPlugin {
       nl.frontier.warfare.WarDamageGateway warDamageGateway = new PostgresWarDamageGateway(store);
       WorldSimulationGateway worldSimulationGateway = new PostgresWorldSimulationGateway(store);
       CivilizationGateway civilizationGateway = new PostgresCivilizationGateway(store);
+      SettlementApplicationService settlements =
+          new SettlementApplicationService(new PostgresSettlementGateway(store));
+      BuildingRegistrationCoordinator buildingRegistrations =
+          new BuildingRegistrationCoordinator(
+              schedulers,
+              new PaperBuildingSurveyor(),
+              new BuildingValidationService(
+                  new PostgresBuildingValidationGateway(store), new BuildingValidator()));
       FrontierCommand handler =
           new FrontierCommand(
               this::health,
@@ -152,7 +163,8 @@ public final class FrontierPlugin extends JavaPlugin {
                   getConfig().getInt("security.command-rate-limit", 12),
                   Duration.ofSeconds(
                       getConfig().getLong("security.command-rate-window-seconds", 2))),
-              new SettlementApplicationService(new PostgresSettlementGateway(store)),
+              settlements,
+              buildingRegistrations,
               finance,
               harbor,
               new EconomyApplicationService(economyGateway),

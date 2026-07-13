@@ -29,6 +29,14 @@
 - Added automatic 24-hour archival and safe world-unloaded handling without stopping the repair supervisor.
 - Added integration scenarios for concurrent damage, phantom rejection, restart during PREPARED consumption, worker re-lease, duplicate commit, order archival and re-break rollback.
 
+### Sprint 4 — Building Validation Engine
+
+- Replaced direct building registration with a Paper-world survey and transactional validation service for warehouses, housing, farms, builder guilds, markets and barracks.
+- Added physical requirements for dimensions, storage, entrances, road access, beds, enclosed space, roofs, lighting, farmland, water, crops, crafting stations and market stalls.
+- Added authoritative overlap, controlled-claim, settlement-role and district-compatibility checks, with a second in-transaction check before persistence.
+- Added the `PLANNED → UNDER_CONSTRUCTION → VALIDATING → ACTIVE` registration path plus durable `DAMAGED`, `DISABLED` and `DESTROYED` states, validation reports, history and audit entries.
+- Added validator coverage for every supported building type and PostgreSQL integration coverage for migration V18 and lifecycle history.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.
