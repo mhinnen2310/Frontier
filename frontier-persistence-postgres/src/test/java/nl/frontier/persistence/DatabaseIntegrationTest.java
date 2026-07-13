@@ -1,0 +1,825 @@
+package nl.frontier.persistence;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.sql.SQLException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import nl.frontier.api.RecoveryCoordinator;
+import nl.frontier.city.GovernmentRole;
+import nl.frontier.city.SettlementDailySimulation;
+import nl.frontier.city.SettlementGateway;
+import nl.frontier.city.SettlementLevel;
+import nl.frontier.domain.DomainException;
+import nl.frontier.domain.Ids.WorldId;
+import nl.frontier.domain.Position.ChunkPos;
+import nl.frontier.economy.ContractGateway;
+import nl.frontier.economy.EconomyGateway;
+import nl.frontier.economy.LogisticsGateway;
+import nl.frontier.economy.MarketEngine;
+import nl.frontier.economy.ProductionGateway;
+import nl.frontier.influence.ChunkOwnershipCache;
+import nl.frontier.influence.InfluenceSimulationService;
+import nl.frontier.influence.TerritoryState;
+import nl.frontier.npc.NpcMaterializationGateway;
+import nl.frontier.repair.RepairGateway;
+import nl.frontier.repair.RepairOrder;
+import nl.frontier.warfare.CampaignGateway;
+import nl.frontier.warfare.WarCampaign;
+import nl.frontier.warfare.WarDamageGateway;
+import nl.frontier.world.CivilizationGateway;
+import nl.frontier.world.WorldSimulationGateway;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Test;
+
+class DatabaseIntegrationTest {
+  @Test
+  void concurrentMarketMatchersCannotDuplicateLastReservedUnit() throws Exception {
+    String url = System.getProperty("frontier.test.database.url");
+    Assumptions.assumeTrue(url != null && !url.isBlank(), "integration database not configured");
+    try (DatabaseManager database =
+        new DatabaseManager(
+            new DatabaseManager.Configuration(url, "frontier", "", 4, Duration.ofSeconds(5)))) {
+      database.migrate();
+      resetData(database);
+      JdbcTransactionalStore store = new JdbcTransactionalStore(database.dataSource());
+      PostgresSettlementGateway settlements = new PostgresSettlementGateway(store);
+      PostgresEconomyGateway economy = new PostgresEconomyGateway(store);
+      PostgresLogisticsGateway logistics = new PostgresLogisticsGateway(store);
+      UUID world = UUID.randomUUID();
+      UUID sellerActor = UUID.randomUUID();
+      UUID firstActor = UUID.randomUUID();
+      UUID secondActor = UUID.randomUUID();
+      SettlementGateway.CitySnapshot seller =
+          settlements.create(sellerActor, "RaceSeller-" + shortId(), world, 1, 1, Instant.now());
+      SettlementGateway.CitySnapshot first =
+          settlements.create(firstActor, "RaceBuyerA-" + shortId(), world, 2, 2, Instant.now());
+      SettlementGateway.CitySnapshot second =
+          settlements.create(secondActor, "RaceBuyerB-" + shortId(), world, 3, 3, Instant.now());
+      LogisticsGateway.RoadNode sellerNode =
+          logistics.registerNode(
+              seller.id(), sellerActor, world, 16, 64, 16, "WAREHOUSE", Instant.now());
+      LogisticsGateway.RoadNode firstNode =
+          logistics.registerNode(
+              first.id(), firstActor, world, 32, 64, 32, "WAREHOUSE", Instant.now());
+      LogisticsGateway.RoadNode secondNode =
+          logistics.registerNode(
+              second.id(), secondActor, world, 48, 64, 48, "WAREHOUSE", Instant.now());
+      logistics.connect(
+          seller.id(), sellerActor, sellerNode.id(), firstNode.id(), 10, Instant.now());
+      logistics.connect(
+          seller.id(), sellerActor, sellerNode.id(), secondNode.id(), 10, Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE accounts SET balance_minor=2000000 WHERE owner_type='CITY' AND owner_id IN ('"
+                + first.id()
+                + "','"
+                + second.id()
+                + "')");
+      }
+      String commodity = "frontier:race_" + UUID.randomUUID();
+      economy.deposit(seller.id(), sellerActor, commodity, 1, Instant.now());
+      economy.placeOrder(
+          first.id(),
+          firstActor,
+          MarketEngine.Side.BUY,
+          commodity,
+          1,
+          1_000_000,
+          UUID.randomUUID(),
+          Instant.now());
+      economy.placeOrder(
+          second.id(),
+          secondActor,
+          MarketEngine.Side.BUY,
+          commodity,
+          1,
+          1_000_000,
+          UUID.randomUUID(),
+          Instant.now());
+      economy.placeOrder(
+          seller.id(),
+          sellerActor,
+          MarketEngine.Side.SELL,
+          commodity,
+          1,
+          999_999,
+          UUID.randomUUID(),
+          Instant.now());
+      try (var executor = Executors.newFixedThreadPool(2)) {
+        var firstMatch = executor.submit(() -> economy.match(1, Instant.now()));
+        var secondMatch = executor.submit(() -> economy.match(1, Instant.now()));
+        assertEquals(
+            1, firstMatch.get(10, TimeUnit.SECONDS) + secondMatch.get(10, TimeUnit.SECONDS));
+      }
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT count(*),min(quantity),max(quantity) FROM shipment_items WHERE commodity_key=?")) {
+        statement.setString(1, commodity);
+        try (var result = statement.executeQuery()) {
+          result.next();
+          assertEquals(1, result.getInt(1));
+          assertEquals(1, result.getLong(2));
+          assertEquals(1, result.getLong(3));
+        }
+      }
+    }
+  }
+
+  private static String shortId() {
+    return UUID.randomUUID().toString().substring(0, 8);
+  }
+
+  @Test
+  void migrationsConstraintsAndRecoveryQueriesWorkOnPostgres() throws SQLException {
+    String url = System.getProperty("frontier.test.database.url");
+    Assumptions.assumeTrue(url != null && !url.isBlank(), "integration database not configured");
+    try (DatabaseManager database =
+        new DatabaseManager(
+            new DatabaseManager.Configuration(url, "frontier", "", 2, Duration.ofSeconds(5)))) {
+      database.migrate();
+      resetData(database);
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement();
+          var result =
+              statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
+        result.next();
+        assertEquals(15, result.getInt(1));
+      }
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        assertThrows(
+            SQLException.class,
+            () ->
+                statement.executeUpdate(
+                    "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(gen_random_uuid(),'CITY',gen_random_uuid(),-1)"));
+      }
+      JdbcTransactionalStore store = new JdbcTransactionalStore(database.dataSource());
+      RecoveryCoordinator.RecoveryReport report = new PostgresRecoveryCoordinator(store).recover();
+      assertTrue(report.outboxEvents() >= 0);
+      assertEquals(0, report.leases());
+      assertEquals(0, report.consumptions());
+      assertEquals(0, report.transfers());
+
+      PostgresSettlementGateway settlements = new PostgresSettlementGateway(store);
+      UUID owner = UUID.randomUUID();
+      UUID world = UUID.randomUUID();
+      SettlementGateway.CitySnapshot city =
+          settlements.create(
+              owner, "Test-" + owner.toString().substring(0, 8), world, 10, 10, Instant.now());
+      assertEquals(SettlementLevel.CAMP, city.level());
+      assertEquals(
+          "INFLUENCED",
+          settlements
+              .claim(
+                  city.id(),
+                  owner,
+                  world,
+                  11,
+                  10,
+                  4,
+                  EnumSet.of(GovernmentRole.MAYOR),
+                  Instant.now())
+              .state());
+
+      UUID member = UUID.randomUUID();
+      SettlementGateway.Invitation invite =
+          settlements.invite(
+              city.id(),
+              owner,
+              member,
+              EnumSet.of(GovernmentRole.MAYOR),
+              Instant.now().plusSeconds(60),
+              Instant.now());
+      settlements.acceptInvitation(invite.id(), member, Instant.now());
+      assertThrows(
+          DomainException.class,
+          () ->
+              settlements.claim(
+                  city.id(),
+                  member,
+                  world,
+                  9,
+                  10,
+                  4,
+                  EnumSet.of(GovernmentRole.MAYOR, GovernmentRole.ARCHITECT),
+                  Instant.now()));
+      settlements.changeRole(
+          city.id(),
+          owner,
+          member,
+          GovernmentRole.ARCHITECT,
+          EnumSet.of(GovernmentRole.MAYOR),
+          Instant.now());
+      assertEquals(
+          "INFLUENCED",
+          settlements
+              .claim(
+                  city.id(),
+                  member,
+                  world,
+                  9,
+                  10,
+                  4,
+                  EnumSet.of(GovernmentRole.MAYOR, GovernmentRole.ARCHITECT),
+                  Instant.now())
+              .state());
+
+      settlements.setPolicy(
+          city.id(),
+          owner,
+          "TAX_PROFILE",
+          "\"STANDARD\"",
+          Instant.now().plusSeconds(3600),
+          EnumSet.of(GovernmentRole.MAYOR),
+          Instant.now());
+      assertThrows(
+          DomainException.class,
+          () ->
+              settlements.setPolicy(
+                  city.id(),
+                  owner,
+                  "TAX_PROFILE",
+                  "\"HIGH\"",
+                  Instant.now().plusSeconds(7200),
+                  EnumSet.of(GovernmentRole.MAYOR),
+                  Instant.now()));
+
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE cities SET population=10,civilization=20 WHERE id='" + city.id() + "'");
+        statement.executeUpdate(
+            "UPDATE accounts SET balance_minor=10000 WHERE owner_type='CITY' AND owner_id='"
+                + city.id()
+                + "'");
+      }
+      UUID upgradeKey = UUID.randomUUID();
+      SettlementGateway.CitySnapshot upgraded =
+          settlements.upgrade(
+              city.id(),
+              owner,
+              SettlementLevel.CAMP,
+              SettlementLevel.OUTPOST,
+              10,
+              50,
+              20,
+              null,
+              10_000,
+              EnumSet.of(GovernmentRole.MAYOR),
+              upgradeKey,
+              Instant.now());
+      assertEquals(SettlementLevel.OUTPOST, upgraded.level());
+      assertEquals(
+          SettlementLevel.OUTPOST,
+          settlements
+              .upgrade(
+                  city.id(),
+                  owner,
+                  SettlementLevel.CAMP,
+                  SettlementLevel.OUTPOST,
+                  10,
+                  50,
+                  20,
+                  null,
+                  10_000,
+                  EnumSet.of(GovernmentRole.MAYOR),
+                  upgradeKey,
+                  Instant.now())
+              .level());
+      assertEquals(0, settlements.treasuryBalance(city.id()));
+
+      SettlementDailySimulation daily =
+          new SettlementDailySimulation(new PostgresSettlementSimulationGateway(store));
+      assertTrue(daily.cycle(1_000, Instant.now()).settlements() > 0);
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT c.population,c.prosperity,a.balance_minor,i.status FROM cities c JOIN accounts a ON a.owner_type='CITY' AND a.owner_id=c.id JOIN maintenance_invoices i ON i.city_id=c.id WHERE c.id=? ORDER BY i.due_at DESC LIMIT 1")) {
+        statement.setObject(1, city.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals(8, result.getInt(1));
+          assertEquals(40, result.getInt(2));
+          assertEquals(500, result.getLong(3));
+          assertEquals("OVERDUE", result.getString(4));
+        }
+      }
+
+      ChunkOwnershipCache cache = new ChunkOwnershipCache();
+      InfluenceSimulationService influence =
+          new InfluenceSimulationService(new PostgresInfluencePersistence(store), cache, 75, 3);
+      influence.rebuildCache();
+      InfluenceSimulationService.CycleReport cycle = influence.cycle(1_000, Instant.now());
+      assertEquals(true, cycle.settlements() > 0);
+      assertEquals(
+          TerritoryState.CAPITAL,
+          cache.get(new ChunkPos(new WorldId(world), 10, 10)).orElseThrow().state());
+      assertEquals(
+          TerritoryState.CONTROLLED,
+          cache.get(new ChunkPos(new WorldId(world), 11, 10)).orElseThrow().state());
+
+      UUID buyerOwner = UUID.randomUUID();
+      UUID sellerOwner = UUID.randomUUID();
+      UUID sellerWorld = UUID.randomUUID();
+      SettlementGateway.CitySnapshot buyer =
+          settlements.create(
+              buyerOwner,
+              "Buyer-" + buyerOwner.toString().substring(0, 8),
+              sellerWorld,
+              20,
+              20,
+              Instant.now());
+      SettlementGateway.CitySnapshot seller =
+          settlements.create(
+              sellerOwner,
+              "Seller-" + sellerOwner.toString().substring(0, 8),
+              sellerWorld,
+              30,
+              30,
+              Instant.now());
+      PostgresLogisticsGateway logistics = new PostgresLogisticsGateway(store);
+      LogisticsGateway.RoadNode sellerNode =
+          logistics.registerNode(
+              seller.id(), sellerOwner, sellerWorld, 488, 64, 488, "WAREHOUSE", Instant.now());
+      LogisticsGateway.RoadNode buyerNode =
+          logistics.registerNode(
+              buyer.id(), buyerOwner, sellerWorld, 328, 64, 328, "WAREHOUSE", Instant.now());
+      logistics.connect(
+          seller.id(), sellerOwner, sellerNode.id(), buyerNode.id(), 1000, Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE accounts SET balance_minor=1000 WHERE owner_type='CITY' AND owner_id='"
+                + buyer.id()
+                + "'");
+      }
+      PostgresEconomyGateway economy = new PostgresEconomyGateway(store);
+      economy.deposit(seller.id(), sellerOwner, "minecraft:iron_ingot", 10, Instant.now());
+      EconomyGateway.OrderSnapshot buy =
+          economy.placeOrder(
+              buyer.id(),
+              buyerOwner,
+              MarketEngine.Side.BUY,
+              "minecraft:iron_ingot",
+              10,
+              20,
+              UUID.randomUUID(),
+              Instant.now());
+      economy.placeOrder(
+          seller.id(),
+          sellerOwner,
+          MarketEngine.Side.SELL,
+          "minecraft:iron_ingot",
+          6,
+          15,
+          UUID.randomUUID(),
+          Instant.now());
+      assertEquals(1, economy.match(10, Instant.now()));
+      assertEquals(0, logistics.cycle(1, Instant.now()).delivered());
+      assertEquals(1, logistics.cycle(1, Instant.now().plusSeconds(1_000)).delivered());
+      assertEquals(
+          6,
+          economy.warehouse(buyer.id(), buyerOwner, Instant.now()).stock().getFirst().available());
+      EconomyGateway.Stock sellerStock =
+          economy.warehouse(seller.id(), sellerOwner, Instant.now()).stock().getFirst();
+      assertEquals(4, sellerStock.available());
+      assertEquals(0, sellerStock.reserved());
+      economy.cancel(buyer.id(), buyerOwner, buy.id(), Instant.now());
+      assertEquals(910, settlements.treasuryBalance(buyer.id()));
+      assertEquals(90, settlements.treasuryBalance(seller.id()));
+
+      SettlementGateway.BuildingSnapshot industry =
+          settlements.registerBuilding(
+              seller.id(),
+              sellerOwner,
+              nl.frontier.city.Building.Category.INDUSTRY,
+              new SettlementGateway.Bounds(sellerWorld, 480, 50, 480, 495, 80, 495),
+              EnumSet.of(GovernmentRole.MAYOR),
+              Instant.now());
+      economy.deposit(seller.id(), sellerOwner, "minecraft:oak_log", 2, Instant.now());
+      PostgresProductionGateway production = new PostgresProductionGateway(store);
+      production.hire(seller.id(), sellerOwner, "LUMBERJACK", 100, 20, Instant.now());
+      ProductionGateway.ProductionOrder productionOrder =
+          production.queue(
+              seller.id(),
+              sellerOwner,
+              industry.id(),
+              "frontier:saw_planks",
+              2,
+              50,
+              UUID.randomUUID(),
+              Instant.now());
+      assertEquals("ACTIVE", productionOrder.status());
+      assertEquals(1, production.cycle(1, Instant.now()).completed());
+      EconomyGateway.WarehouseSnapshot produced =
+          economy.warehouse(seller.id(), sellerOwner, Instant.now());
+      EconomyGateway.Stock logs =
+          produced.stock().stream()
+              .filter(stock -> stock.commodity().equals("minecraft:oak_log"))
+              .findFirst()
+              .orElseThrow();
+      EconomyGateway.Stock planks =
+          produced.stock().stream()
+              .filter(stock -> stock.commodity().equals("minecraft:oak_planks"))
+              .findFirst()
+              .orElseThrow();
+      assertEquals(0, logs.available());
+      assertEquals(0, logs.reserved());
+      assertEquals(8, planks.available());
+
+      UUID sellerWarehouse = economy.warehouse(seller.id(), sellerOwner, Instant.now()).id();
+      UUID buyerWarehouse = economy.warehouse(buyer.id(), buyerOwner, Instant.now()).id();
+      LogisticsGateway.Shipment shipment =
+          logistics.createShipment(
+              seller.id(),
+              sellerOwner,
+              sellerWarehouse,
+              buyerWarehouse,
+              sellerNode.id(),
+              buyerNode.id(),
+              "minecraft:oak_planks",
+              3,
+              "CARAVAN",
+              100,
+              UUID.randomUUID(),
+              Instant.now());
+      assertEquals("TRAVELING", shipment.status());
+      assertEquals(1, logistics.cycle(1, Instant.now().plusSeconds(1_000)).delivered());
+      assertEquals(
+          3,
+          economy.warehouse(buyer.id(), buyerOwner, Instant.now()).stock().stream()
+              .filter(stock -> stock.commodity().equals("minecraft:oak_planks"))
+              .findFirst()
+              .orElseThrow()
+              .available());
+
+      PostgresContractGateway contracts = new PostgresContractGateway(store);
+      ContractGateway.ContractSnapshot contract =
+          contracts.postDelivery(
+              buyer.id(),
+              buyerOwner,
+              buyerWarehouse,
+              "minecraft:oak_planks",
+              2,
+              100,
+              Instant.now().plusSeconds(3_600),
+              UUID.randomUUID(),
+              Instant.now());
+      assertEquals("POSTED", contract.status());
+      assertEquals(
+          "ACCEPTED", contracts.accept(contract.id(), sellerOwner, Instant.now()).status());
+      UUID completionKey = UUID.randomUUID();
+      assertEquals(
+          "PAID",
+          contracts.deliver(contract.id(), sellerOwner, completionKey, Instant.now()).status());
+      assertEquals(
+          "PAID",
+          contracts.deliver(contract.id(), sellerOwner, completionKey, Instant.now()).status());
+      assertEquals(810, settlements.treasuryBalance(buyer.id()));
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT balance_minor FROM accounts WHERE owner_type='PLAYER' AND owner_id=?")) {
+        statement.setObject(1, sellerOwner);
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals(100, result.getLong(1));
+        }
+      }
+
+      PostgresNpcMaterializationGateway npcs = new PostgresNpcMaterializationGateway(store);
+      NpcMaterializationGateway.Candidate candidate =
+          npcs.candidates(java.util.Set.of(sellerOwner), 20).stream()
+              .filter(value -> value.city().equals(seller.id()))
+              .findFirst()
+              .orElseThrow();
+      UUID presentation = UUID.randomUUID();
+      npcs.bind(candidate.worker(), presentation, Instant.now());
+      assertEquals(
+          presentation,
+          npcs.candidates(java.util.Set.of(sellerOwner), 20).stream()
+              .filter(value -> value.worker().equals(candidate.worker()))
+              .findFirst()
+              .orElseThrow()
+              .entity());
+      assertTrue(
+          npcs.retirements(java.util.Set.of()).stream()
+              .anyMatch(binding -> binding.worker().equals(candidate.worker())));
+      npcs.unbind(candidate.worker(), presentation, Instant.now());
+
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate("UPDATE cities SET population=8 WHERE id='" + seller.id() + "'");
+        statement.executeUpdate(
+            "UPDATE accounts SET balance_minor=2000 WHERE owner_type='CITY' AND owner_id='"
+                + seller.id()
+                + "'");
+      }
+      economy.deposit(seller.id(), sellerOwner, "minecraft:wheat", 2, Instant.now());
+      economy.deposit(seller.id(), sellerOwner, "minecraft:bread", 2, Instant.now());
+      assertTrue(daily.cycle(1_000, Instant.now().plusSeconds(2 * 86_400L)).settlements() > 0);
+      assertEquals(1_020, settlements.treasuryBalance(seller.id()));
+      EconomyGateway.WarehouseSnapshot afterDaily =
+          economy.warehouse(seller.id(), sellerOwner, Instant.now());
+      assertEquals(
+          0,
+          afterDaily.stock().stream()
+              .filter(stock -> stock.commodity().equals("minecraft:wheat"))
+              .findFirst()
+              .orElseThrow()
+              .available());
+      assertEquals(
+          2,
+          afterDaily.stock().stream()
+              .filter(stock -> stock.commodity().equals("minecraft:bread"))
+              .findFirst()
+              .orElseThrow()
+              .available());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT mood,happiness,experience,state FROM workers WHERE id=?")) {
+        statement.setObject(1, candidate.worker());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals(72, result.getInt(1));
+          assertEquals(71, result.getInt(2));
+          assertEquals(1, result.getLong(3));
+          assertEquals("IDLE", result.getString(4));
+        }
+      }
+
+      UUID warWorld = UUID.randomUUID();
+      UUID attackerOwner = UUID.randomUUID();
+      UUID defenderOwner = UUID.randomUUID();
+      SettlementGateway.CitySnapshot attacker =
+          settlements.create(
+              attackerOwner,
+              "Attack-" + attackerOwner.toString().substring(0, 8),
+              warWorld,
+              40,
+              40,
+              Instant.now());
+      SettlementGateway.CitySnapshot defender =
+          settlements.create(
+              defenderOwner,
+              "Defend-" + defenderOwner.toString().substring(0, 8),
+              warWorld,
+              50,
+              50,
+              Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE accounts SET balance_minor=10000 WHERE owner_type='CITY' AND owner_id='"
+                + attacker.id()
+                + "'");
+      }
+      PostgresCampaignGateway campaigns = new PostgresCampaignGateway(store);
+      Instant declaredAt = Instant.now();
+      CampaignGateway.CampaignSnapshot campaign =
+          campaigns.declare(
+              attacker.id(),
+              attackerOwner,
+              defender.id(),
+              WarCampaign.Type.BORDER,
+              new CampaignGateway.ObjectiveSpec(
+                  "FORT_BREACH", warWorld, 800, 0, 800, 815, 320, 815, 100, 1),
+              5_000,
+              Duration.ofSeconds(1),
+              Duration.ofSeconds(10),
+              UUID.randomUUID(),
+              declaredAt);
+      assertEquals(WarCampaign.Phase.PREPARATION, campaign.phase());
+      assertEquals(5_000, settlements.treasuryBalance(attacker.id()));
+      assertEquals(1, campaigns.advanceDue(10, declaredAt.plusSeconds(2)).activated());
+      CampaignGateway.WarPolicySnapshot policy =
+          campaigns.policySnapshot(declaredAt.plusSeconds(2));
+      assertTrue(policy.wars().stream().anyMatch(value -> value.campaign().equals(campaign.id())));
+      PostgresWarDamageGateway damage = new PostgresWarDamageGateway(store);
+      WarDamageGateway.DamageAttempt attempt =
+          new WarDamageGateway.DamageAttempt(
+              campaign.id(),
+              attackerOwner,
+              defender.id(),
+              warWorld,
+              805,
+              64,
+              805,
+              "minecraft:stone_bricks",
+              "minecraft:air",
+              "PLAYER_BREAK",
+              2,
+              0,
+              declaredAt.plusSeconds(2));
+      WarDamageGateway.Decision damageDecision =
+          damage.authorizeAndJournal(attempt, Duration.ofHours(6), 1_200, 3_000);
+      assertTrue(damageDecision.allowed());
+      assertEquals(20, damageDecision.chargedPoints());
+      assertEquals(
+          0,
+          damage.authorizeAndJournal(attempt, Duration.ofHours(6), 1_200, 3_000).chargedPoints());
+      CampaignGateway.ObjectiveTickReport objectiveTick =
+          campaigns.tickObjectives(
+              java.util.List.of(
+                  new CampaignGateway.Presence(attackerOwner, warWorld, 805, 64, 805, true)),
+              100,
+              declaredAt.plusSeconds(2));
+      assertEquals(1, objectiveTick.completed());
+      assertEquals(
+          WarCampaign.Phase.CEASEFIRE,
+          campaigns.ceasefire(campaign.id(), defenderOwner, declaredAt.plusSeconds(3)).phase());
+      assertEquals(
+          WarCampaign.Phase.ACTIVE,
+          campaigns.resume(campaign.id(), attackerOwner, declaredAt.plusSeconds(4)).phase());
+      assertEquals(
+          WarCampaign.Phase.RESOLUTION,
+          campaigns
+              .resolve(campaign.id(), defenderOwner, "SURRENDER", declaredAt.plusSeconds(5))
+              .phase());
+      assertEquals(
+          WarCampaign.Phase.ENDED,
+          campaigns
+              .end(campaign.id(), defenderOwner, "SURRENDER", declaredAt.plusSeconds(6))
+              .phase());
+
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate("UPDATE cities SET level=3 WHERE id='" + defender.id() + "'");
+        statement.executeUpdate(
+            "UPDATE accounts SET balance_minor=1000 WHERE owner_type='CITY' AND owner_id='"
+                + defender.id()
+                + "'");
+      }
+      settlements.registerBuilding(
+          defender.id(),
+          defenderOwner,
+          nl.frontier.city.Building.Category.INFRASTRUCTURE,
+          new SettlementGateway.Bounds(warWorld, 800, 50, 800, 815, 90, 815),
+          EnumSet.of(GovernmentRole.MAYOR),
+          Instant.now());
+      economy.deposit(defender.id(), defenderOwner, "minecraft:stone_bricks", 1, Instant.now());
+      production.hire(defender.id(), defenderOwner, "BUILDER", 80, 25, Instant.now());
+      PostgresRepairGateway repairs = new PostgresRepairGateway(store);
+      RepairGateway.Quote repairQuote =
+          repairs.quote(
+              defender.id(),
+              defenderOwner,
+              campaign.id(),
+              RepairOrder.Priority.NORMAL,
+              Instant.now());
+      assertEquals(1, repairQuote.tasks());
+      assertEquals(43, repairQuote.totalCostMinor());
+      RepairGateway.RepairSnapshot repair =
+          repairs.purchase(
+              defender.id(),
+              defenderOwner,
+              campaign.id(),
+              RepairOrder.Priority.NORMAL,
+              UUID.randomUUID(),
+              Instant.now());
+      assertEquals(RepairOrder.Status.QUEUED, repair.status());
+      UUID repairCoordinator = UUID.randomUUID();
+      RepairGateway.PreparedTask repairTask =
+          repairs
+              .leaseReady(repairCoordinator, 10, Instant.now(), Instant.now().plusSeconds(60))
+              .stream()
+              .filter(value -> value.order().equals(repair.id()))
+              .findFirst()
+              .orElseThrow();
+      repairs.commit(repairCoordinator, repairTask.id(), Instant.now());
+      assertEquals(RepairOrder.Status.COMPLETED, repairs.orders(defender.id()).getFirst().status());
+      assertEquals(957, settlements.treasuryBalance(defender.id()));
+
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE cities SET prosperity=100,version=version+1 WHERE id='" + buyer.id() + "'");
+      }
+      PostgresWorldSimulationGateway worldSimulation = new PostgresWorldSimulationGateway(store);
+      WorldSimulationGateway.CycleReport worldCycle = worldSimulation.cycle(1_000, Instant.now());
+      assertTrue(worldCycle.cities() > 0);
+      assertTrue(worldSimulation.regions().stream().anyMatch(region -> region.population() >= 0));
+      assertTrue(
+          worldSimulation.events(false).stream()
+              .anyMatch(event -> event.key().equals("TRADE_FAIR")));
+
+      PostgresCivilizationGateway civilization = new PostgresCivilizationGateway(store);
+      CivilizationGateway.KingdomSnapshot firstKingdom =
+          civilization.createKingdom(
+              attacker.id(),
+              attackerOwner,
+              "First " + attackerOwner.toString().substring(0, 8),
+              Instant.now());
+      CivilizationGateway.KingdomSnapshot secondKingdom =
+          civilization.createKingdom(
+              defender.id(),
+              defenderOwner,
+              "Second " + defenderOwner.toString().substring(0, 8),
+              Instant.now());
+      CivilizationGateway.Invitation kingdomInvite =
+          civilization.inviteCity(
+              firstKingdom.id(),
+              attackerOwner,
+              buyer.id(),
+              Instant.now().plusSeconds(3_600),
+              Instant.now());
+      assertTrue(
+          civilization
+              .acceptInvitation(kingdomInvite.id(), buyer.id(), buyerOwner, Instant.now())
+              .cities()
+              .contains(buyer.id()));
+      CivilizationGateway.TreatySnapshot treaty =
+          civilization.proposeTreaty(
+              firstKingdom.id(),
+              attackerOwner,
+              secondKingdom.id(),
+              "TRADE",
+              "{}",
+              Instant.now().plusSeconds(86_400),
+              Instant.now());
+      assertEquals(
+          "ACTIVE", civilization.acceptTreaty(treaty.id(), defenderOwner, Instant.now()).status());
+      CivilizationGateway.ResearchSnapshot research =
+          civilization.startResearch(
+              firstKingdom.id(), attackerOwner, "ENGINEERING", "roads_1", 1, Instant.now());
+      assertTrue(civilization.cycle(100, Instant.now()).researchCompleted() >= 1);
+      assertEquals(
+          "COMPLETED",
+          civilization.research(firstKingdom.id()).stream()
+              .filter(value -> value.id().equals(research.id()))
+              .findFirst()
+              .orElseThrow()
+              .status());
+      economy.deposit(attacker.id(), attackerOwner, "minecraft:stone", 3, Instant.now());
+      CivilizationGateway.MegaProjectSnapshot mega =
+          civilization.startMegaProject(
+              firstKingdom.id(),
+              attackerOwner,
+              "highway_" + UUID.randomUUID(),
+              "minecraft:stone",
+              3,
+              Instant.now());
+      assertEquals(
+          "COMPLETED",
+          civilization
+              .contributeMegaProject(
+                  mega.id(), attacker.id(), attackerOwner, 3, UUID.randomUUID(), Instant.now())
+              .status());
+      civilization.cycle(100, Instant.now());
+      assertTrue(
+          civilization.globalObjectives().stream()
+              .anyMatch(value -> value.key().equals("BUILD_WORLD_WONDERS")));
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE kingdoms SET era='GOLDEN_AGE' WHERE id='" + firstKingdom.id() + "'");
+      }
+      economy.deposit(attacker.id(), attackerOwner, "minecraft:stone_bricks", 2, Instant.now());
+      CivilizationGateway.WonderSnapshot wonder =
+          civilization.startWonder(
+              firstKingdom.id(),
+              attackerOwner,
+              "wonder_" + UUID.randomUUID(),
+              "minecraft:stone_bricks",
+              2,
+              Instant.now());
+      assertEquals(
+          "COMPLETED",
+          civilization
+              .contributeWonder(
+                  wonder.id(), attacker.id(), attackerOwner, 2, UUID.randomUUID(), Instant.now())
+              .status());
+
+      ArrayList<PostgresOutboxDispatcher.Event> published = new ArrayList<>();
+      PostgresOutboxDispatcher outbox = new PostgresOutboxDispatcher(store, published::add);
+      var dispatch = outbox.dispatch(10_000, Instant.now());
+      assertTrue(dispatch.published() > 0);
+      assertEquals(0, dispatch.remaining());
+      assertEquals(dispatch.published(), published.size());
+      PostgresAdminDiagnostics diagnostics = new PostgresAdminDiagnostics(store);
+      assertTrue(diagnostics.snapshot().counts().get("city") >= 4);
+      assertEquals(1, diagnostics.inspect("wonder", wonder.id()).size());
+    }
+  }
+
+  private static void resetData(DatabaseManager database) throws SQLException {
+    try (var connection = database.dataSource().getConnection();
+        var statement = connection.createStatement()) {
+      statement.execute(
+          "DO $$ DECLARE names text; BEGIN SELECT string_agg(format('%I.%I',schemaname,tablename),',') INTO names FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('flyway_schema_history','commodity_definitions','recipes','recipe_inputs','recipe_outputs'); IF names IS NOT NULL THEN EXECUTE 'TRUNCATE TABLE '||names||' CASCADE'; END IF; END $$");
+      statement.execute(
+          "INSERT INTO global_objectives(id,objective_key,status,progress,target,version) VALUES(gen_random_uuid(),'CONNECT_CAPITALS','ACTIVE',0,1,0),(gen_random_uuid(),'BUILD_WORLD_WONDERS','ACTIVE',0,1,0),(gen_random_uuid(),'SURVIVE_WORLD_CRISIS','ACTIVE',0,1,0),(gen_random_uuid(),'RESTORE_WAR_RUINS','ACTIVE',0,1,0)");
+    }
+  }
+}

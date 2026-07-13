@@ -1,0 +1,17 @@
+name: TheFrontier
+version: '1.0.0'
+main: nl.frontier.bootstrap.FrontierPlugin
+api-version: '26.2'
+description: Persistent civilization and warfare gamemode
+load: POSTWORLD
+authors: [Mitchel, OpenAI]
+commands:
+  frontier:
+    description: Opens The Frontier or its command fallback
+    usage: /frontier
+    aliases: [tf]
+permissions:
+  frontier.admin:
+    default: op
+  frontier.city.create:
+    default: true
