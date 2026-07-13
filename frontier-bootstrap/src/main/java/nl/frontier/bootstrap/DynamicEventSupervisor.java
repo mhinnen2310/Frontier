@@ -34,7 +34,7 @@ final class DynamicEventSupervisor {
   private void cycle() {
     if (!active.get()) return;
     schedulers
-        .async(() -> events.cycle(32, Instant.now()))
+        .asyncNamed("events", () -> events.cycle(32, Instant.now()))
         .whenComplete(
             (report, failure) -> {
               if (failure != null)

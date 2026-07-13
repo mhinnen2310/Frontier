@@ -62,7 +62,8 @@ final class RepairSupervisor {
     if (!active.get()) return;
     Instant now = Instant.now();
     schedulers
-        .async(
+        .asyncNamed(
+            "repairs",
             () -> {
               repairs.archiveCompleted(now.minus(archiveDelay), 32, now);
               return repairs.leaseReady(coordinator, maximumTasks, now, now.plus(lease));

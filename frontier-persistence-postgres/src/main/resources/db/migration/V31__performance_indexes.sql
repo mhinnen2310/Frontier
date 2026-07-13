@@ -1,0 +1,13 @@
+CREATE INDEX IF NOT EXISTS idx_tribute_due ON campaign_tributes(status,next_due_at);
+CREATE INDEX IF NOT EXISTS idx_company_loan_due ON company_loans(status,next_interest_at);
+CREATE INDEX IF NOT EXISTS idx_repair_task_lease_queue ON repair_tasks(status,lease_expires_at,priority_score DESC);
+CREATE INDEX IF NOT EXISTS idx_production_lease_queue ON production_orders(status,lease_expires_at,priority DESC,created_at);
+CREATE INDEX IF NOT EXISTS idx_shipment_due_queue ON shipments(status,expected_arrival_at,departed_at);
+CREATE INDEX IF NOT EXISTS idx_population_due ON city_population_state(next_cycle_at,city_id);
+CREATE INDEX IF NOT EXISTS idx_caravan_cycle ON caravans(state,updated_at);
+CREATE INDEX IF NOT EXISTS idx_worker_city_employment ON workers(city_id,employment_status,state);
+CREATE INDEX IF NOT EXISTS idx_stock_city_lookup ON warehouses(city_id,status,id);
+CREATE INDEX IF NOT EXISTS idx_event_region_open ON world_events(region_id,state,state_at);
+CREATE INDEX IF NOT EXISTS idx_campaign_city_phase ON campaigns(attacker_city_id,defender_city_id,phase);
+CREATE INDEX IF NOT EXISTS idx_road_owner_traffic ON road_edges(owner_city,traffic DESC,integrity);
+ANALYZE;

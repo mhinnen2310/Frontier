@@ -306,6 +306,61 @@ public final class PostgresAdminDiagnostics implements AdminDiagnostics {
         });
   }
 
+  @Override
+  public List<String> performanceAudit() {
+    return store.inTransaction(
+        connection -> {
+          List<String> rows = new ArrayList<>();
+          try (PreparedStatement statement =
+                  connection.prepareStatement(
+                      "SELECT pg_database_size(current_database()),coalesce(round(100.0*blks_hit/nullif(blks_hit+blks_read,0),2),100),xact_commit,xact_rollback,tup_returned,tup_fetched,tup_inserted,tup_updated,tup_deleted FROM pg_stat_database WHERE datname=current_database()");
+              ResultSet result = statement.executeQuery()) {
+            result.next();
+            rows.add("databaseBytes=" + result.getLong(1));
+            rows.add("cacheHitPercent=" + result.getBigDecimal(2));
+            rows.add("transactionsCommitted=" + result.getLong(3));
+            rows.add("transactionsRolledBack=" + result.getLong(4));
+            rows.add("tuplesReturned=" + result.getLong(5));
+            rows.add("tuplesFetched=" + result.getLong(6));
+            rows.add("tuplesInserted=" + result.getLong(7));
+            rows.add("tuplesUpdated=" + result.getLong(8));
+            rows.add("tuplesDeleted=" + result.getLong(9));
+          }
+          try (PreparedStatement statement =
+                  connection.prepareStatement(
+                      "SELECT relname,pg_total_relation_size(relid),n_live_tup,n_dead_tup,seq_scan,idx_scan FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 12");
+              ResultSet result = statement.executeQuery()) {
+            while (result.next())
+              rows.add(
+                  "table="
+                      + result.getString(1)
+                      + " bytes="
+                      + result.getLong(2)
+                      + " live="
+                      + result.getLong(3)
+                      + " dead="
+                      + result.getLong(4)
+                      + " seq="
+                      + result.getLong(5)
+                      + " idx="
+                      + result.getLong(6));
+          }
+          try (PreparedStatement statement =
+                  connection.prepareStatement(
+                      "SELECT state,count(*) FROM pg_stat_activity WHERE datname=current_database() GROUP BY state ORDER BY state");
+              ResultSet result = statement.executeQuery()) {
+            while (result.next())
+              rows.add("databaseSessions." + result.getString(1) + "=" + result.getLong(2));
+          }
+          rows.add(
+              "dueIndexes="
+                  + scalar(
+                      connection,
+                      "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('idx_tribute_due','idx_company_loan_due','idx_repair_task_lease_queue','idx_production_lease_queue','idx_shipment_due_queue','idx_population_due','idx_caravan_cycle')"));
+          return List.copyOf(rows);
+        });
+  }
+
   private static void securityCheck(
       java.sql.Connection connection, List<String> rows, String name, String sql)
       throws java.sql.SQLException {

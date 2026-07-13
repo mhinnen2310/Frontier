@@ -43,7 +43,7 @@ final class EconomySupervisor {
         interval,
         () ->
             schedulers
-                .async(() -> economy.match(maximumTrades, Instant.now()))
+                .asyncNamed("economy", () -> economy.match(maximumTrades, Instant.now()))
                 .whenComplete(
                     (trades, failure) -> {
                       if (failure != null)

@@ -45,7 +45,7 @@ final class OutboxSupervisor {
   private void cycle() {
     if (!active.get()) return;
     schedulers
-        .async(() -> dispatcher.dispatch(batchSize, Instant.now()))
+        .asyncNamed("database-outbox", () -> dispatcher.dispatch(batchSize, Instant.now()))
         .whenComplete(
             (report, failure) -> {
               if (failure != null) {

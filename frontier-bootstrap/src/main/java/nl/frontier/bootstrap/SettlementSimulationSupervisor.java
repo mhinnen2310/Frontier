@@ -42,7 +42,7 @@ public final class SettlementSimulationSupervisor {
   private void run() {
     if (!active.get()) return;
     schedulers
-        .async(() -> simulation.cycle(limit, Instant.now()))
+        .asyncNamed("settlements", () -> simulation.cycle(limit, Instant.now()))
         .whenComplete(
             (report, failure) -> {
               if (failure != null)

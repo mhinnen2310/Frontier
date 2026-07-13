@@ -31,7 +31,7 @@ final class CommercialSupervisor {
   private void cycle() {
     if (!active.get()) return;
     schedulers
-        .async(() -> commerce.cycle(128, Instant.now()))
+        .asyncNamed("commercial", () -> commerce.cycle(128, Instant.now()))
         .whenComplete(
             (ignored, failure) -> {
               if (failure != null) logger.log(Level.WARNING, "Commercial cycle failed", failure);

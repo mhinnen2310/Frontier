@@ -31,7 +31,7 @@ final class PopulationSupervisor {
   private void cycle() {
     if (!active.get()) return;
     schedulers
-        .async(() -> population.cycle(64, Instant.now()))
+        .asyncNamed("population", () -> population.cycle(64, Instant.now()))
         .whenComplete(
             (ignored, failure) -> {
               if (failure != null)

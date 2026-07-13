@@ -43,7 +43,7 @@ final class LogisticsSupervisor {
         interval,
         () ->
             schedulers
-                .async(() -> logistics.cycle(maximum, Instant.now()))
+                .asyncNamed("logistics", () -> logistics.cycle(maximum, Instant.now()))
                 .whenComplete(
                     (report, failure) -> {
                       if (failure != null)

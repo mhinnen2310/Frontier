@@ -40,7 +40,7 @@ final class CivilizationSupervisor {
   private void cycle() {
     if (!active.get()) return;
     schedulers
-        .async(() -> civilization.cycle(maximumKingdoms, Instant.now()))
+        .asyncNamed("civilization", () -> civilization.cycle(maximumKingdoms, Instant.now()))
         .whenComplete(
             (report, failure) -> {
               if (failure != null) logger.log(Level.WARNING, "Civilization cycle failed", failure);

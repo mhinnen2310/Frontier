@@ -41,7 +41,7 @@ final class ClaimProtectionSupervisor {
   private void cycle() {
     if (!active.get()) return;
     schedulers
-        .async(() -> gateway.load(Instant.now()))
+        .asyncNamed("claim-cache", () -> gateway.load(Instant.now()))
         .whenComplete(
             (snapshot, failure) -> {
               if (failure != null)

@@ -43,7 +43,8 @@ final class ProductionSupervisor {
         interval,
         () ->
             schedulers
-                .async(() -> production.cycle(maximumOrders, Instant.now()))
+                .asyncNamed(
+                    "workers-production", () -> production.cycle(maximumOrders, Instant.now()))
                 .whenComplete(
                     (report, failure) -> {
                       if (failure != null)

@@ -44,7 +44,8 @@ final class CampaignSupervisor {
   private void cycle() {
     if (!active.get()) return;
     schedulers
-        .async(
+        .asyncNamed(
+            "campaigns",
             () -> {
               CampaignGateway.AdvanceReport report = campaigns.advanceDue(maximum, Instant.now());
               cache.replace(campaigns.policySnapshot(Instant.now()));

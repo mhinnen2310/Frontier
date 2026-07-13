@@ -2719,6 +2719,50 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           schedulers
               .async(diagnostics::securityAudit)
               .whenComplete((rows, failure) -> adminRows(sender, rows, failure));
+      case "performance" ->
+          schedulers
+              .async(diagnostics::performanceAudit)
+              .whenComplete(
+                  (databaseRows, failure) -> {
+                    List<String> rows = new java.util.ArrayList<>();
+                    if (databaseRows != null) rows.addAll(databaseRows);
+                    Runtime runtime = Runtime.getRuntime();
+                    rows.add("memory.usedBytes=" + (runtime.totalMemory() - runtime.freeMemory()));
+                    rows.add("memory.committedBytes=" + runtime.totalMemory());
+                    rows.add("memory.maxBytes=" + runtime.maxMemory());
+                    if (schedulers instanceof PaperSchedulerFacade paper) {
+                      PaperSchedulerFacade.SchedulerStats stats = paper.stats();
+                      rows.add("scheduler.poolSize=" + stats.poolSize());
+                      rows.add("scheduler.activeAsync=" + stats.activeAsync());
+                      rows.add("scheduler.queuedAsync=" + stats.queuedAsync());
+                      rows.add("scheduler.completedAsync=" + stats.executorCompleted());
+                      rows.add(
+                          "scheduler.averageAsyncMs=" + nanosToMillis(stats.averageAsyncNanos()));
+                      rows.add(
+                          "scheduler.maximumAsyncMs=" + nanosToMillis(stats.maximumAsyncNanos()));
+                      rows.add(
+                          "scheduler.averageQueueMs=" + nanosToMillis(stats.averageQueueNanos()));
+                      rows.add(
+                          "scheduler.maximumQueueMs=" + nanosToMillis(stats.maximumQueueNanos()));
+                      rows.add("ticks.profiledTasks=" + stats.regionTasks());
+                      rows.add("ticks.averageTaskMs=" + nanosToMillis(stats.averageRegionNanos()));
+                      rows.add("ticks.maximumTaskMs=" + nanosToMillis(stats.maximumRegionNanos()));
+                      paper
+                          .namedStats()
+                          .forEach(
+                              (name, timing) ->
+                                  rows.add(
+                                      "subsystem."
+                                          + name
+                                          + ".count="
+                                          + timing.count()
+                                          + " avgMs="
+                                          + nanosToMillis(timing.averageNanos())
+                                          + " maxMs="
+                                          + nanosToMillis(timing.maximumNanos())));
+                    }
+                    adminRows(sender, rows, failure);
+                  });
       case "audit" -> {
         int limit = args.length > 1 ? Integer.parseInt(args[1]) : 10;
         schedulers
@@ -2741,7 +2785,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       default ->
           sender.sendMessage(
               Component.text(
-                  "admin actions: health, recover, metrics, live, security, snapshot, inspect, audit, settlement, influence, road, repair, campaign, worker, economy, heatmap, chunk",
+                  "admin actions: health, recover, metrics, live, security, performance, snapshot, inspect, audit, settlement, influence, road, repair, campaign, worker, economy, heatmap, chunk",
                   NamedTextColor.RED));
     }
   }
@@ -2757,6 +2801,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           if (rows.isEmpty()) sender.sendMessage(Component.text("No rows.", NamedTextColor.YELLOW));
           else rows.forEach(row -> sender.sendMessage(Component.text(row, NamedTextColor.GRAY)));
         });
+  }
+
+  private static double nanosToMillis(long nanos) {
+    return Math.round(nanos / 10_000.0) / 100.0;
   }
 
   private <T> void withCity(
@@ -2901,6 +2949,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "metrics",
               "live",
               "security",
+              "performance",
               "snapshot",
               "inspect",
               "audit",

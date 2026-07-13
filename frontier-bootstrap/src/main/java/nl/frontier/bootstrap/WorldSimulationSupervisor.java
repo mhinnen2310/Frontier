@@ -40,7 +40,7 @@ final class WorldSimulationSupervisor {
   private void cycle() {
     if (!active.get()) return;
     schedulers
-        .async(() -> simulation.cycle(maximumCities, Instant.now()))
+        .asyncNamed("world", () -> simulation.cycle(maximumCities, Instant.now()))
         .whenComplete(
             (report, failure) -> {
               if (failure != null)

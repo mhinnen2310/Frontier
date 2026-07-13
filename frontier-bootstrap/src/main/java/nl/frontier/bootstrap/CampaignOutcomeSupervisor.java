@@ -32,7 +32,7 @@ final class CampaignOutcomeSupervisor {
   private void cycle() {
     if (!active.get()) return;
     schedulers
-        .async(() -> outcomes.cycle(128, Instant.now()))
+        .asyncNamed("campaign-outcomes", () -> outcomes.cycle(128, Instant.now()))
         .whenComplete(
             (ignored, failure) -> {
               if (failure != null)

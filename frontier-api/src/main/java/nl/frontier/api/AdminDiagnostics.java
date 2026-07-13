@@ -21,5 +21,7 @@ public interface AdminDiagnostics {
 
   List<String> securityAudit();
 
+  List<String> performanceAudit();
+
   record Snapshot(Map<String, Long> counts, long oldestOutboxLagSeconds) {}
 }

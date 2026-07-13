@@ -33,7 +33,8 @@ public final class InfluenceSupervisor {
   public void start() {
     if (!active.compareAndSet(false, true)) return;
     schedulers
-        .async(
+        .asyncNamed(
+            "influence-cache",
             () -> {
               simulation.rebuildCache();
               return null;
@@ -57,7 +58,7 @@ public final class InfluenceSupervisor {
         () -> {
           if (!active.get()) return;
           schedulers
-              .async(() -> simulation.cycle(maximumSettlements, Instant.now()))
+              .asyncNamed("influence", () -> simulation.cycle(maximumSettlements, Instant.now()))
               .whenComplete(
                   (report, failure) -> {
                     if (failure != null)

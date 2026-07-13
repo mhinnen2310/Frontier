@@ -16,5 +16,9 @@ public interface SchedulerFacade {
 
   <T> CompletableFuture<T> async(Supplier<T> work);
 
+  default <T> CompletableFuture<T> asyncNamed(String name, Supplier<T> work) {
+    return async(work);
+  }
+
   void later(Duration delay, Runnable action);
 }

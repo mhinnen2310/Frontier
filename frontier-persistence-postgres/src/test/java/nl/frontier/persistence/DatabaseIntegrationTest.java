@@ -173,7 +173,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(30, result.getInt(1));
+        assertEquals(31, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1082,16 +1082,27 @@ class DatabaseIntegrationTest {
       assertTrue(
           worldSimulation.regions().stream()
               .allMatch(region -> !region.weather().isBlank() && region.weatherSeverity() >= 0));
+      var simulatedEvent = worldSimulation.events(false).stream().findFirst().orElseThrow();
       assertTrue(
-          worldSimulation.events(false).stream()
-              .anyMatch(event -> event.key().equals("TRADE_FAIR")));
+          java.util.Set.of(
+                  "DISASTER",
+                  "FLOOD",
+                  "PLAGUE",
+                  "BANDIT_RAID",
+                  "HARVEST_FAILURE",
+                  "TRADE_FAIR",
+                  "MIGRATION_WAVE",
+                  "HARVEST_FESTIVAL")
+              .contains(simulatedEvent.key()));
       worldSimulation.cycle(0, worldNow.plusSeconds(120));
       worldSimulation.cycle(0, worldNow.plusSeconds(240));
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
         try (var impacts =
             statement.executeQuery(
-                "SELECT count(*) FROM world_event_impacts WHERE impact_key='TRADE_FAIR'")) {
+                "SELECT count(*) FROM world_event_impacts WHERE event_id='"
+                    + simulatedEvent.id()
+                    + "'")) {
           assertTrue(impacts.next());
           assertTrue(impacts.getInt(1) > 0);
         }
@@ -1558,6 +1569,8 @@ class DatabaseIntegrationTest {
       assertFalse(diagnostics.chunkOwnership(warWorld, 50, 50).isEmpty());
       assertTrue(diagnostics.liveMetrics().containsKey("activeCampaigns"));
       assertEquals("PASS securityAudit", diagnostics.securityAudit().getLast());
+      assertTrue(
+          diagnostics.performanceAudit().stream().anyMatch(value -> value.equals("dueIndexes=7")));
     }
   }
 

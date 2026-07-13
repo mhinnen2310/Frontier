@@ -171,6 +171,15 @@
 - Added `/frontier admin security` to verify live invariants and required indexes without mutating gameplay.
 - Added permission/Dialog boundary tests, concurrent event detection coverage and full runtime security-audit assertions.
 
+### Sprint 19 — Performance
+
+- Added live async pool, queue-wait, execution, region/global task and named-subsystem timing instrumentation.
+- Added JVM heap and PostgreSQL database size, cache hit, transaction, tuple, session, index-use, table-size and dead-tuple diagnostics through `/frontier admin performance`.
+- Instrumented influence/cache, workers/production, repairs, economy, logistics, settlements, population, campaigns, events, civilization, claim cache and outbox cycles.
+- Added Flyway migration V31 with due-queue/hot-path indexes for tribute, loans, repairs, production, shipments, population, caravans, workers, warehouses, events, campaigns and roads.
+- Captured a real 32-second Paper/JFR baseline in `PERFORMANCE.md`; region/global tasks stayed at 0.03 ms average and 0.64 ms maximum with no queued async work at sample time.
+- Made the world-event integration test weather-policy aware after profiling reruns exposed its previous fixed-event assumption.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.
