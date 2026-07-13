@@ -129,7 +129,7 @@ public final class PostgresSettlementSimulationGateway implements SettlementSimu
           consumeFood(connection, snapshot.city(), result);
           update(
               connection,
-              "UPDATE workers SET mood=greatest(0,least(100,mood+?)),happiness=greatest(0,least(100,happiness+?)),experience=experience+?,state=CASE WHEN ? THEN CASE WHEN state='PAUSED' THEN 'IDLE' ELSE state END ELSE 'PAUSED' END,last_simulation_at=?,version=version+1 WHERE city_id=?",
+              "UPDATE workers SET mood=greatest(0,least(100,mood+?)),happiness=greatest(0,least(100,happiness+?)),experience=experience+?,state=CASE WHEN ? THEN CASE WHEN state='WAITING_PAYMENT' THEN 'IDLE' ELSE state END ELSE CASE WHEN state='IDLE' THEN 'WAITING_PAYMENT' ELSE state END END,last_simulation_at=?,version=version+1 WHERE city_id=?",
               result.wagesPaid() ? 2 : -10,
               result.foodSatisfied() ? 1 : -8,
               result.wagesPaid() ? 1 : 0,

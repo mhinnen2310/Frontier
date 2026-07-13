@@ -940,7 +940,7 @@ public final class PostgresRepairGateway implements RepairGateway {
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "UPDATE workers SET state='FETCH',task_id=?,lease_expires_at=?,version=version+1 WHERE id=? AND state='IDLE'")) {
+            "UPDATE workers SET state='TRAVELLING',task_id=?,lease_expires_at=?,version=version+1 WHERE id=? AND state='IDLE'")) {
       statement.setObject(1, task);
       statement.setTimestamp(2, Timestamp.from(leaseUntil));
       statement.setObject(3, worker.id);

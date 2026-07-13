@@ -22,7 +22,7 @@ class WorkerTest {
     worker.claim(UUID.randomUUID(), Instant.ofEpochSecond(10));
     worker.materialized(UUID.randomUUID());
     worker.presentationRemoved();
-    assertEquals(Worker.State.FETCH, worker.state());
+    assertEquals(Worker.State.TRAVELLING, worker.state());
     worker.recoverExpired(Instant.ofEpochSecond(11));
     assertEquals(Worker.State.IDLE, worker.state());
   }

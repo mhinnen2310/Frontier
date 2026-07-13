@@ -13,32 +13,25 @@ import nl.frontier.domain.Money;
 public final class Worker {
   public enum Profession {
     BUILDER,
-    GUARD,
-    MERCHANT,
     FARMER,
     MINER,
-    BLACKSMITH,
     COURIER,
-    DOCTOR,
-    ARCHITECT,
-    SCHOLAR,
-    STABLE_MASTER,
-    LUMBERJACK
+    GUARD,
+    CLERK,
+    MERCHANT,
+    ENGINEER
   }
 
   public enum State {
     IDLE,
-    CLAIM_TASK,
-    FETCH,
-    NAVIGATE,
-    FACE_TARGET,
-    ANIMATE,
-    VALIDATE,
-    PLACE,
-    CONFIRM,
-    REST,
-    PAUSED,
-    DESPAWNED
+    TRAVELLING,
+    WORKING,
+    WAITING_MATERIALS,
+    WAITING_PAYMENT,
+    RESTING,
+    INJURED,
+    FLEEING,
+    UNAVAILABLE
   }
 
   private final WorkerId id;
@@ -62,17 +55,20 @@ public final class Worker {
   }
 
   public void claim(UUID taskId, Instant leaseUntil) {
-    if (state != State.IDLE && state != State.CLAIM_TASK)
-      throw new DomainException("worker is unavailable");
+    if (state != State.IDLE) throw new DomainException("worker is unavailable");
     task = Objects.requireNonNull(taskId);
     leaseExpiresAt = Objects.requireNonNull(leaseUntil);
-    state = State.FETCH;
+    state = State.TRAVELLING;
     version++;
   }
 
   public void move(State next) {
-    if (task == null && next != State.IDLE && next != State.DESPAWNED)
-      throw new DomainException("worker has no task");
+    if (task == null
+        && next != State.IDLE
+        && next != State.RESTING
+        && next != State.INJURED
+        && next != State.FLEEING
+        && next != State.UNAVAILABLE) throw new DomainException("worker has no task");
     state = Objects.requireNonNull(next);
     version++;
   }

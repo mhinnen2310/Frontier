@@ -78,18 +78,7 @@ public final class PostgresProductionGateway implements ProductionGateway {
         connection -> {
           requireRole(connection, city, actor);
           if (!Set.of(
-                  "BUILDER",
-                  "GUARD",
-                  "MERCHANT",
-                  "FARMER",
-                  "MINER",
-                  "BLACKSMITH",
-                  "COURIER",
-                  "DOCTOR",
-                  "ARCHITECT",
-                  "SCHOLAR",
-                  "STABLE_MASTER",
-                  "LUMBERJACK")
+                  "BUILDER", "FARMER", "MINER", "COURIER", "GUARD", "CLERK", "MERCHANT", "ENGINEER")
               .contains(profession)) throw new DomainException("unknown worker profession");
           UUID id = UUID.randomUUID();
           try (PreparedStatement statement =
@@ -297,13 +286,16 @@ public final class PostgresProductionGateway implements ProductionGateway {
 
   private static int bestWorkerSkill(Connection connection, UUID city, String profession)
       throws SQLException {
-    return (int)
-        scalar(
-            connection,
-            "SELECT COALESCE(max(skill),0) FROM workers WHERE city_id=? AND profession='"
-                + profession.replace("'", "")
-                + "' AND state='IDLE'",
-            city);
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT COALESCE(max(skill),0) FROM workers WHERE city_id=? AND profession=? AND state='IDLE'")) {
+      statement.setObject(1, city);
+      statement.setString(2, profession);
+      try (ResultSet result = statement.executeQuery()) {
+        result.next();
+        return result.getInt(1);
+      }
+    }
   }
 
   private static boolean hasWorker(Connection connection, UUID city, String profession)

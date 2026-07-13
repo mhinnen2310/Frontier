@@ -8,6 +8,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import nl.frontier.api.TransactionalStore;
 import nl.frontier.city.PopulationGateway;
@@ -149,26 +150,88 @@ public final class PostgresPopulationGateway implements PopulationGateway {
           List<WorkerProfile> values = new ArrayList<>();
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "SELECT id,profession,skill,morale,efficiency,salary_minor,experience,employment_status,housing_building,age_days,retirement_age_days FROM workers WHERE city_id=? ORDER BY employment_status,efficiency DESC,id")) {
+                  "SELECT w.id,w.profession,w.skill,w.morale,w.efficiency,w.salary_minor,w.experience,w.employment_status,w.assigned_building,dw.district_id,w.state,w.task_id,w.housing_building,w.age_days,w.retirement_age_days FROM workers w LEFT JOIN district_workers dw ON dw.worker_id=w.id WHERE w.city_id=? ORDER BY w.employment_status,w.efficiency DESC,w.id")) {
             statement.setObject(1, city);
             try (ResultSet result = statement.executeQuery()) {
-              while (result.next())
-                values.add(
-                    new WorkerProfile(
-                        result.getObject(1, UUID.class),
-                        result.getString(2),
-                        result.getInt(3),
-                        result.getInt(4),
-                        result.getInt(5),
-                        result.getLong(6),
-                        result.getLong(7),
-                        result.getString(8),
-                        result.getObject(9, UUID.class),
-                        result.getInt(10),
-                        result.getInt(11)));
+              while (result.next()) values.add(profile(result));
             }
           }
           return List.copyOf(values);
+        });
+  }
+
+  @Override
+  public WorkerProfile assignBuilding(
+      UUID city, UUID actor, UUID worker, UUID building, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          requireWorkerManager(
+              connection, city, actor, Set.of("MAYOR", "ARCHITECT", "BUILDER_MASTER"));
+          requireWorker(connection, city, worker);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT 1 FROM city_buildings WHERE id=? AND city_id=? AND status IN ('ACTIVE','DAMAGED')")) {
+            statement.setObject(1, building);
+            statement.setObject(2, city);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next())
+                throw new DomainException("operational worker building not found in settlement");
+            }
+          }
+          update(
+              connection,
+              "UPDATE workers SET assigned_building=?,version=version+1 WHERE id=?",
+              building,
+              worker);
+          workerHistory(
+              connection,
+              worker,
+              city,
+              actor,
+              "BUILDING_ASSIGNED",
+              "{\"building\":\"" + building + "\"}",
+              now);
+          return profile(connection, city, worker);
+        });
+  }
+
+  @Override
+  public WorkerProfile clearBuilding(UUID city, UUID actor, UUID worker, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          requireWorkerManager(
+              connection, city, actor, Set.of("MAYOR", "ARCHITECT", "BUILDER_MASTER"));
+          requireWorker(connection, city, worker);
+          update(
+              connection,
+              "UPDATE workers SET assigned_building=NULL,version=version+1 WHERE id=?",
+              worker);
+          workerHistory(connection, worker, city, actor, "BUILDING_CLEARED", "{}", now);
+          return profile(connection, city, worker);
+        });
+  }
+
+  @Override
+  public WorkerProfile setWage(UUID city, UUID actor, UUID worker, long wageMinor, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          requireWorkerManager(connection, city, actor, Set.of("MAYOR", "TREASURER"));
+          requireWorker(connection, city, worker);
+          update(
+              connection,
+              "UPDATE workers SET salary_minor=?,employment_status=CASE WHEN employment_status='RETIRED' THEN employment_status WHEN ?>0 THEN 'EMPLOYED' ELSE 'SEEKING_WORK' END,version=version+1 WHERE id=?",
+              wageMinor,
+              wageMinor,
+              worker);
+          workerHistory(
+              connection,
+              worker,
+              city,
+              actor,
+              "WAGE_CHANGED",
+              "{\"wageMinor\":" + wageMinor + "}",
+              now);
+          return profile(connection, city, worker);
         });
   }
 
@@ -237,7 +300,7 @@ public final class PostgresPopulationGateway implements PopulationGateway {
       if (retiring && !worker.employment.equals("RETIRED")) retired++;
       update(
           connection,
-          "UPDATE workers SET morale=?,efficiency=?,employment_status=?,housing_building=?,age_days=?,experience=experience+?,retired_at=CASE WHEN ? THEN coalesce(retired_at,?) ELSE retired_at END,state=CASE WHEN ? THEN 'RETIRED' ELSE state END,version=version+1 WHERE id=?",
+          "UPDATE workers SET morale=?,efficiency=?,employment_status=?,housing_building=?,age_days=?,experience=experience+?,retired_at=CASE WHEN ? THEN coalesce(retired_at,?) ELSE retired_at END,state=CASE WHEN ? THEN 'UNAVAILABLE' ELSE state END,version=version+1 WHERE id=?",
           morale,
           efficiency,
           employment,
@@ -295,6 +358,86 @@ public final class PostgresPopulationGateway implements PopulationGateway {
         quantity,
         reason,
         now,
+        now);
+  }
+
+  private static WorkerProfile profile(Connection connection, UUID city, UUID worker)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT w.id,w.profession,w.skill,w.morale,w.efficiency,w.salary_minor,w.experience,w.employment_status,w.assigned_building,dw.district_id,w.state,w.task_id,w.housing_building,w.age_days,w.retirement_age_days FROM workers w LEFT JOIN district_workers dw ON dw.worker_id=w.id WHERE w.id=? AND w.city_id=?")) {
+      statement.setObject(1, worker);
+      statement.setObject(2, city);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("settlement worker not found");
+        return profile(result);
+      }
+    }
+  }
+
+  private static WorkerProfile profile(ResultSet result) throws SQLException {
+    return new WorkerProfile(
+        result.getObject(1, UUID.class),
+        result.getString(2),
+        result.getInt(3),
+        result.getInt(4),
+        result.getInt(5),
+        result.getLong(6),
+        result.getLong(7),
+        result.getString(8),
+        result.getObject(9, UUID.class),
+        result.getObject(10, UUID.class),
+        result.getString(11),
+        result.getObject(12, UUID.class),
+        result.getObject(13, UUID.class),
+        result.getInt(14),
+        result.getInt(15));
+  }
+
+  private static void requireWorker(Connection connection, UUID city, UUID worker)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement("SELECT 1 FROM workers WHERE id=? AND city_id=? FOR UPDATE")) {
+      statement.setObject(1, worker);
+      statement.setObject(2, city);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("settlement worker not found");
+      }
+    }
+  }
+
+  private static void requireWorkerManager(
+      Connection connection, UUID city, UUID actor, Set<String> roles) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT role FROM city_members WHERE city_id=? AND player_id=?")) {
+      statement.setObject(1, city);
+      statement.setObject(2, actor);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next() || !roles.contains(result.getString(1)))
+          throw new DomainException("settlement role cannot manage this worker attribute");
+      }
+    }
+  }
+
+  private static void workerHistory(
+      Connection connection,
+      UUID worker,
+      UUID city,
+      UUID actor,
+      String action,
+      String details,
+      Instant now)
+      throws SQLException {
+    update(
+        connection,
+        "INSERT INTO worker_history(id,worker_id,city_id,actor_id,action,details,occurred_at) VALUES(?,?,?,?,?,?::jsonb,?)",
+        UUID.randomUUID(),
+        worker,
+        city,
+        actor,
+        action,
+        details,
         now);
   }
 

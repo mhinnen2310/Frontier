@@ -11,6 +11,12 @@ public interface PopulationGateway {
 
   List<WorkerProfile> workers(UUID city, UUID actor);
 
+  WorkerProfile assignBuilding(UUID city, UUID actor, UUID worker, UUID building, Instant now);
+
+  WorkerProfile clearBuilding(UUID city, UUID actor, UUID worker, Instant now);
+
+  WorkerProfile setWage(UUID city, UUID actor, UUID worker, long wageMinor, Instant now);
+
   record PopulationReport(
       UUID city,
       int population,
@@ -33,6 +39,10 @@ public interface PopulationGateway {
       long salaryMinor,
       long experience,
       String employment,
+      UUID assignedBuilding,
+      UUID assignedDistrict,
+      String status,
+      UUID currentTask,
       UUID housing,
       int ageDays,
       int retirementAgeDays) {}

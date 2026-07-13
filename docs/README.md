@@ -17,6 +17,7 @@ This directory is the maintained operator, player and developer manual for Front
 - [Districts](DISTRICTS.md): normalized domain, regions, UUID building assignment, roles and persistence invariants.
 - [Building validation](BUILDING_VALIDATION.md): physical inspection rules, lifecycle and safe registration protocol.
 - [Physical infrastructure](PHYSICAL_INFRASTRUCTURE.md): bounded route validation, material profiles and dirty-segment protocol.
+- [Workers](WORKERS.md): professions, attributes, state lifecycle, assignments and wages.
 - [Claim protection](CLAIM_PROTECTION.md): central action policy, role rules and covered Paper events.
 - [Repair integrity](REPAIR_INTEGRITY.md): damage generations, crash recovery, leases and material safety.
 - [Configuration](CONFIGURATION.md): every configuration section and safe tuning.

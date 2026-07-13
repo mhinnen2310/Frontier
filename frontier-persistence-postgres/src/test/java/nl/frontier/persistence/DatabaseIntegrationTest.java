@@ -374,7 +374,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(48, result.getInt(1));
+        assertEquals(49, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1463,7 +1463,33 @@ class DatabaseIntegrationTest {
       SettlementGateway.BuildingSnapshot industry = repairDepotBuilding;
       economy.deposit(seller.id(), sellerOwner, "minecraft:oak_log", 2, Instant.now());
       PostgresProductionGateway production = new PostgresProductionGateway(store);
-      production.hire(seller.id(), sellerOwner, "LUMBERJACK", 100, 20, Instant.now());
+      var engineer = production.hire(seller.id(), sellerOwner, "ENGINEER", 100, 20, Instant.now());
+      PostgresPopulationGateway workerModel = new PostgresPopulationGateway(store);
+      var assignedEngineer =
+          workerModel.assignBuilding(
+              seller.id(), sellerOwner, engineer.id(), industry.id(), Instant.now());
+      assertEquals(industry.id(), assignedEngineer.assignedBuilding());
+      assertEquals("IDLE", assignedEngineer.status());
+      assertTrue(assignedEngineer.currentTask() == null);
+      assertEquals(
+          30,
+          workerModel
+              .setWage(seller.id(), sellerOwner, engineer.id(), 30, Instant.now())
+              .salaryMinor());
+      workerModel.setWage(seller.id(), sellerOwner, engineer.id(), 20, Instant.now());
+      assertThrows(
+          DomainException.class,
+          () -> workerModel.setWage(seller.id(), buyerOwner, engineer.id(), 500, Instant.now()));
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT count(*) FROM worker_history WHERE worker_id=?")) {
+        statement.setObject(1, engineer.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals(3, result.getInt(1));
+        }
+      }
       ProductionGateway.ProductionOrder productionOrder =
           production.queue(
               seller.id(),
@@ -2354,6 +2380,9 @@ class DatabaseIntegrationTest {
       assertEquals(
           "RETIRED",
           population.workers(populationCity.id(), populationOwner).getFirst().employment());
+      assertEquals(
+          "UNAVAILABLE",
+          population.workers(populationCity.id(), populationOwner).getFirst().status());
 
       UUID invoicePayer = UUID.randomUUID();
       try (var connection = database.dataSource().getConnection();

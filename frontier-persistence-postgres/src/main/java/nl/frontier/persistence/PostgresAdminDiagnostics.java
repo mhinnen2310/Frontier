@@ -238,7 +238,7 @@ public final class PostgresAdminDiagnostics implements AdminDiagnostics {
               "activeWorkers",
               scalar(
                   connection,
-                  "SELECT count(*) FROM workers WHERE state='AVAILABLE' OR employment_status='EMPLOYED'"));
+                  "SELECT count(*) FROM workers WHERE state<>'UNAVAILABLE' AND employment_status='EMPLOYED'"));
           values.put(
               "loadedClaims",
               scalar(connection, "SELECT count(*) FROM city_claims WHERE state<>'WILDERNESS'"));

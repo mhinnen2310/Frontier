@@ -1,0 +1,46 @@
+UPDATE workers
+SET profession=CASE
+  WHEN profession IN ('BUILDER','FARMER','MINER','COURIER','GUARD','CLERK','MERCHANT','ENGINEER') THEN profession
+  WHEN profession IN ('PORTER','STABLE_MASTER') THEN 'COURIER'
+  WHEN profession IN ('GUIDE','DOCTOR','SCHOLAR') THEN 'CLERK'
+  WHEN profession IN ('BLACKSMITH','ARCHITECT','LUMBERJACK') THEN 'ENGINEER'
+  ELSE 'CLERK'
+END;
+
+UPDATE recipes
+SET worker_profession=CASE
+  WHEN worker_profession IN ('BUILDER','FARMER','MINER','COURIER','GUARD','CLERK','MERCHANT','ENGINEER') THEN worker_profession
+  WHEN worker_profession IN ('PORTER','STABLE_MASTER') THEN 'COURIER'
+  WHEN worker_profession IN ('GUIDE','DOCTOR','SCHOLAR') THEN 'CLERK'
+  WHEN worker_profession IN ('BLACKSMITH','ARCHITECT','LUMBERJACK') THEN 'ENGINEER'
+  ELSE 'CLERK'
+END;
+
+UPDATE workers
+SET state=CASE
+  WHEN state IN ('IDLE','TRAVELLING','WORKING','WAITING_MATERIALS','WAITING_PAYMENT','RESTING','INJURED','FLEEING','UNAVAILABLE') THEN state
+  WHEN state IN ('CLAIM_TASK','FETCH','NAVIGATE','TRAVEL') THEN 'TRAVELLING'
+  WHEN state IN ('FACE_TARGET','ANIMATE','VALIDATE','PLACE','CONFIRM','BUILD') THEN 'WORKING'
+  WHEN state='PAUSED' THEN 'WAITING_PAYMENT'
+  WHEN state='REST' THEN 'RESTING'
+  WHEN state IN ('RETIRED','DESPAWNED') THEN 'UNAVAILABLE'
+  ELSE 'IDLE'
+END;
+
+ALTER TABLE workers ADD CONSTRAINT chk_worker_profession_complete
+  CHECK(profession IN ('BUILDER','FARMER','MINER','COURIER','GUARD','CLERK','MERCHANT','ENGINEER'));
+ALTER TABLE workers ADD CONSTRAINT chk_worker_state_complete
+  CHECK(state IN ('IDLE','TRAVELLING','WORKING','WAITING_MATERIALS','WAITING_PAYMENT','RESTING','INJURED','FLEEING','UNAVAILABLE'));
+
+CREATE TABLE worker_history (
+  id UUID PRIMARY KEY,
+  worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+  city_id UUID NOT NULL REFERENCES cities(id),
+  actor_id UUID,
+  action VARCHAR(48) NOT NULL,
+  details JSONB NOT NULL,
+  occurred_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX idx_worker_history_worker ON worker_history(worker_id,occurred_at DESC);
+CREATE INDEX idx_worker_status_task ON workers(city_id,state,task_id);

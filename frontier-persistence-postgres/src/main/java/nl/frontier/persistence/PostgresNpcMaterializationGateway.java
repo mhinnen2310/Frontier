@@ -30,7 +30,7 @@ public final class PostgresNpcMaterializationGateway implements NpcMaterializati
           String sql =
               "WITH active_cities AS (SELECT DISTINCT city_id FROM city_members WHERE player_id IN ("
                   + placeholders
-                  + ") UNION SELECT id FROM cities WHERE settlement_kind='SERVER'), ranked AS (SELECT w.*,row_number() OVER(PARTITION BY w.city_id ORDER BY CASE w.profession WHEN 'BUILDER' THEN 0 WHEN 'GUARD' THEN 1 WHEN 'GUIDE' THEN 2 WHEN 'MERCHANT' THEN 3 ELSE 4 END,w.id) rn FROM workers w JOIN active_cities a ON a.city_id=w.city_id WHERE w.state<>'DESPAWNED') SELECT r.id,r.city_id,r.profession,r.skill,c.world_id,c.chunk_x,c.chunk_z,r.presentation_entity_id FROM ranked r JOIN city_claims c ON c.city_id=r.city_id AND c.state='CAPITAL' WHERE r.rn<=? ORDER BY r.city_id,r.rn";
+                  + ") UNION SELECT id FROM cities WHERE settlement_kind='SERVER'), ranked AS (SELECT w.*,row_number() OVER(PARTITION BY w.city_id ORDER BY CASE w.profession WHEN 'BUILDER' THEN 0 WHEN 'GUARD' THEN 1 WHEN 'CLERK' THEN 2 WHEN 'MERCHANT' THEN 3 ELSE 4 END,w.id) rn FROM workers w JOIN active_cities a ON a.city_id=w.city_id WHERE w.state<>'UNAVAILABLE') SELECT r.id,r.city_id,r.profession,r.skill,c.world_id,c.chunk_x,c.chunk_z,r.presentation_entity_id FROM ranked r JOIN city_claims c ON c.city_id=r.city_id AND c.state='CAPITAL' WHERE r.rn<=? ORDER BY r.city_id,r.rn";
           List<Candidate> values = new ArrayList<>();
           try (PreparedStatement statement = connection.prepareStatement(sql)) {
             int index = 1;

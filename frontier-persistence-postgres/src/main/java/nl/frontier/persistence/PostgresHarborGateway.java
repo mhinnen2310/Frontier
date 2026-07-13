@@ -260,9 +260,9 @@ public final class PostgresHarborGateway implements HarborGateway {
         world,
         chunkX * 16 + 8,
         chunkZ * 16 + 8);
-    insertWorker(connection, "GUIDE", 80);
+    insertWorker(connection, "CLERK", 80);
     insertWorker(connection, "MERCHANT", 70);
-    insertWorker(connection, "PORTER", 60);
+    insertWorker(connection, "COURIER", 60);
     execute(
         connection,
         "INSERT INTO harbor_state(singleton,city_id,system_actor_id,daily_budget_minor,spent_today_minor,budget_resets_at,version) VALUES(true,?,?,?,0,?,0)",

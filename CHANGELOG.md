@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 16 — Complete Worker Model
+
+- Replaced overlapping legacy professions with Builder, Farmer, Miner, Courier, Guard, Clerk, Merchant and Engineer, including deterministic upgrade mappings for existing Harbor workers and production recipes.
+- Replaced internal/legacy worker states with the player-readable `IDLE`, `TRAVELLING`, `WORKING`, `WAITING_MATERIALS`, `WAITING_PAYMENT`, `RESTING`, `INJURED`, `FLEEING` and `UNAVAILABLE` lifecycle.
+- Completed worker reports with profession, skill, morale, wage, assigned building, assigned district, status, current task and experience.
+- Added role-checked transactional building assignment/clearing and wage changes through `/frontier workers`, with append-only worker history.
+- Added Flyway V49 constraints/migration, parameterized profession lookup and domain/PostgreSQL coverage for upgrade, authorization, assignments, wages, retirement and history.
+
 ## 1.1.0-RC4 — Release Train C
 
 - Completed Master Roadmap Sprints 11–15: bounded physical building validation, ten core validator profiles, Architect registration/transfer UX, curved physical infrastructure and the complete route health/failure/maintenance loop.

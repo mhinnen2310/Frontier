@@ -283,7 +283,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       return true;
     }
     if (root.equals("workers") && sender instanceof Player player) {
-      workers(player);
+      workers(player, Arrays.copyOfRange(args, 1, args.length));
       return true;
     }
     if (root.equals("events") && sender instanceof Player player) {
@@ -1909,32 +1909,78 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                 + value.emigration());
   }
 
-  private void workers(Player player) {
-    withCity(
-        player,
-        city -> population.workers(city.id(), player.getUniqueId()),
-        values ->
-            values.isEmpty()
-                ? "No settlement workers."
-                : values.stream()
-                    .map(
-                        value ->
-                            value.id()
-                                + " "
-                                + value.profession()
-                                + " skill="
-                                + value.skill()
-                                + " morale="
-                                + value.morale()
-                                + " efficiency="
-                                + value.efficiency()
-                                + " employment="
-                                + value.employment()
-                                + " salary="
-                                + value.salaryMinor()
-                                + " xp="
-                                + value.experience())
-                    .collect(java.util.stream.Collectors.joining("\n")));
+  private void workers(Player player, String[] args) {
+    try {
+      String action = args.length == 0 ? "list" : args[0].toLowerCase(Locale.ROOT);
+      switch (action) {
+        case "list" ->
+            withCity(
+                player,
+                city -> population.workers(city.id(), player.getUniqueId()),
+                values ->
+                    values.isEmpty()
+                        ? "No settlement workers."
+                        : values.stream()
+                            .map(FrontierCommand::workerLine)
+                            .collect(java.util.stream.Collectors.joining("\n")));
+        case "assign" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier workers assign <worker> <building|none>");
+          UUID worker = UUID.fromString(args[1]);
+          withCity(
+              player,
+              city ->
+                  args[2].equalsIgnoreCase("none")
+                      ? population.clearBuilding(
+                          city.id(), player.getUniqueId(), worker, Instant.now())
+                      : population.assignBuilding(
+                          city.id(),
+                          player.getUniqueId(),
+                          worker,
+                          UUID.fromString(args[2]),
+                          Instant.now()),
+              value -> "Worker updated: " + workerLine(value));
+        }
+        case "wage" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier workers wage <worker> <daily-cents>");
+          UUID worker = UUID.fromString(args[1]);
+          long wage = Long.parseLong(args[2]);
+          withCity(
+              player,
+              city ->
+                  population.setWage(city.id(), player.getUniqueId(), worker, wage, Instant.now()),
+              value -> "Worker updated: " + workerLine(value));
+        }
+        default -> throw new IllegalArgumentException("worker actions: list, assign, wage");
+      }
+    } catch (IllegalArgumentException failure) {
+      player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
+    }
+  }
+
+  private static String workerLine(nl.frontier.city.PopulationGateway.WorkerProfile value) {
+    return value.id()
+        + " "
+        + value.profession()
+        + " skill="
+        + value.skill()
+        + " morale="
+        + value.morale()
+        + " wage="
+        + value.salaryMinor()
+        + " building="
+        + value.assignedBuilding()
+        + " district="
+        + value.assignedDistrict()
+        + " status="
+        + value.status()
+        + " task="
+        + value.currentTask()
+        + " xp="
+        + value.experience();
   }
 
   private void commercial(Player player, String[] args) {
