@@ -44,6 +44,7 @@ import nl.frontier.persistence.JdbcTransactionalStore;
 import nl.frontier.persistence.PostgresAdminDiagnostics;
 import nl.frontier.persistence.PostgresBuildingValidationGateway;
 import nl.frontier.persistence.PostgresCampaignGateway;
+import nl.frontier.persistence.PostgresCampaignOutcomeGateway;
 import nl.frontier.persistence.PostgresCaravanGateway;
 import nl.frontier.persistence.PostgresCivilizationGateway;
 import nl.frontier.persistence.PostgresClaimProtectionGateway;
@@ -70,6 +71,7 @@ import nl.frontier.persistence.PostgresWorldSimulationGateway;
 import nl.frontier.repair.RepairGateway;
 import nl.frontier.ui.PaperFrontierUi;
 import nl.frontier.warfare.CampaignGateway;
+import nl.frontier.warfare.CampaignOutcomeService;
 import nl.frontier.warfare.WarPolicyCache;
 import nl.frontier.world.CivilizationGateway;
 import nl.frontier.world.WorldSimulationGateway;
@@ -102,6 +104,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private CaravanPresentationSupervisor caravanSupervisor;
   private PopulationSupervisor populationSupervisor;
   private CommercialSupervisor commercialSupervisor;
+  private CampaignOutcomeSupervisor campaignOutcomeSupervisor;
   private volatile boolean acceptingWrites;
 
   @Override
@@ -152,6 +155,8 @@ public final class FrontierPlugin extends JavaPlugin {
       PopulationService population = new PopulationService(new PostgresPopulationGateway(store));
       CommercialService commerce = new CommercialService(new PostgresCommercialGateway(store));
       CampaignGateway campaignGateway = new PostgresCampaignGateway(store);
+      CampaignOutcomeService campaignOutcomes =
+          new CampaignOutcomeService(new PostgresCampaignOutcomeGateway(store));
       WarPolicyCache warPolicyCache = new WarPolicyCache();
       warPolicyCache.replace(campaignGateway.policySnapshot(Instant.now()));
       ClaimProtectionGateway claimProtectionGateway = new PostgresClaimProtectionGateway(store);
@@ -205,6 +210,7 @@ public final class FrontierPlugin extends JavaPlugin {
               logisticsGateway,
               contractGateway,
               campaignGateway,
+              campaignOutcomes,
               repairGateway,
               worldSimulationGateway,
               civilizationGateway,
@@ -234,6 +240,9 @@ public final class FrontierPlugin extends JavaPlugin {
       populationSupervisor.start();
       commercialSupervisor = new CommercialSupervisor(schedulers, commerce, getLogger());
       commercialSupervisor.start();
+      campaignOutcomeSupervisor =
+          new CampaignOutcomeSupervisor(schedulers, campaignOutcomes, getLogger());
+      campaignOutcomeSupervisor.start();
       settlementLifecycleSupervisor =
           new SettlementLifecycleSupervisor(schedulers, settlementLifecycle, getLogger());
       settlementLifecycleSupervisor.start();
@@ -423,6 +432,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (caravanSupervisor != null) caravanSupervisor.stop();
     if (populationSupervisor != null) populationSupervisor.stop();
     if (commercialSupervisor != null) commercialSupervisor.stop();
+    if (campaignOutcomeSupervisor != null) campaignOutcomeSupervisor.stop();
     if (schedulers != null) schedulers.close();
     if (database != null) database.close();
   }

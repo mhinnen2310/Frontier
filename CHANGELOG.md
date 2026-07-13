@@ -94,6 +94,14 @@
 - Retained PostgreSQL-authoritative warehouses, shipment logistics, production reservations and player wallets; all new money and stock mutations are transactional.
 - Added Flyway migration V24 and clean-database coverage for company capital, invoices, overdue processing, loans/interest, taxes, procurement, emergency pricing and history.
 
+### Sprint 11 — Campaign Result Engine
+
+- Added transactional, replay-safe resolution for occupation, liberation, conquest, annexation, territory concession, reparations, tribute, independence, civil war and kingdom intervention.
+- Added authoritative transfer of scoped claims plus their buildings, roads, infrastructure ownership, workers and warehouse stock, with append-only transfer history.
+- Added durable occupations, recurring tribute schedules, audited reparations/tribute ledger entries and automatic campaign completion.
+- Added `/frontier war outcome` as the administrative fallback while keeping all outcome logic in `CampaignOutcomeService` and its PostgreSQL gateway.
+- Added Flyway migration V25 and clean-database integration coverage for conquest transfers, recurring tribute and outcome replay safety.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

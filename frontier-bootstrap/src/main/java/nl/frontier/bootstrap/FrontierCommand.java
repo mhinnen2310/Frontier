@@ -46,6 +46,8 @@ import nl.frontier.observability.FrontierMetrics;
 import nl.frontier.repair.RepairGateway;
 import nl.frontier.repair.RepairOrder;
 import nl.frontier.warfare.CampaignGateway;
+import nl.frontier.warfare.CampaignOutcomeGateway;
+import nl.frontier.warfare.CampaignOutcomeService;
 import nl.frontier.warfare.WarCampaign;
 import nl.frontier.world.CivilizationGateway;
 import nl.frontier.world.WorldSimulationGateway;
@@ -100,6 +102,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final LogisticsGateway logistics;
   private final ContractGateway contracts;
   private final CampaignGateway campaigns;
+  private final CampaignOutcomeService campaignOutcomes;
   private final RepairGateway repairs;
   private final WorldSimulationGateway worldSimulation;
   private final CivilizationGateway civilization;
@@ -131,6 +134,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       LogisticsGateway logistics,
       ContractGateway contracts,
       CampaignGateway campaigns,
+      CampaignOutcomeService campaignOutcomes,
       RepairGateway repairs,
       WorldSimulationGateway worldSimulation,
       CivilizationGateway civilization,
@@ -160,6 +164,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.logistics = Objects.requireNonNull(logistics);
     this.contracts = Objects.requireNonNull(contracts);
     this.campaigns = Objects.requireNonNull(campaigns);
+    this.campaignOutcomes = Objects.requireNonNull(campaignOutcomes);
     this.repairs = Objects.requireNonNull(repairs);
     this.worldSimulation = Objects.requireNonNull(worldSimulation);
     this.civilization = Objects.requireNonNull(civilization);
@@ -1748,6 +1753,35 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                       + "; active after "
                       + campaign.scheduledActiveAt());
         }
+        case "outcome" -> {
+          if (args.length < 3 || args.length > 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier war outcome <campaign-uuid> <outcome> [amount-cents]");
+          UUID campaign = UUID.fromString(args[1]);
+          CampaignOutcomeGateway.Outcome outcome =
+              CampaignOutcomeGateway.Outcome.valueOf(args[2].toUpperCase(Locale.ROOT));
+          long amount = args.length == 4 ? Long.parseLong(args[3]) : 0;
+          execute(
+              player,
+              () ->
+                  campaignOutcomes.apply(
+                      campaign, player.getUniqueId(), outcome, amount, Instant.now()),
+              value ->
+                  "Campaign outcome "
+                      + value.outcome()
+                      + " winner="
+                      + value.winner()
+                      + " transferred claims/buildings/roads/workers/storage="
+                      + value.claims()
+                      + "/"
+                      + value.buildings()
+                      + "/"
+                      + value.roads()
+                      + "/"
+                      + value.workers()
+                      + "/"
+                      + value.storageUnits());
+        }
         case "ceasefire", "resume", "resolve", "end" -> {
           if (args.length < 2 || args.length > 3)
             throw new IllegalArgumentException(
@@ -1770,7 +1804,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         }
         default ->
             throw new IllegalArgumentException(
-                "war actions: list, declare, ceasefire, resume, resolve, end");
+                "war actions: list, declare, ceasefire, resume, resolve, outcome, end");
       }
     } catch (IllegalArgumentException failure) {
       player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
@@ -2386,7 +2420,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         Component.text("/frontier contracts list|post|accept|deliver", NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text(
-            "/frontier war list|declare|ceasefire|resume|resolve|end", NamedTextColor.GRAY));
+            "/frontier war list|declare|ceasefire|resume|resolve|outcome|end",
+            NamedTextColor.GRAY));
     sender.sendMessage(Component.text("/frontier repair list|quote|buy", NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text("/frontier world regions|events|season", NamedTextColor.GRAY));
@@ -2513,7 +2548,14 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     if (args.length == 2 && args[0].equalsIgnoreCase("contracts"))
       return matching(List.of("list", "post", "accept", "deliver"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("war"))
-      return matching(List.of("list", "declare", "ceasefire", "resume", "resolve", "end"), args[1]);
+      return matching(
+          List.of("list", "declare", "ceasefire", "resume", "resolve", "outcome", "end"), args[1]);
+    if (args.length == 4 && args[0].equalsIgnoreCase("war") && args[1].equalsIgnoreCase("outcome"))
+      return matching(
+          Arrays.stream(CampaignOutcomeGateway.Outcome.values())
+              .map(value -> value.name().toLowerCase(Locale.ROOT))
+              .toList(),
+          args[3]);
     if (args.length == 2 && args[0].equalsIgnoreCase("repair"))
       return matching(List.of("list", "quote", "buy"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("world"))

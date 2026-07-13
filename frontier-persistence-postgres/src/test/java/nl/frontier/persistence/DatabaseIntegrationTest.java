@@ -168,7 +168,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(24, result.getInt(1));
+        assertEquals(25, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1163,6 +1163,61 @@ class DatabaseIntegrationTest {
               .contributeWonder(
                   wonder.id(), attacker.id(), attackerOwner, 2, UUID.randomUUID(), Instant.now())
               .status());
+
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE campaigns SET phase='RESOLUTION',attacker_score=200,defender_score=100 WHERE id='"
+                + campaign.id()
+                + "'");
+      }
+      PostgresCampaignOutcomeGateway outcomes = new PostgresCampaignOutcomeGateway(store);
+      var conquest =
+          outcomes.apply(
+              campaign.id(),
+              attackerOwner,
+              nl.frontier.warfare.CampaignOutcomeGateway.Outcome.CONQUEST,
+              0,
+              Instant.now());
+      assertEquals(attacker.id(), conquest.winner());
+      assertTrue(conquest.claims() >= 1);
+      assertTrue(conquest.storageUnits() >= 1);
+      CampaignGateway.CampaignSnapshot tributeCampaign =
+          campaigns.declare(
+              seller.id(),
+              sellerOwner,
+              buyer.id(),
+              WarCampaign.Type.BORDER,
+              new CampaignGateway.ObjectiveSpec(
+                  "TOLL_GATE", sellerWorld, 320, 0, 320, 335, 320, 335, 10, 1),
+              100,
+              Duration.ofSeconds(1),
+              Duration.ofSeconds(10),
+              UUID.randomUUID(),
+              Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE campaigns SET phase='RESOLUTION',attacker_score=20,defender_score=0 WHERE id='"
+                + tributeCampaign.id()
+                + "'");
+      }
+      assertEquals(
+          nl.frontier.warfare.CampaignOutcomeGateway.Outcome.TRIBUTE,
+          outcomes
+              .apply(
+                  tributeCampaign.id(),
+                  sellerOwner,
+                  nl.frontier.warfare.CampaignOutcomeGateway.Outcome.TRIBUTE,
+                  50,
+                  Instant.now())
+              .outcome());
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE campaign_tributes SET next_due_at=now()-interval '1 second'");
+      }
+      assertEquals(1, outcomes.cycleTributes(10, Instant.now()).paid());
 
       UUID populationOwner = UUID.randomUUID();
       var populationCity =
