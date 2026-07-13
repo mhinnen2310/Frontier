@@ -26,6 +26,7 @@ repairs:
   cycle-seconds: 2
   task-lease-seconds: 30
   maximum-tasks-per-cycle: 8
+  archive-after-hours: 24
 
 economy:
   perishables-enabled: false
@@ -82,3 +83,7 @@ harbor:
 
 protection:
   cache-refresh-seconds: 2
+
+damage-recovery:
+  cycle-seconds: 10
+  maximum-per-cycle: 128

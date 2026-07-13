@@ -26,6 +26,8 @@ public interface RepairGateway {
 
   void conflict(UUID worker, UUID task, String actualBlockData, Instant now);
 
+  int archiveCompleted(Instant completedBefore, int maximum, Instant now);
+
   record Requirement(String commodity, long required, long available, long shortage) {}
 
   record Quote(

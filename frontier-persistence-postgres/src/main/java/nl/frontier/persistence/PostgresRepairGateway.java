@@ -50,6 +50,7 @@ public final class PostgresRepairGateway implements RepairGateway {
           requireRepairAccess(connection, city, actor, campaign);
           RepairSnapshot existing = byIdempotency(connection, idempotency);
           if (existing != null) return existing;
+          lockEligibleDamage(connection, city, campaign);
           Quote quote = calculateQuote(connection, city, campaign, priority);
           if (quote.tasks() == 0) throw new DomainException("campaign has no eligible damage");
           UUID depot = ensureDepot(connection, city);
@@ -70,7 +71,7 @@ public final class PostgresRepairGateway implements RepairGateway {
               now);
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "INSERT INTO repair_orders(id,city_id,campaign_id,priority,status,estimate_minor,total_tasks,completed_tasks,version,created_by,created_at,paid_minor,idempotency_key) VALUES(?,?,?,?, 'QUEUED',?, ?,0,0,?,?,?,?)")) {
+                  "INSERT INTO repair_orders(id,city_id,campaign_id,priority,status,estimate_minor,total_tasks,completed_tasks,version,created_by,created_at,paid_minor,idempotency_key) VALUES(?,?,?,?, 'REGISTERED',?, ?,0,0,?,?,?,?)")) {
             statement.setObject(1, order);
             statement.setObject(2, city);
             statement.setObject(3, campaign);
@@ -121,10 +122,12 @@ public final class PostgresRepairGateway implements RepairGateway {
               statement.setObject(2, order);
               statement.executeUpdate();
             }
+          } else {
+            updateOrderStatus(connection, order, "RESERVED");
           }
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "UPDATE damage_journal SET repair_state='PLANNED' WHERE city_id=? AND campaign_id=? AND repair_state='DAMAGED'")) {
+                  "UPDATE damage_journal SET repair_state='RESERVED',version=version+1 WHERE city_id=? AND campaign_id=? AND repair_state='REGISTERED' AND mutation_state='APPLIED'")) {
             statement.setObject(1, city);
             statement.setObject(2, campaign);
             statement.executeUpdate();
@@ -164,7 +167,7 @@ public final class PostgresRepairGateway implements RepairGateway {
           List<UUID> taskIds = new ArrayList<>();
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "SELECT t.id FROM repair_tasks t JOIN repair_orders o ON o.id=t.repair_order_id WHERE t.status IN ('READY','PREPARED') AND o.status IN ('QUEUED','ACTIVE') AND (t.lease_expires_at IS NULL OR t.lease_expires_at<?) AND NOT EXISTS (SELECT 1 FROM task_dependencies d JOIN repair_tasks p ON p.id=d.depends_on WHERE d.task_id=t.id AND p.status<>'COMPLETED') ORDER BY t.priority_score DESC,t.layer,t.y,t.id LIMIT ? FOR UPDATE OF t SKIP LOCKED")) {
+                  "SELECT t.id FROM repair_tasks t JOIN repair_orders o ON o.id=t.repair_order_id WHERE t.status IN ('READY','PREPARED') AND o.status IN ('RESERVED','REPAIRING') AND (t.lease_expires_at IS NULL OR t.lease_expires_at<?) AND NOT EXISTS (SELECT 1 FROM task_dependencies d JOIN repair_tasks p ON p.id=d.depends_on WHERE d.task_id=t.id AND p.status<>'COMPLETED') ORDER BY t.priority_score DESC,t.layer,t.y,t.id LIMIT ? FOR UPDATE OF t SKIP LOCKED")) {
             statement.setTimestamp(1, Timestamp.from(now));
             statement.setInt(2, maximum);
             try (ResultSet result = statement.executeQuery()) {
@@ -184,7 +187,10 @@ public final class PostgresRepairGateway implements RepairGateway {
   public void commit(UUID coordinator, UUID task, Instant now) {
     store.inTransaction(
         connection -> {
-          TaskRow row = lockTask(connection, task, coordinator);
+          TaskRow row = rawTask(connection, task);
+          if (row.status.equals("COMPLETED")) return null;
+          if (!coordinator.equals(row.leaseOwner))
+            throw new DomainException("repair task lease is owned by another coordinator");
           ConsumptionRow consumption = consumption(connection, row.consumption);
           if (consumption.status.equals("COMMITTED")) return null;
           if (!consumption.status.equals("PREPARED"))
@@ -221,7 +227,7 @@ public final class PostgresRepairGateway implements RepairGateway {
           }
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "UPDATE damage_journal SET repair_state='REPAIRED' WHERE id=?")) {
+                  "UPDATE damage_journal SET repair_state='COMPLETED',version=version+1 WHERE id=? AND repair_state='REPAIRING'")) {
             statement.setObject(1, row.journal);
             statement.executeUpdate();
           }
@@ -237,6 +243,8 @@ public final class PostgresRepairGateway implements RepairGateway {
             statement.executeUpdate();
           }
           history(connection, row.order, task, "TASK_COMMITTED", "{}", now);
+          if (completed == total)
+            history(connection, row.order, null, "REPAIR_COMPLETED", "{}", now);
           return null;
         });
   }
@@ -245,15 +253,25 @@ public final class PostgresRepairGateway implements RepairGateway {
   public void release(UUID coordinator, UUID task, String reason, Instant now) {
     store.inTransaction(
         connection -> {
-          TaskRow row = lockTask(connection, task, coordinator);
+          TaskRow row = rawTask(connection, task);
+          if (row.status.equals("COMPLETED")) return null;
+          if (!coordinator.equals(row.leaseOwner))
+            throw new DomainException("repair task lease is owned by another coordinator");
           releaseConsumption(connection, row.consumption);
           releaseWorker(connection, task);
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "UPDATE repair_tasks SET status='READY',prepared_consumption_id=NULL,lease_owner=NULL,lease_expires_at=NULL,last_error=?,updated_at=?,attempts=attempts+1,version=version+1 WHERE id=?")) {
+                  "UPDATE repair_tasks SET status=CASE WHEN attempts+1>=5 THEN 'REVIEW_REQUIRED' ELSE 'READY' END,prepared_consumption_id=NULL,lease_owner=NULL,lease_expires_at=NULL,last_error=?,updated_at=?,attempts=attempts+1,version=version+1 WHERE id=?")) {
             statement.setString(1, reason);
             statement.setTimestamp(2, Timestamp.from(now));
             statement.setObject(3, task);
+            statement.executeUpdate();
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE repair_orders SET status='REVIEW_REQUIRED',version=version+1 WHERE id=? AND EXISTS(SELECT 1 FROM repair_tasks WHERE id=? AND status='REVIEW_REQUIRED')")) {
+            statement.setObject(1, row.order);
+            statement.setObject(2, task);
             statement.executeUpdate();
           }
           history(connection, row.order, task, "TASK_RELEASED", jsonReason(reason), now);
@@ -265,7 +283,10 @@ public final class PostgresRepairGateway implements RepairGateway {
   public void conflict(UUID coordinator, UUID task, String actualBlockData, Instant now) {
     store.inTransaction(
         connection -> {
-          TaskRow row = lockTask(connection, task, coordinator);
+          TaskRow row = rawTask(connection, task);
+          if (row.status.equals("COMPLETED")) return null;
+          if (!coordinator.equals(row.leaseOwner))
+            throw new DomainException("repair task lease is owned by another coordinator");
           releaseConsumption(connection, row.consumption);
           releaseWorker(connection, task);
           try (PreparedStatement statement =
@@ -289,6 +310,41 @@ public final class PostgresRepairGateway implements RepairGateway {
           updateOrderStatus(connection, row.order, "REVIEW_REQUIRED");
           history(connection, row.order, task, "TASK_CONFLICT", "{}", now);
           return null;
+        });
+  }
+
+  @Override
+  public int archiveCompleted(Instant completedBefore, int maximum, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          List<UUID> orders = new ArrayList<>();
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT o.id FROM repair_orders o WHERE o.status='COMPLETED' AND o.created_at<? ORDER BY o.created_at,o.id LIMIT ? FOR UPDATE OF o SKIP LOCKED")) {
+            statement.setTimestamp(1, Timestamp.from(completedBefore));
+            statement.setInt(2, maximum);
+            try (ResultSet result = statement.executeQuery()) {
+              while (result.next()) orders.add(result.getObject(1, UUID.class));
+            }
+          }
+          for (UUID order : orders) {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "UPDATE repair_orders SET status='ARCHIVED',archived_at=?,version=version+1 WHERE id=? AND status='COMPLETED'")) {
+              statement.setTimestamp(1, Timestamp.from(now));
+              statement.setObject(2, order);
+              statement.executeUpdate();
+            }
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "UPDATE damage_journal SET repair_state='ARCHIVED',archived_at=?,version=version+1 WHERE id IN(SELECT journal_id FROM repair_tasks WHERE repair_order_id=?) AND repair_state='COMPLETED'")) {
+              statement.setTimestamp(1, Timestamp.from(now));
+              statement.setObject(2, order);
+              statement.executeUpdate();
+            }
+            history(connection, order, null, "REPAIR_ARCHIVED", "{}", now);
+          }
+          return orders.size();
         });
   }
 
@@ -330,7 +386,7 @@ public final class PostgresRepairGateway implements RepairGateway {
     List<DamageRow> values = new ArrayList<>();
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT id,world_id,x,y,z,damaged_data,original_data FROM damage_journal WHERE city_id=? AND campaign_id=? AND repair_state IN ('DAMAGED','UNPLANNED') ORDER BY y,x,z,id")) {
+            "SELECT id,world_id,x,y,z,damaged_data,original_data FROM damage_journal WHERE city_id=? AND campaign_id=? AND repair_state='REGISTERED' AND mutation_state='APPLIED' ORDER BY y,x,z,id")) {
       statement.setObject(1, city);
       statement.setObject(2, campaign);
       try (ResultSet result = statement.executeQuery()) {
@@ -395,7 +451,7 @@ public final class PostgresRepairGateway implements RepairGateway {
     for (UUID order : orders) {
       RepairSnapshot snapshot = load(connection, order);
       if (snapshot.shortages().isEmpty()) {
-        updateOrderStatus(connection, order, "QUEUED");
+        updateOrderStatus(connection, order, "RESERVED");
         try (PreparedStatement statement =
             connection.prepareStatement(
                 "UPDATE repair_tasks SET status='READY',updated_at=? WHERE repair_order_id=? AND status='WAITING_MATERIAL'")) {
@@ -434,7 +490,7 @@ public final class PostgresRepairGateway implements RepairGateway {
         }
       }
       if (load(connection, order).shortages().isEmpty()) {
-        updateOrderStatus(connection, order, "QUEUED");
+        updateOrderStatus(connection, order, "RESERVED");
         try (PreparedStatement statement =
             connection.prepareStatement(
                 "UPDATE repair_tasks SET status='READY',updated_at=? WHERE repair_order_id=? AND status='WAITING_MATERIAL'")) {
@@ -451,8 +507,15 @@ public final class PostgresRepairGateway implements RepairGateway {
       throws SQLException {
     TaskRow row = rawTask(connection, task);
     if (row.status.equals("PREPARED") && row.consumption != null) {
-      WorkerSelection worker = packageWorker(connection, task);
+      expirePackages(connection, task, now);
+      WorkerSelection worker = packageWorker(connection, task, now);
+      if (worker == null) {
+        worker = availableBuilder(connection, row.city);
+        if (worker == null) return null;
+        issueWorkPackage(connection, row, worker, task, leaseUntil);
+      } else renewWorkPackage(connection, task, worker.id, leaseUntil);
       leaseTask(connection, task, coordinator, leaseUntil, now);
+      beginRepair(connection, row, now);
       return prepared(row, worker);
     }
     WorkerSelection worker = availableBuilder(connection, row.city);
@@ -465,15 +528,19 @@ public final class PostgresRepairGateway implements RepairGateway {
       updateOrderStatus(connection, row.order, "PAUSED_MATERIAL");
       return null;
     }
-    UUID consumption = UUID.randomUUID();
+    UUID proposedConsumption = UUID.randomUUID();
+    UUID consumption;
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "INSERT INTO material_consumptions(id,reservation_id,repair_task_id,status,prepared_at) VALUES(?,?,?,'PREPARED',?)")) {
-      statement.setObject(1, consumption);
+            "INSERT INTO material_consumptions(id,reservation_id,repair_task_id,status,prepared_at,committed_at) VALUES(?,?,?,'PREPARED',?,NULL) ON CONFLICT(repair_task_id) DO UPDATE SET reservation_id=excluded.reservation_id,status='PREPARED',prepared_at=excluded.prepared_at,committed_at=NULL RETURNING id")) {
+      statement.setObject(1, proposedConsumption);
       statement.setObject(2, reservation.id);
       statement.setObject(3, task);
       statement.setTimestamp(4, Timestamp.from(now));
-      statement.executeUpdate();
+      try (ResultSet result = statement.executeQuery()) {
+        result.next();
+        consumption = result.getObject(1, UUID.class);
+      }
     }
     try (PreparedStatement statement =
         connection.prepareStatement(
@@ -485,25 +552,8 @@ public final class PostgresRepairGateway implements RepairGateway {
       statement.setObject(5, task);
       statement.executeUpdate();
     }
-    try (PreparedStatement statement =
-        connection.prepareStatement(
-            "UPDATE workers SET state='FETCH',task_id=?,lease_expires_at=?,version=version+1 WHERE id=?")) {
-      statement.setObject(1, task);
-      statement.setTimestamp(2, Timestamp.from(leaseUntil));
-      statement.setObject(3, worker.id);
-      statement.executeUpdate();
-    }
-    try (PreparedStatement statement =
-        connection.prepareStatement(
-            "INSERT INTO work_packages(id,repair_order_id,worker_id,status,expires_at,version,repair_task_id) VALUES(?,?,?,'ISSUED',?,0,?)")) {
-      statement.setObject(1, UUID.randomUUID());
-      statement.setObject(2, row.order);
-      statement.setObject(3, worker.id);
-      statement.setTimestamp(4, Timestamp.from(leaseUntil));
-      statement.setObject(5, task);
-      statement.executeUpdate();
-    }
-    updateOrderStatus(connection, row.order, "ACTIVE");
+    issueWorkPackage(connection, row, worker, task, leaseUntil);
+    beginRepair(connection, row, now);
     return new PreparedTask(
         row.id,
         row.order,
@@ -638,18 +688,102 @@ public final class PostgresRepairGateway implements RepairGateway {
     }
   }
 
-  private static WorkerSelection packageWorker(Connection connection, UUID task)
+  private static WorkerSelection packageWorker(Connection connection, UUID task, Instant now)
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT p.worker_id,w.presentation_entity_id FROM work_packages p JOIN workers w ON w.id=p.worker_id WHERE p.repair_task_id=? AND p.status IN ('ISSUED','ACTIVE') ORDER BY p.id LIMIT 1")) {
+            "SELECT p.worker_id,w.presentation_entity_id FROM work_packages p JOIN workers w ON w.id=p.worker_id WHERE p.repair_task_id=? AND p.status IN ('ISSUED','ACTIVE') AND p.expires_at>=? ORDER BY p.id LIMIT 1")) {
       statement.setObject(1, task);
+      statement.setTimestamp(2, Timestamp.from(now));
       try (ResultSet result = statement.executeQuery()) {
-        if (!result.next()) throw new DomainException("repair work package missing");
-        return new WorkerSelection(
-            result.getObject(1, UUID.class), result.getObject(2, UUID.class));
+        return result.next()
+            ? new WorkerSelection(result.getObject(1, UUID.class), result.getObject(2, UUID.class))
+            : null;
       }
     }
+  }
+
+  private static void lockEligibleDamage(Connection connection, UUID city, UUID campaign)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT id FROM damage_journal WHERE city_id=? AND campaign_id=? AND repair_state='REGISTERED' AND mutation_state='APPLIED' ORDER BY id FOR UPDATE")) {
+      statement.setObject(1, city);
+      statement.setObject(2, campaign);
+      statement.executeQuery().close();
+    }
+  }
+
+  private static void expirePackages(Connection connection, UUID task, Instant now)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE workers w SET state='IDLE',task_id=NULL,lease_expires_at=NULL,version=w.version+1 FROM work_packages p WHERE p.worker_id=w.id AND p.repair_task_id=? AND p.status IN ('ISSUED','ACTIVE') AND p.expires_at<?")) {
+      statement.setObject(1, task);
+      statement.setTimestamp(2, Timestamp.from(now));
+      statement.executeUpdate();
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE work_packages SET status='EXPIRED',version=version+1 WHERE repair_task_id=? AND status IN ('ISSUED','ACTIVE') AND expires_at<?")) {
+      statement.setObject(1, task);
+      statement.setTimestamp(2, Timestamp.from(now));
+      statement.executeUpdate();
+    }
+  }
+
+  private static void issueWorkPackage(
+      Connection connection, TaskRow row, WorkerSelection worker, UUID task, Instant leaseUntil)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE workers SET state='FETCH',task_id=?,lease_expires_at=?,version=version+1 WHERE id=? AND state='IDLE'")) {
+      statement.setObject(1, task);
+      statement.setTimestamp(2, Timestamp.from(leaseUntil));
+      statement.setObject(3, worker.id);
+      if (statement.executeUpdate() != 1) throw new DomainException("builder is no longer idle");
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO work_packages(id,repair_order_id,worker_id,status,expires_at,version,repair_task_id) VALUES(?,?,?,'ISSUED',?,0,?)")) {
+      statement.setObject(1, UUID.randomUUID());
+      statement.setObject(2, row.order);
+      statement.setObject(3, worker.id);
+      statement.setTimestamp(4, Timestamp.from(leaseUntil));
+      statement.setObject(5, task);
+      statement.executeUpdate();
+    }
+  }
+
+  private static void renewWorkPackage(
+      Connection connection, UUID task, UUID worker, Instant leaseUntil) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE work_packages SET expires_at=?,version=version+1 WHERE repair_task_id=? AND worker_id=? AND status IN ('ISSUED','ACTIVE')")) {
+      statement.setTimestamp(1, Timestamp.from(leaseUntil));
+      statement.setObject(2, task);
+      statement.setObject(3, worker);
+      statement.executeUpdate();
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE workers SET lease_expires_at=?,version=version+1 WHERE id=?")) {
+      statement.setTimestamp(1, Timestamp.from(leaseUntil));
+      statement.setObject(2, worker);
+      statement.executeUpdate();
+    }
+  }
+
+  private static void beginRepair(Connection connection, TaskRow row, Instant now)
+      throws SQLException {
+    updateOrderStatus(connection, row.order, "REPAIRING");
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE damage_journal SET repair_state='REPAIRING',version=version+1 WHERE id=? AND repair_state='RESERVED'")) {
+      statement.setObject(1, row.journal);
+      statement.executeUpdate();
+    }
+    history(connection, row.order, row.id, "REPAIRING", "{}", now);
   }
 
   private static void releaseWorker(Connection connection, UUID task) throws SQLException {

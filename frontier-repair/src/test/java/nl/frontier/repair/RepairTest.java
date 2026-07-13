@@ -17,6 +17,26 @@ import org.junit.jupiter.api.Test;
 
 class RepairTest {
   @Test
+  void auditedLifecycleRunsRegisteredReservedRepairingCompletedArchived() {
+    RepairOrder order =
+        new RepairOrder(
+            new RepairOrderId(UUID.randomUUID()),
+            new SettlementId(UUID.randomUUID()),
+            new WarId(UUID.randomUUID()),
+            new Money(100),
+            1,
+            RepairOrder.Priority.NORMAL);
+    order.requestPayment();
+    order.register();
+    order.reserve();
+    order.beginRepair();
+    order.completeTask();
+    assertEquals(RepairOrder.Status.COMPLETED, order.status());
+    order.archive();
+    assertEquals(RepairOrder.Status.ARCHIVED, order.status());
+  }
+
+  @Test
   void cycleInPlanIsRejected() {
     UUID first = UUID.randomUUID();
     UUID second = UUID.randomUUID();

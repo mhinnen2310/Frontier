@@ -19,6 +19,16 @@
 - Added a complete exploit-vector matrix covering every audited listener category plus role, override, campaign and bypass behavior.
 - Verified all prior persistence/economy/war/repair tests and a real Paper startup after installing the complete listener set.
 
+### Sprint 3 — Repair Engine Integrity
+
+- Replaced the ambiguous damage/repair flags with the durable `REGISTERED → RESERVED → REPAIRING → COMPLETED → ARCHIVED` lifecycle and added Flyway migration V17.
+- Added two-phase structural mutation (`AUTHORIZED → APPLIED`) so journal creation, world mutation and building-integrity damage can be reconciled without phantom repair work.
+- Added startup/runtime reconciliation for mutations interrupted by crash: applied world state is confirmed, unchanged blocks are rejected and conflicting blocks are quarantined from repair.
+- Made concurrent duplicate damage charge once, made repair purchase lock all eligible journal rows, and made completed/archived re-breaks create a newly charged journal generation.
+- Made task commit/release/conflict retry-safe, reusable after released prepared consumption, bounded at five failed attempts and restart-safe when worker packages expire.
+- Added automatic 24-hour archival and safe world-unloaded handling without stopping the repair supervisor.
+- Added integration scenarios for concurrent damage, phantom rejection, restart during PREPARED consumption, worker re-lease, duplicate commit, order archival and re-break rollback.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

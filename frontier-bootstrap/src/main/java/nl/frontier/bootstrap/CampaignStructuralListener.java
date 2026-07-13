@@ -171,13 +171,22 @@ final class CampaignStructuralListener implements Listener {
                 deny(attacker, decision.reason());
                 return;
               }
-              schedulers.at(position, () -> applyAuthorizedBreak(attacker, block, tool, original));
+              if (!decision.mutationRequired()) return;
+              schedulers.at(
+                  position,
+                  () -> applyAuthorizedBreak(attacker, block, tool, original, decision.damage()));
             });
   }
 
-  private void applyAuthorizedBreak(Player attacker, Block block, ItemStack tool, String expected) {
+  private void applyAuthorizedBreak(
+      Player attacker, Block block, ItemStack tool, String expected, UUID damageId) {
     if (!block.getBlockData().getAsString(true).equals(expected)) {
       deny(attacker, "The block changed before authorization completed.");
+      schedulers.async(
+          () -> {
+            damage.reject(damageId, "BLOCK_CHANGED_BEFORE_MUTATION", Instant.now());
+            return null;
+          });
       return;
     }
     Collection<ItemStack> drops = block.getDrops(tool, attacker);
@@ -191,6 +200,12 @@ final class CampaignStructuralListener implements Listener {
     block.setType(Material.AIR, false);
     for (ItemStack drop : drops) block.getWorld().dropItemNaturally(block.getLocation(), drop);
     damageTool(attacker, tool);
+    String actual = block.getBlockData().getAsString(true);
+    schedulers.async(
+        () -> {
+          damage.confirmApplied(damageId, actual, Instant.now());
+          return null;
+        });
   }
 
   private void damageTool(Player player, ItemStack expected) {

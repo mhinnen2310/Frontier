@@ -15,12 +15,16 @@ public final class RepairOrder {
   public enum Status {
     DRAFT,
     WAITING_PAYMENT,
+    REGISTERED,
+    RESERVED,
+    REPAIRING,
     QUEUED,
     ACTIVE,
     PAUSED_UNSAFE,
     PAUSED_MATERIAL,
     REVIEW_REQUIRED,
     COMPLETED,
+    ARCHIVED,
     CANCELLED
   }
 
@@ -33,22 +37,45 @@ public final class RepairOrder {
   }
 
   private static final Map<Status, Set<Status>> TRANSITIONS =
-      Map.of(
-          Status.DRAFT, EnumSet.of(Status.WAITING_PAYMENT, Status.CANCELLED),
-          Status.WAITING_PAYMENT, EnumSet.of(Status.QUEUED, Status.CANCELLED),
-          Status.QUEUED, EnumSet.of(Status.ACTIVE, Status.PAUSED_MATERIAL, Status.CANCELLED),
-          Status.ACTIVE,
+      Map.ofEntries(
+          Map.entry(Status.DRAFT, EnumSet.of(Status.WAITING_PAYMENT, Status.CANCELLED)),
+          Map.entry(
+              Status.WAITING_PAYMENT,
+              EnumSet.of(Status.REGISTERED, Status.QUEUED, Status.CANCELLED)),
+          Map.entry(
+              Status.REGISTERED,
+              EnumSet.of(Status.RESERVED, Status.PAUSED_MATERIAL, Status.CANCELLED)),
+          Map.entry(
+              Status.RESERVED,
+              EnumSet.of(Status.REPAIRING, Status.PAUSED_MATERIAL, Status.CANCELLED)),
+          Map.entry(
+              Status.REPAIRING,
               EnumSet.of(
                   Status.PAUSED_UNSAFE,
                   Status.PAUSED_MATERIAL,
                   Status.REVIEW_REQUIRED,
                   Status.COMPLETED,
-                  Status.CANCELLED),
-          Status.PAUSED_UNSAFE, EnumSet.of(Status.ACTIVE, Status.CANCELLED),
-          Status.PAUSED_MATERIAL, EnumSet.of(Status.QUEUED, Status.ACTIVE, Status.CANCELLED),
-          Status.REVIEW_REQUIRED, EnumSet.of(Status.ACTIVE, Status.CANCELLED),
-          Status.COMPLETED, EnumSet.noneOf(Status.class),
-          Status.CANCELLED, EnumSet.noneOf(Status.class));
+                  Status.CANCELLED)),
+          Map.entry(
+              Status.QUEUED, EnumSet.of(Status.ACTIVE, Status.PAUSED_MATERIAL, Status.CANCELLED)),
+          Map.entry(
+              Status.ACTIVE,
+              EnumSet.of(
+                  Status.PAUSED_UNSAFE,
+                  Status.PAUSED_MATERIAL,
+                  Status.REVIEW_REQUIRED,
+                  Status.COMPLETED,
+                  Status.CANCELLED)),
+          Map.entry(Status.PAUSED_UNSAFE, EnumSet.of(Status.ACTIVE, Status.CANCELLED)),
+          Map.entry(
+              Status.PAUSED_MATERIAL,
+              EnumSet.of(Status.QUEUED, Status.ACTIVE, Status.RESERVED, Status.CANCELLED)),
+          Map.entry(
+              Status.REVIEW_REQUIRED,
+              EnumSet.of(Status.ACTIVE, Status.REPAIRING, Status.CANCELLED)),
+          Map.entry(Status.COMPLETED, EnumSet.of(Status.ARCHIVED)),
+          Map.entry(Status.ARCHIVED, EnumSet.noneOf(Status.class)),
+          Map.entry(Status.CANCELLED, EnumSet.noneOf(Status.class)));
 
   private final RepairOrderId id;
   private final SettlementId settlement;
@@ -84,6 +111,18 @@ public final class RepairOrder {
     move(Status.QUEUED);
   }
 
+  public void register() {
+    move(Status.REGISTERED);
+  }
+
+  public void reserve() {
+    move(Status.RESERVED);
+  }
+
+  public void beginRepair() {
+    move(Status.REPAIRING);
+  }
+
   public void activate() {
     move(Status.ACTIVE);
   }
@@ -105,11 +144,16 @@ public final class RepairOrder {
   }
 
   public void completeTask() {
-    if (status != Status.ACTIVE) throw new DomainException("tasks require an active repair");
+    if (status != Status.ACTIVE && status != Status.REPAIRING)
+      throw new DomainException("tasks require an active repair");
     completedTasks = Math.addExact(completedTasks, 1);
     if (completedTasks > totalTasks) throw new DomainException("repair progress exceeds plan");
     version++;
     if (completedTasks == totalTasks) move(Status.COMPLETED);
+  }
+
+  public void archive() {
+    move(Status.ARCHIVED);
   }
 
   public void reprioritize(Priority value) {

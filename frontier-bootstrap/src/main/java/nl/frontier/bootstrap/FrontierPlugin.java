@@ -81,6 +81,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private OutboxSupervisor outboxSupervisor;
   private HarborSupervisor harborSupervisor;
   private ClaimProtectionSupervisor claimProtectionSupervisor;
+  private DamageRecoverySupervisor damageRecoverySupervisor;
   private volatile boolean acceptingWrites;
 
   @Override
@@ -138,6 +139,7 @@ public final class FrontierPlugin extends JavaPlugin {
               claimProtectionCache,
               (player, city) -> warPolicyCache.hostileCampaign(player, city).isPresent());
       RepairGateway repairGateway = new PostgresRepairGateway(store);
+      nl.frontier.warfare.WarDamageGateway warDamageGateway = new PostgresWarDamageGateway(store);
       WorldSimulationGateway worldSimulationGateway = new PostgresWorldSimulationGateway(store);
       CivilizationGateway civilizationGateway = new PostgresCivilizationGateway(store);
       FrontierCommand handler =
@@ -251,7 +253,7 @@ public final class FrontierPlugin extends JavaPlugin {
                   schedulers,
                   ownershipCache,
                   warPolicyCache,
-                  new PostgresWarDamageGateway(store),
+                  warDamageGateway,
                   Duration.ofHours(getConfig().getLong("campaigns.breach-window-hours", 6)),
                   getConfig().getInt("campaigns.breach-base-points", 1_200),
                   getConfig().getInt("campaigns.breach-maximum-points", 3_000)),
@@ -274,10 +276,19 @@ public final class FrontierPlugin extends JavaPlugin {
               warPolicyCache,
               Duration.ofSeconds(getConfig().getLong("repairs.cycle-seconds", 2)),
               Duration.ofSeconds(getConfig().getLong("repairs.task-lease-seconds", 30)),
+              Duration.ofHours(getConfig().getLong("repairs.archive-after-hours", 24)),
               getConfig().getInt("repairs.maximum-tasks-per-cycle", 8),
               getConfig().getDouble("repairs.unsafe-radius", 96),
               getLogger());
       repairSupervisor.start();
+      damageRecoverySupervisor =
+          new DamageRecoverySupervisor(
+              schedulers,
+              warDamageGateway,
+              Duration.ofSeconds(getConfig().getLong("damage-recovery.cycle-seconds", 10)),
+              getConfig().getInt("damage-recovery.maximum-per-cycle", 128),
+              getLogger());
+      damageRecoverySupervisor.start();
       worldSimulationSupervisor =
           new WorldSimulationSupervisor(
               schedulers,
@@ -346,6 +357,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (outboxSupervisor != null) outboxSupervisor.stop();
     if (harborSupervisor != null) harborSupervisor.stop();
     if (claimProtectionSupervisor != null) claimProtectionSupervisor.stop();
+    if (damageRecoverySupervisor != null) damageRecoverySupervisor.stop();
     if (schedulers != null) schedulers.close();
     if (database != null) database.close();
   }

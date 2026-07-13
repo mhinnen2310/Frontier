@@ -22,6 +22,7 @@ final class RepairSupervisor {
   private final WarPolicyCache wars;
   private final Duration interval;
   private final Duration lease;
+  private final Duration archiveDelay;
   private final int maximumTasks;
   private final double hostileRadius;
   private final Logger logger;
@@ -34,6 +35,7 @@ final class RepairSupervisor {
       WarPolicyCache wars,
       Duration interval,
       Duration lease,
+      Duration archiveDelay,
       int maximumTasks,
       double hostileRadius,
       Logger logger) {
@@ -42,6 +44,7 @@ final class RepairSupervisor {
     this.wars = wars;
     this.interval = interval;
     this.lease = lease;
+    this.archiveDelay = archiveDelay;
     this.maximumTasks = maximumTasks;
     this.hostileRadius = hostileRadius;
     this.logger = logger;
@@ -59,7 +62,11 @@ final class RepairSupervisor {
     if (!active.get()) return;
     Instant now = Instant.now();
     schedulers
-        .async(() -> repairs.leaseReady(coordinator, maximumTasks, now, now.plus(lease)))
+        .async(
+            () -> {
+              repairs.archiveCompleted(now.minus(archiveDelay), 32, now);
+              return repairs.leaseReady(coordinator, maximumTasks, now, now.plus(lease));
+            })
         .whenComplete(
             (tasks, failure) -> {
               if (failure != null) logger.log(Level.WARNING, "Repair task lease failed", failure);
@@ -70,40 +77,44 @@ final class RepairSupervisor {
 
   private void execute(RepairGateway.PreparedTask task) {
     BlockPos position = new BlockPos(new WorldId(task.world()), task.x(), task.y(), task.z());
-    schedulers.at(
-        position,
-        () -> {
-          World world = Bukkit.getWorld(task.world());
-          if (world == null) {
-            release(task, "WORLD_NOT_LOADED");
-            return;
-          }
-          var block = world.getBlockAt(task.x(), task.y(), task.z());
-          String actual = block.getBlockData().getAsString(true);
-          String target = Bukkit.createBlockData(task.targetData()).getAsString(true);
-          if (actual.equals(target)) {
+    try {
+      schedulers.at(
+          position,
+          () -> {
+            World world = Bukkit.getWorld(task.world());
+            if (world == null) {
+              release(task, "WORLD_NOT_LOADED");
+              return;
+            }
+            var block = world.getBlockAt(task.x(), task.y(), task.z());
+            String actual = block.getBlockData().getAsString(true);
+            String target = Bukkit.createBlockData(task.targetData()).getAsString(true);
+            if (actual.equals(target)) {
+              commit(task);
+              return;
+            }
+            String expected = Bukkit.createBlockData(task.expectedCurrent()).getAsString(true);
+            if (!actual.equals(expected)) {
+              conflict(task, actual);
+              return;
+            }
+            Location location = block.getLocation().add(0.5, 0.5, 0.5);
+            boolean hostile =
+                world.getNearbyPlayers(location, hostileRadius).stream()
+                    .anyMatch(
+                        player ->
+                            wars.hostileCampaign(player.getUniqueId(), task.city()).isPresent());
+            if (hostile) {
+              release(task, "HOSTILE_NEARBY");
+              return;
+            }
+            animate(task);
+            block.setBlockData(Bukkit.createBlockData(task.targetData()), false);
             commit(task);
-            return;
-          }
-          String expected = Bukkit.createBlockData(task.expectedCurrent()).getAsString(true);
-          if (!actual.equals(expected)) {
-            conflict(task, actual);
-            return;
-          }
-          Location location = block.getLocation().add(0.5, 0.5, 0.5);
-          boolean hostile =
-              world.getNearbyPlayers(location, hostileRadius).stream()
-                  .anyMatch(
-                      player ->
-                          wars.hostileCampaign(player.getUniqueId(), task.city()).isPresent());
-          if (hostile) {
-            release(task, "HOSTILE_NEARBY");
-            return;
-          }
-          animate(task);
-          block.setBlockData(Bukkit.createBlockData(task.targetData()), false);
-          commit(task);
-        });
+          });
+    } catch (IllegalStateException unloaded) {
+      release(task, "WORLD_NOT_LOADED");
+    }
   }
 
   private void animate(RepairGateway.PreparedTask task) {

@@ -143,7 +143,7 @@ class DatabaseIntegrationTest {
   }
 
   @Test
-  void migrationsConstraintsAndRecoveryQueriesWorkOnPostgres() throws SQLException {
+  void migrationsConstraintsAndRecoveryQueriesWorkOnPostgres() throws Exception {
     String url = System.getProperty("frontier.test.database.url");
     Assumptions.assumeTrue(url != null && !url.isBlank(), "integration database not configured");
     try (DatabaseManager database =
@@ -156,7 +156,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(16, result.getInt(1));
+        assertEquals(17, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -675,10 +675,24 @@ class DatabaseIntegrationTest {
               2,
               0,
               declaredAt.plusSeconds(2));
-      WarDamageGateway.Decision damageDecision =
-          damage.authorizeAndJournal(attempt, Duration.ofHours(6), 1_200, 3_000);
+      WarDamageGateway.Decision damageDecision;
+      try (var executor = Executors.newFixedThreadPool(2)) {
+        var firstDamage =
+            executor.submit(
+                () -> damage.authorizeAndJournal(attempt, Duration.ofHours(6), 1_200, 3_000));
+        var secondDamage =
+            executor.submit(
+                () -> damage.authorizeAndJournal(attempt, Duration.ofHours(6), 1_200, 3_000));
+        WarDamageGateway.Decision first = firstDamage.get(10, TimeUnit.SECONDS);
+        WarDamageGateway.Decision second = secondDamage.get(10, TimeUnit.SECONDS);
+        assertEquals(20, first.chargedPoints() + second.chargedPoints());
+        assertEquals(1, (first.mutationRequired() ? 1 : 0) + (second.mutationRequired() ? 1 : 0));
+        damageDecision = first.mutationRequired() ? first : second;
+      }
       assertTrue(damageDecision.allowed());
       assertEquals(20, damageDecision.chargedPoints());
+      damage.confirmApplied(damageDecision.damage(), attempt.damagedData(), Instant.now());
+      damage.confirmApplied(damageDecision.damage(), attempt.damagedData(), Instant.now());
       assertEquals(
           0,
           damage.authorizeAndJournal(attempt, Duration.ofHours(6), 1_200, 3_000).chargedPoints());
@@ -741,9 +755,18 @@ class DatabaseIntegrationTest {
               RepairOrder.Priority.NORMAL,
               UUID.randomUUID(),
               Instant.now());
-      assertEquals(RepairOrder.Status.QUEUED, repair.status());
-      UUID repairCoordinator = UUID.randomUUID();
+      assertEquals(RepairOrder.Status.RESERVED, repair.status());
+      UUID expiredCoordinator = UUID.randomUUID();
       RepairGateway.PreparedTask repairTask =
+          repairs
+              .leaseReady(expiredCoordinator, 10, Instant.now(), Instant.now().minusSeconds(1))
+              .stream()
+              .filter(value -> value.order().equals(repair.id()))
+              .findFirst()
+              .orElseThrow();
+      assertTrue(new PostgresRecoveryCoordinator(store).recover().leases() >= 1);
+      UUID repairCoordinator = UUID.randomUUID();
+      repairTask =
           repairs
               .leaseReady(repairCoordinator, 10, Instant.now(), Instant.now().plusSeconds(60))
               .stream()
@@ -751,8 +774,47 @@ class DatabaseIntegrationTest {
               .findFirst()
               .orElseThrow();
       repairs.commit(repairCoordinator, repairTask.id(), Instant.now());
+      repairs.commit(repairCoordinator, repairTask.id(), Instant.now());
       assertEquals(RepairOrder.Status.COMPLETED, repairs.orders(defender.id()).getFirst().status());
       assertEquals(957, settlements.treasuryBalance(defender.id()));
+      assertEquals(1, repairs.archiveCompleted(Instant.now().plusSeconds(1), 10, Instant.now()));
+      assertEquals(RepairOrder.Status.ARCHIVED, repairs.orders(defender.id()).getFirst().status());
+
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE campaigns SET phase='ACTIVE' WHERE id='" + campaign.id() + "'");
+        statement.executeUpdate(
+            "UPDATE campaign_objectives SET state='ACTIVE' WHERE campaign_id='"
+                + campaign.id()
+                + "'");
+      }
+      WarDamageGateway.Decision rebreak =
+          damage.authorizeAndJournal(
+              new WarDamageGateway.DamageAttempt(
+                  campaign.id(),
+                  attackerOwner,
+                  defender.id(),
+                  warWorld,
+                  805,
+                  64,
+                  805,
+                  "minecraft:stone_bricks",
+                  "minecraft:air",
+                  "PLAYER_BREAK",
+                  2,
+                  0,
+                  Instant.now().minusSeconds(20)),
+              Duration.ofHours(6),
+              1_200,
+              3_000);
+      assertTrue(rebreak.mutationRequired());
+      assertTrue(rebreak.chargedPoints() > 0);
+      assertTrue(
+          damage.pendingMutations(10).stream()
+              .anyMatch(value -> value.damage().equals(rebreak.damage())));
+      damage.reject(rebreak.damage(), "TEST_ROLLBACK", Instant.now());
+      assertEquals(0, damage.pendingMutations(10).size());
 
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
