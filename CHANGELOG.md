@@ -47,6 +47,16 @@
 - Added District Overview, Budget, Workers, Buildings, Reports, Policies and History Paper Dialog views, with commands retained as fallback.
 - Added full PostgreSQL lifecycle coverage including overlap/claim/role enforcement, manager transfer, budgets, policies, workers, storage, building assignment, reporting, history and deletion.
 
+### Sprint 6 — Settlement Lifecycle
+
+- Added physical Settlement Core founding with world-border, terrain, height, ocean-biome and 128-block inter-settlement validation.
+- Added a recoverable founding saga requiring 64 stone bricks, 16 oak logs, one bell and a 2,500-cent audited player fee; failed attempts refund both materials and money.
+- Added charters, founder records, per-member activity, lifecycle history and a solo-compatible minimum-founder invariant.
+- Added mayor transfer, seven-day member-triggered succession, abandonment, disbanding, 30-day ruins, claim archival/restoration and inactive-settlement recovery.
+- Added two-mayor settlement merge proposals with expiry and transactional transfer of treasury, claims, buildings, workers, districts, roads, warehouse stock and membership.
+- Added hourly recovery of expired founding reservations and settlements inactive for 30 days, choosing an active successor before abandonment.
+- Added Flyway migration V20, legacy core/charter/founder backfill, lifecycle commands and regression coverage from a clean database.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

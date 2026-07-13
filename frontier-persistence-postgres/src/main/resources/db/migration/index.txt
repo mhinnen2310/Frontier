@@ -17,3 +17,4 @@ V16__player_wallets_and_frontier_harbor.sql
 V17__repair_integrity_and_damage_reconciliation.sql
 V18__building_validation_lifecycle.sql
 V19__district_system.sql
+V20__settlement_lifecycle.sql

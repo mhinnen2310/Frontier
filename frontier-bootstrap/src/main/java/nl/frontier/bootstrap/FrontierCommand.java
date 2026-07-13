@@ -24,6 +24,7 @@ import nl.frontier.city.DistrictType;
 import nl.frontier.city.GovernmentRole;
 import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementGateway;
+import nl.frontier.city.SettlementLifecycleService;
 import nl.frontier.domain.Ids.PlayerId;
 import nl.frontier.domain.Ids.RepairOrderId;
 import nl.frontier.domain.Ids.SettlementId;
@@ -78,6 +79,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final SettlementApplicationService settlements;
   private final BuildingRegistrationCoordinator buildingRegistrations;
   private final DistrictApplicationService districts;
+  private final SettlementLifecycleService settlementLifecycle;
+  private final SettlementFoundingCoordinator founding;
   private final FinanceApplicationService finance;
   private final HarborApplicationService harbor;
   private final EconomyApplicationService economy;
@@ -103,6 +106,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       SettlementApplicationService settlements,
       BuildingRegistrationCoordinator buildingRegistrations,
       DistrictApplicationService districts,
+      SettlementLifecycleService settlementLifecycle,
+      SettlementFoundingCoordinator founding,
       FinanceApplicationService finance,
       HarborApplicationService harbor,
       EconomyApplicationService economy,
@@ -126,6 +131,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.settlements = Objects.requireNonNull(settlements);
     this.buildingRegistrations = Objects.requireNonNull(buildingRegistrations);
     this.districts = Objects.requireNonNull(districts);
+    this.settlementLifecycle = Objects.requireNonNull(settlementLifecycle);
+    this.founding = Objects.requireNonNull(founding);
     this.finance = Objects.requireNonNull(finance);
     this.harbor = Objects.requireNonNull(harbor);
     this.economy = Objects.requireNonNull(economy);
@@ -257,8 +264,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       switch (action) {
         case "create" -> {
           if (args.length < 2)
-            throw new IllegalArgumentException("usage: /frontier city create <name>");
-          createCity(player, String.join(" ", Arrays.copyOfRange(args, 1, args.length)));
+            throw new IllegalArgumentException("usage: /frontier city create <name> [| <charter>]");
+          createCity(player, Arrays.copyOfRange(args, 1, args.length));
         }
         case "invite" -> {
           if (args.length != 2)
@@ -304,9 +311,74 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                         city.id(), player.getUniqueId(), upgradeKey(city), Instant.now()),
                 upgraded -> "Settlement upgraded to " + upgraded.level());
         case "policy" -> policy(player, args);
+        case "transfer" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier city transfer <player>");
+          UUID successor = resolvePlayer(player, args[1]);
+          withCity(
+              player,
+              city ->
+                  settlementLifecycle.transfer(
+                      city.id(), player.getUniqueId(), successor, Instant.now()),
+              value -> "Settlement ownership transferred to " + value.owner());
+        }
+        case "succession" ->
+            withCity(
+                player,
+                city ->
+                    settlementLifecycle.succession(city.id(), player.getUniqueId(), Instant.now()),
+                value -> "Mayor succession completed: " + value.owner());
+        case "abandon" ->
+            withCity(
+                player,
+                city -> settlementLifecycle.abandon(city.id(), player.getUniqueId(), Instant.now()),
+                value -> "Settlement abandoned; ruins remain until " + value.ruinsUntil());
+        case "disband" ->
+            withCity(
+                player,
+                city -> settlementLifecycle.disband(city.id(), player.getUniqueId(), Instant.now()),
+                value -> "Settlement disbanded; ruins remain until " + value.ruinsUntil());
+        case "recover" ->
+            withCity(
+                player,
+                city ->
+                    settlementLifecycle.recoverRuins(
+                        city.id(), player.getUniqueId(), Instant.now()),
+                value -> "Settlement recovered from ruins.");
+        case "merge" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier city merge <target-city-uuid>");
+          UUID target = UUID.fromString(args[1]);
+          withCity(
+              player,
+              city ->
+                  settlementLifecycle.merge(city.id(), player.getUniqueId(), target, Instant.now()),
+              value -> "Merge proposal " + value.id() + " expires " + value.expiresAt());
+        }
+        case "merge-accept" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException(
+                "usage: /frontier city merge-accept <proposal-uuid>");
+          UUID proposal = UUID.fromString(args[1]);
+          execute(
+              player,
+              () -> settlementLifecycle.acceptMerge(proposal, player.getUniqueId(), Instant.now()),
+              value -> "Settlement merge completed into " + value.city());
+        }
+        case "history" ->
+            withCity(
+                player,
+                city -> settlementLifecycle.history(city.id(), player.getUniqueId()),
+                values ->
+                    values.isEmpty()
+                        ? "No settlement lifecycle history."
+                        : values.stream()
+                            .limit(10)
+                            .map(value -> value.event() + " " + value.payload())
+                            .collect(java.util.stream.Collectors.joining(" | ")));
         default ->
             throw new IllegalArgumentException(
-                "city actions: create, info, invite, accept, role, claim, building, upgrade, policy");
+                "city actions: create, info, invite, accept, role, claim, building, upgrade, policy, transfer, succession, abandon, disband, recover, merge, merge-accept, history");
       }
     } catch (IllegalArgumentException failure) {
       player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
@@ -651,19 +723,31 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         value -> "Tax policy changed to " + value);
   }
 
-  private void createCity(Player player, String name) {
+  private void createCity(Player player, String[] values) {
     if (!player.hasPermission("frontier.city.create")) {
       player.sendMessage(Component.text("No permission.", NamedTextColor.RED));
       return;
     }
-    UUID playerId = player.getUniqueId();
-    UUID world = player.getWorld().getUID();
-    int chunkX = player.getChunk().getX();
-    int chunkZ = player.getChunk().getZ();
-    execute(
+    int separator = -1;
+    for (int index = 0; index < values.length; index++)
+      if (values[index].equals("|")) {
+        separator = index;
+        break;
+      }
+    String name =
+        String.join(" ", Arrays.copyOfRange(values, 0, separator < 0 ? values.length : separator));
+    String charter =
+        separator < 0
+            ? "Charter of " + name + ": mutual prosperity, safety, and fair government."
+            : String.join(" ", Arrays.copyOfRange(values, separator + 1, values.length));
+    founding.found(
         player,
-        () -> settlements.create(playerId, name, world, chunkX, chunkZ, Instant.now()),
-        city -> "Settlement created: " + city.name());
+        name,
+        charter,
+        city ->
+            player.sendMessage(
+                Component.text("Settlement founded: " + city.name(), NamedTextColor.GREEN)),
+        failure -> player.sendMessage(Component.text(rootMessage(failure), NamedTextColor.RED)));
   }
 
   private void cityInfo(Player player) {
@@ -1931,7 +2015,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private static void help(CommandSender sender) {
     sender.sendMessage(
         Component.text(
-            "/frontier city create|info|invite|accept|role|claim|building|upgrade|policy",
+            "/frontier city create|info|invite|accept|role|claim|building|upgrade|policy|transfer|succession|abandon|disband|recover|merge|merge-accept|history",
             NamedTextColor.GOLD));
     sender.sendMessage(
         Component.text(
@@ -1988,7 +2072,15 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "claim",
               "building",
               "upgrade",
-              "policy"),
+              "policy",
+              "transfer",
+              "succession",
+              "abandon",
+              "disband",
+              "recover",
+              "merge",
+              "merge-accept",
+              "history"),
           args[1]);
     if (args.length == 3
         && args[0].equalsIgnoreCase("city")

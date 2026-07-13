@@ -23,6 +23,7 @@ import nl.frontier.city.ClaimProtectionService;
 import nl.frontier.city.DistrictApplicationService;
 import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementDailySimulation;
+import nl.frontier.city.SettlementLifecycleService;
 import nl.frontier.economy.ContractGateway;
 import nl.frontier.economy.EconomyApplicationService;
 import nl.frontier.economy.FinanceApplicationService;
@@ -53,6 +54,7 @@ import nl.frontier.persistence.PostgresProductionGateway;
 import nl.frontier.persistence.PostgresRecoveryCoordinator;
 import nl.frontier.persistence.PostgresRepairGateway;
 import nl.frontier.persistence.PostgresSettlementGateway;
+import nl.frontier.persistence.PostgresSettlementLifecycleGateway;
 import nl.frontier.persistence.PostgresSettlementSimulationGateway;
 import nl.frontier.persistence.PostgresWarDamageGateway;
 import nl.frontier.persistence.PostgresWorldSimulationGateway;
@@ -87,6 +89,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private HarborSupervisor harborSupervisor;
   private ClaimProtectionSupervisor claimProtectionSupervisor;
   private DamageRecoverySupervisor damageRecoverySupervisor;
+  private SettlementLifecycleSupervisor settlementLifecycleSupervisor;
   private volatile boolean acceptingWrites;
 
   @Override
@@ -149,6 +152,8 @@ public final class FrontierPlugin extends JavaPlugin {
       CivilizationGateway civilizationGateway = new PostgresCivilizationGateway(store);
       SettlementApplicationService settlements =
           new SettlementApplicationService(new PostgresSettlementGateway(store));
+      SettlementLifecycleService settlementLifecycle =
+          new SettlementLifecycleService(new PostgresSettlementLifecycleGateway(store));
       BuildingRegistrationCoordinator buildingRegistrations =
           new BuildingRegistrationCoordinator(
               schedulers,
@@ -168,6 +173,8 @@ public final class FrontierPlugin extends JavaPlugin {
               settlements,
               buildingRegistrations,
               new DistrictApplicationService(new PostgresDistrictGateway(store)),
+              settlementLifecycle,
+              new SettlementFoundingCoordinator(schedulers, settlements, settlementLifecycle),
               finance,
               harbor,
               new EconomyApplicationService(economyGateway),
@@ -191,6 +198,12 @@ public final class FrontierPlugin extends JavaPlugin {
       getServer()
           .getPluginManager()
           .registerEvents(new HarborOnboardingListener(schedulers, harbor), this);
+      getServer()
+          .getPluginManager()
+          .registerEvents(new SettlementActivityListener(schedulers, settlementLifecycle), this);
+      settlementLifecycleSupervisor =
+          new SettlementLifecycleSupervisor(schedulers, settlementLifecycle, getLogger());
+      settlementLifecycleSupervisor.start();
       influenceSupervisor =
           new InfluenceSupervisor(
               schedulers,
@@ -373,6 +386,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (harborSupervisor != null) harborSupervisor.stop();
     if (claimProtectionSupervisor != null) claimProtectionSupervisor.stop();
     if (damageRecoverySupervisor != null) damageRecoverySupervisor.stop();
+    if (settlementLifecycleSupervisor != null) settlementLifecycleSupervisor.stop();
     if (schedulers != null) schedulers.close();
     if (database != null) database.close();
   }

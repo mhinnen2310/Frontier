@@ -25,6 +25,8 @@ import nl.frontier.city.GovernmentRole;
 import nl.frontier.city.SettlementDailySimulation;
 import nl.frontier.city.SettlementGateway;
 import nl.frontier.city.SettlementLevel;
+import nl.frontier.city.SettlementLifecycleGateway;
+import nl.frontier.city.SettlementLifecycleService;
 import nl.frontier.domain.DomainException;
 import nl.frontier.domain.Ids.WorldId;
 import nl.frontier.domain.Position.ChunkPos;
@@ -163,7 +165,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(19, result.getInt(1));
+        assertEquals(20, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -210,6 +212,87 @@ class DatabaseIntegrationTest {
       finances.pay(recipient, starter, 25, UUID.randomUUID(), Instant.now());
       assertEquals(10_350, starterSettlements.treasuryBalance(starterCity.id()));
       assertTrue(finances.audit(starterCity.id(), starter, 20).size() >= 3);
+      SettlementLifecycleService lifecycle =
+          new SettlementLifecycleService(new PostgresSettlementLifecycleGateway(store));
+      UUID founder = UUID.randomUUID();
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(?,'PLAYER',?,5000)")) {
+        statement.setObject(1, UUID.randomUUID());
+        statement.setObject(2, founder);
+        statement.executeUpdate();
+      }
+      var foundingReservation = lifecycle.reserve(founder, Instant.now());
+      var foundedCity =
+          starterSettlements.create(
+              founder, "Founded-" + shortId(), harborWorld, 40, 40, Instant.now());
+      var core = new SettlementLifecycleGateway.CoreLocation(harborWorld, 648, 64, 648);
+      lifecycle.validateCore(core);
+      lifecycle.complete(
+          foundingReservation.id(),
+          foundedCity.id(),
+          founder,
+          core,
+          "We establish a fair and lasting settlement charter.",
+          Instant.now());
+      assertThrows(DomainException.class, () -> lifecycle.validateCore(core));
+      assertEquals(2_500, finances.balance(founder, Instant.now()));
+      UUID successor = UUID.randomUUID();
+      SettlementGateway.Invitation successorInvite =
+          starterSettlements.invite(
+              foundedCity.id(),
+              founder,
+              successor,
+              EnumSet.of(GovernmentRole.MAYOR),
+              Instant.now().plusSeconds(60),
+              Instant.now());
+      starterSettlements.acceptInvitation(successorInvite.id(), successor, Instant.now());
+      lifecycle.touch(successor, Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "UPDATE settlement_member_activity SET last_active_at=now()-interval '8 days' WHERE city_id=? AND player_id=?")) {
+        statement.setObject(1, foundedCity.id());
+        statement.setObject(2, founder);
+        statement.executeUpdate();
+      }
+      assertEquals(
+          successor, lifecycle.succession(foundedCity.id(), successor, Instant.now()).owner());
+      assertEquals(
+          founder, lifecycle.transfer(foundedCity.id(), successor, founder, Instant.now()).owner());
+      assertTrue(lifecycle.history(foundedCity.id(), founder).size() >= 3);
+      UUID cancelledFounder = UUID.randomUUID();
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(?,'PLAYER',?,3000)")) {
+        statement.setObject(1, UUID.randomUUID());
+        statement.setObject(2, cancelledFounder);
+        statement.executeUpdate();
+      }
+      var cancelledReservation = lifecycle.reserve(cancelledFounder, Instant.now());
+      lifecycle.cancel(cancelledReservation.id(), cancelledFounder, Instant.now());
+      assertEquals(3_000, finances.balance(cancelledFounder, Instant.now()));
+      assertEquals("RUINS", lifecycle.disband(foundedCity.id(), founder, Instant.now()).status());
+      assertEquals(
+          "ACTIVE", lifecycle.recoverRuins(foundedCity.id(), founder, Instant.now()).status());
+      assertEquals("RUINS", lifecycle.abandon(foundedCity.id(), founder, Instant.now()).status());
+      UUID mergeSourceOwner = UUID.randomUUID();
+      UUID mergeTargetOwner = UUID.randomUUID();
+      var mergeSource =
+          starterSettlements.create(
+              mergeSourceOwner, "MergeSource-" + shortId(), harborWorld, 50, 50, Instant.now());
+      var mergeTarget =
+          starterSettlements.create(
+              mergeTargetOwner, "MergeTarget-" + shortId(), harborWorld, 60, 60, Instant.now());
+      var mergeProposal =
+          lifecycle.merge(mergeSource.id(), mergeSourceOwner, mergeTarget.id(), Instant.now());
+      assertEquals(
+          mergeTarget.id(),
+          lifecycle.acceptMerge(mergeProposal.id(), mergeTargetOwner, Instant.now()).city());
+      assertEquals(
+          mergeTarget.id(), starterSettlements.findByPlayer(mergeSourceOwner).orElseThrow().id());
       RecoveryCoordinator.RecoveryReport report = new PostgresRecoveryCoordinator(store).recover();
       assertTrue(report.outboxEvents() >= 0);
       assertEquals(0, report.leases());
