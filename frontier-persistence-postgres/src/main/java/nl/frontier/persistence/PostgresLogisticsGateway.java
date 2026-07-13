@@ -31,7 +31,16 @@ public final class PostgresLogisticsGateway implements LogisticsGateway {
     return store.inTransaction(
         connection -> {
           requireRole(connection, city, actor);
-          if (!Set.of("WAREHOUSE", "MARKET", "GATE", "HARBOR", "DEPOT", "ROAD", "BRIDGE")
+          if (!Set.of(
+                  "WAREHOUSE",
+                  "MARKET",
+                  "GATE",
+                  "HARBOR",
+                  "DEPOT",
+                  "ROAD",
+                  "BRIDGE",
+                  "TUNNEL",
+                  "WATCHTOWER")
               .contains(type)) throw new DomainException("unsupported road node type");
           requireControlledChunk(
               connection, city, world, Math.floorDiv(x, 16), Math.floorDiv(z, 16));
@@ -316,6 +325,19 @@ public final class PostgresLogisticsGateway implements LogisticsGateway {
       statement.setDouble(4, route.weightedDistance());
       statement.setTimestamp(5, Timestamp.from(now));
       statement.executeUpdate();
+    }
+    for (int index = 1; index < route.nodes().size(); index++) {
+      try (PreparedStatement statement =
+          connection.prepareStatement(
+              "UPDATE road_edges SET traffic=traffic+1,version=version+1 WHERE (from_node=? AND to_node=?) OR (from_node=? AND to_node=?)")) {
+        UUID from = route.nodes().get(index - 1);
+        UUID to = route.nodes().get(index);
+        statement.setObject(1, from);
+        statement.setObject(2, to);
+        statement.setObject(3, to);
+        statement.setObject(4, from);
+        statement.executeUpdate();
+      }
     }
   }
 

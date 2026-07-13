@@ -57,6 +57,15 @@
 - Added hourly recovery of expired founding reservations and settlements inactive for 30 days, choosing an active successor before abandonment.
 - Added Flyway migration V20, legacy core/charter/founder backfill, lifecycle commands and regression coverage from a clean database.
 
+### Sprint 7 — Roads & Infrastructure
+
+- Replaced player-facing abstract edge creation with a bounded live-world survey between registered infrastructure nodes.
+- Detects physical road materials, minimum width, continuous coverage, bridge spans, tunnel cover, surface quality, slope, broken segments and destroyed bridge gaps.
+- Added Road, Bridge, Tunnel, Gate, Harbor and Watchtower graph types and expanded node registration for tunnel/watchtower infrastructure.
+- Persists edge health, derived capacity, traffic, importance, owner, validation evidence and physical measurements through Flyway migration V21.
+- Route use now increments authoritative edge traffic; routing continues to exclude unhealthy or zero-capacity edges.
+- Added validator exploit coverage plus PostgreSQL assertions for physical edge ownership, capacity, quality, health, traffic and route compatibility.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

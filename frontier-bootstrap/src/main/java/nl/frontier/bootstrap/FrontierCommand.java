@@ -35,6 +35,7 @@ import nl.frontier.economy.EconomyGateway;
 import nl.frontier.economy.FinanceApplicationService;
 import nl.frontier.economy.FinanceGateway;
 import nl.frontier.economy.HarborApplicationService;
+import nl.frontier.economy.InfrastructureType;
 import nl.frontier.economy.LogisticsGateway;
 import nl.frontier.economy.MarketEngine;
 import nl.frontier.economy.ProductionApplicationService;
@@ -81,6 +82,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final DistrictApplicationService districts;
   private final SettlementLifecycleService settlementLifecycle;
   private final SettlementFoundingCoordinator founding;
+  private final InfrastructureRegistrationCoordinator infrastructureRegistrations;
   private final FinanceApplicationService finance;
   private final HarborApplicationService harbor;
   private final EconomyApplicationService economy;
@@ -108,6 +110,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       DistrictApplicationService districts,
       SettlementLifecycleService settlementLifecycle,
       SettlementFoundingCoordinator founding,
+      InfrastructureRegistrationCoordinator infrastructureRegistrations,
       FinanceApplicationService finance,
       HarborApplicationService harbor,
       EconomyApplicationService economy,
@@ -133,6 +136,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.districts = Objects.requireNonNull(districts);
     this.settlementLifecycle = Objects.requireNonNull(settlementLifecycle);
     this.founding = Objects.requireNonNull(founding);
+    this.infrastructureRegistrations = Objects.requireNonNull(infrastructureRegistrations);
     this.finance = Objects.requireNonNull(finance);
     this.harbor = Objects.requireNonNull(harbor);
     this.economy = Objects.requireNonNull(economy);
@@ -1200,19 +1204,53 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               node -> "Road node registered: " + node.id());
         }
         case "connect" -> {
-          if (args.length != 4)
+          if (args.length < 4 || args.length > 5)
             throw new IllegalArgumentException(
-                "usage: /frontier logistics connect <from-node> <to-node> <capacity>");
+                "usage: /frontier logistics connect <from-node> <to-node> <type> [importance]");
           UUID from = UUID.fromString(args[1]);
           UUID to = UUID.fromString(args[2]);
-          long capacity = Long.parseLong(args[3]);
-          if (capacity <= 0) throw new IllegalArgumentException("capacity must be positive");
-          withCity(
-              player,
-              city ->
-                  logistics.connect(
-                      city.id(), player.getUniqueId(), from, to, capacity, Instant.now()),
-              edge -> "Road edge registered: " + edge.id());
+          InfrastructureType type = InfrastructureType.valueOf(args[3].toUpperCase(Locale.ROOT));
+          int importance = args.length == 5 ? Integer.parseInt(args[4]) : 50;
+          schedulers
+              .async(() -> settlements.city(player.getUniqueId()))
+              .whenComplete(
+                  (city, error) ->
+                      schedulers.forEntity(
+                          player.getUniqueId(),
+                          () -> {
+                            if (error != null)
+                              player.sendMessage(
+                                  Component.text(rootMessage(error), NamedTextColor.RED));
+                            else if (city.isEmpty())
+                              player.sendMessage(
+                                  Component.text(
+                                      "You are not in a settlement.", NamedTextColor.RED));
+                            else
+                              infrastructureRegistrations.register(
+                                  player,
+                                  city.orElseThrow().id(),
+                                  from,
+                                  to,
+                                  type,
+                                  importance,
+                                  edge ->
+                                      player.sendMessage(
+                                          Component.text(
+                                              "Validated "
+                                                  + edge.type()
+                                                  + " edge "
+                                                  + edge.id()
+                                                  + " health="
+                                                  + edge.health()
+                                                  + " capacity="
+                                                  + edge.capacity(),
+                                              NamedTextColor.GREEN)),
+                                  failure ->
+                                      player.sendMessage(
+                                          Component.text(
+                                              rootMessage(failure), NamedTextColor.RED)));
+                          },
+                          () -> {}));
         }
         case "ship" -> {
           if (args.length != 9)
@@ -2121,6 +2159,29 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       return matching(List.of("list", "queue", "hire"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("logistics"))
       return matching(List.of("list", "node", "connect", "ship"), args[1]);
+    if (args.length == 3
+        && args[0].equalsIgnoreCase("logistics")
+        && args[1].equalsIgnoreCase("node"))
+      return matching(
+          List.of(
+              "road",
+              "bridge",
+              "tunnel",
+              "gate",
+              "harbor",
+              "watchtower",
+              "warehouse",
+              "market",
+              "depot"),
+          args[2]);
+    if (args.length == 5
+        && args[0].equalsIgnoreCase("logistics")
+        && args[1].equalsIgnoreCase("connect"))
+      return matching(
+          Arrays.stream(InfrastructureType.values())
+              .map(type -> type.name().toLowerCase(Locale.ROOT))
+              .toList(),
+          args[4]);
     if (args.length == 2 && args[0].equalsIgnoreCase("contracts"))
       return matching(List.of("list", "post", "accept", "deliver"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("war"))

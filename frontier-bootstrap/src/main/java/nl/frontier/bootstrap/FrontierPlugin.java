@@ -29,6 +29,8 @@ import nl.frontier.economy.EconomyApplicationService;
 import nl.frontier.economy.FinanceApplicationService;
 import nl.frontier.economy.HarborApplicationService;
 import nl.frontier.economy.HarborGateway;
+import nl.frontier.economy.InfrastructureService;
+import nl.frontier.economy.InfrastructureValidator;
 import nl.frontier.economy.LogisticsGateway;
 import nl.frontier.economy.ProductionApplicationService;
 import nl.frontier.influence.ChunkOwnershipCache;
@@ -47,6 +49,7 @@ import nl.frontier.persistence.PostgresEconomyGateway;
 import nl.frontier.persistence.PostgresFinanceGateway;
 import nl.frontier.persistence.PostgresHarborGateway;
 import nl.frontier.persistence.PostgresInfluencePersistence;
+import nl.frontier.persistence.PostgresInfrastructureGateway;
 import nl.frontier.persistence.PostgresLogisticsGateway;
 import nl.frontier.persistence.PostgresNpcMaterializationGateway;
 import nl.frontier.persistence.PostgresOutboxDispatcher;
@@ -175,6 +178,11 @@ public final class FrontierPlugin extends JavaPlugin {
               new DistrictApplicationService(new PostgresDistrictGateway(store)),
               settlementLifecycle,
               new SettlementFoundingCoordinator(schedulers, settlements, settlementLifecycle),
+              new InfrastructureRegistrationCoordinator(
+                  schedulers,
+                  new PaperInfrastructureSurveyor(),
+                  new InfrastructureService(
+                      new PostgresInfrastructureGateway(store), new InfrastructureValidator())),
               finance,
               harbor,
               new EconomyApplicationService(economyGateway),

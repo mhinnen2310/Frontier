@@ -34,6 +34,9 @@ import nl.frontier.economy.ContractGateway;
 import nl.frontier.economy.EconomyGateway;
 import nl.frontier.economy.FinanceApplicationService;
 import nl.frontier.economy.HarborGateway;
+import nl.frontier.economy.InfrastructureSurvey;
+import nl.frontier.economy.InfrastructureType;
+import nl.frontier.economy.InfrastructureValidator;
 import nl.frontier.economy.LogisticsGateway;
 import nl.frontier.economy.MarketEngine;
 import nl.frontier.economy.ProductionGateway;
@@ -165,7 +168,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(20, result.getInt(1));
+        assertEquals(21, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -591,8 +594,21 @@ class DatabaseIntegrationTest {
       LogisticsGateway.RoadNode buyerNode =
           logistics.registerNode(
               buyer.id(), buyerOwner, sellerWorld, 328, 64, 328, "WAREHOUSE", Instant.now());
-      logistics.connect(
-          seller.id(), sellerOwner, sellerNode.id(), buyerNode.id(), 1000, Instant.now());
+      var physicalEdge =
+          new PostgresInfrastructureGateway(store)
+              .register(
+                  seller.id(),
+                  sellerOwner,
+                  sellerNode.id(),
+                  buyerNode.id(),
+                  80,
+                  new InfrastructureValidator()
+                      .validate(
+                          InfrastructureType.ROAD,
+                          new InfrastructureSurvey(161, 161, 3, 0, 0, 80, 1, 0, 0)),
+                  Instant.now());
+      assertEquals(seller.id(), physicalEdge.owner());
+      assertEquals(2_700, physicalEdge.capacity());
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
         statement.executeUpdate(
@@ -624,6 +640,24 @@ class DatabaseIntegrationTest {
       assertEquals(1, economy.match(10, Instant.now()));
       assertEquals(0, logistics.cycle(1, Instant.now()).delivered());
       assertEquals(1, logistics.cycle(1, Instant.now().plusSeconds(1_000)).delivered());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT infrastructure_type,integrity,capacity,traffic,importance,owner_city,minimum_width,surface_quality,broken_segments FROM road_edges WHERE id=?")) {
+        statement.setObject(1, physicalEdge.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("ROAD", result.getString(1));
+          assertEquals(90, result.getInt(2));
+          assertEquals(2_700, result.getLong(3));
+          assertEquals(1, result.getLong(4));
+          assertEquals(80, result.getInt(5));
+          assertEquals(seller.id(), result.getObject(6, UUID.class));
+          assertEquals(3, result.getInt(7));
+          assertEquals(80, result.getInt(8));
+          assertEquals(0, result.getInt(9));
+        }
+      }
       assertEquals(
           6,
           economy.warehouse(buyer.id(), buyerOwner, Instant.now()).stock().stream()
