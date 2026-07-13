@@ -19,3 +19,4 @@ V18__building_validation_lifecycle.sql
 V19__district_system.sql
 V20__settlement_lifecycle.sql
 V21__physical_infrastructure.sql
+V22__caravan_simulation.sql

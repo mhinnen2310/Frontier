@@ -168,7 +168,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(21, result.getInt(1));
+        assertEquals(22, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -638,8 +638,31 @@ class DatabaseIntegrationTest {
           UUID.randomUUID(),
           Instant.now());
       assertEquals(1, economy.match(10, Instant.now()));
-      assertEquals(0, logistics.cycle(1, Instant.now()).delivered());
-      assertEquals(1, logistics.cycle(1, Instant.now().plusSeconds(1_000)).delivered());
+      Instant caravanNow = Instant.now();
+      PostgresCaravanGateway caravanGateway = new PostgresCaravanGateway(store);
+      assertEquals(1, caravanGateway.cycle(10, caravanNow).synchronizedShipments());
+      LogisticsGateway.Shipment marketCaravan = logistics.shipments(buyer.id()).getFirst();
+      assertEquals(0, logistics.cycle(1, caravanNow).delivered());
+      assertEquals(1, caravanGateway.cycle(10, caravanNow.plusSeconds(1)).advanced());
+      assertEquals(marketCaravan.id(), caravanGateway.presentations(10).getFirst().shipment());
+      assertEquals(
+          buyerOwner,
+          caravanGateway
+              .escort(marketCaravan.id(), buyerOwner, caravanNow.plusSeconds(2))
+              .escort());
+      UUID caravanEntity = UUID.randomUUID();
+      caravanGateway.bind(marketCaravan.id(), caravanEntity, caravanNow.plusSeconds(2));
+      var damagedCaravan =
+          caravanGateway.damage(marketCaravan.id(), sellerOwner, 12, caravanNow.plusSeconds(3));
+      assertEquals("PHYSICAL", damagedCaravan.mode());
+      assertEquals(91, damagedCaravan.health());
+      caravanGateway.unbind(marketCaravan.id(), caravanEntity, caravanNow.plusSeconds(4));
+      assertEquals(0, caravanGateway.cycle(10, caravanNow.plusSeconds(14)).advanced());
+      assertEquals(0, logistics.cycle(1, caravanNow.plusSeconds(15)).delivered());
+      caravanGateway.cycle(10, caravanNow.plusSeconds(16));
+      assertEquals(1, logistics.cycle(1, caravanNow.plusSeconds(1_000)).delivered());
+      assertEquals(1, caravanGateway.cycle(10, caravanNow.plusSeconds(1_001)).unloaded());
+      assertEquals(1, caravanGateway.cycle(10, caravanNow.plusSeconds(1_007)).despawned());
       try (var connection = database.dataSource().getConnection();
           var statement =
               connection.prepareStatement(
@@ -650,7 +673,7 @@ class DatabaseIntegrationTest {
           assertEquals("ROAD", result.getString(1));
           assertEquals(90, result.getInt(2));
           assertEquals(2_700, result.getLong(3));
-          assertEquals(1, result.getLong(4));
+          assertEquals(2, result.getLong(4));
           assertEquals(80, result.getInt(5));
           assertEquals(seller.id(), result.getObject(6, UUID.class));
           assertEquals(3, result.getInt(7));

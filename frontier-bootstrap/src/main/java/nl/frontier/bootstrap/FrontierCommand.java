@@ -29,6 +29,7 @@ import nl.frontier.domain.Ids.PlayerId;
 import nl.frontier.domain.Ids.RepairOrderId;
 import nl.frontier.domain.Ids.SettlementId;
 import nl.frontier.domain.Ids.WarId;
+import nl.frontier.economy.CaravanService;
 import nl.frontier.economy.ContractGateway;
 import nl.frontier.economy.EconomyApplicationService;
 import nl.frontier.economy.EconomyGateway;
@@ -62,6 +63,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           "harbor",
           "city",
           "district",
+          "caravan",
           "treasury",
           "production",
           "logistics",
@@ -83,6 +85,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final SettlementLifecycleService settlementLifecycle;
   private final SettlementFoundingCoordinator founding;
   private final InfrastructureRegistrationCoordinator infrastructureRegistrations;
+  private final CaravanService caravans;
   private final FinanceApplicationService finance;
   private final HarborApplicationService harbor;
   private final EconomyApplicationService economy;
@@ -111,6 +114,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       SettlementLifecycleService settlementLifecycle,
       SettlementFoundingCoordinator founding,
       InfrastructureRegistrationCoordinator infrastructureRegistrations,
+      CaravanService caravans,
       FinanceApplicationService finance,
       HarborApplicationService harbor,
       EconomyApplicationService economy,
@@ -137,6 +141,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.settlementLifecycle = Objects.requireNonNull(settlementLifecycle);
     this.founding = Objects.requireNonNull(founding);
     this.infrastructureRegistrations = Objects.requireNonNull(infrastructureRegistrations);
+    this.caravans = Objects.requireNonNull(caravans);
     this.finance = Objects.requireNonNull(finance);
     this.harbor = Objects.requireNonNull(harbor);
     this.economy = Objects.requireNonNull(economy);
@@ -193,6 +198,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     }
     if (root.equals("district") && sender instanceof Player player) {
       district(player, Arrays.copyOfRange(args, 1, args.length));
+      return true;
+    }
+    if (root.equals("caravan") && sender instanceof Player player) {
+      caravan(player, Arrays.copyOfRange(args, 1, args.length));
       return true;
     }
     if (root.equals("balance") && sender instanceof Player player) {
@@ -1290,6 +1299,44 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     }
   }
 
+  private void caravan(Player player, String[] args) {
+    try {
+      String action = args.length == 0 ? "list" : args[0].toLowerCase(Locale.ROOT);
+      switch (action) {
+        case "list" ->
+            execute(
+                player,
+                () -> caravans.presentations(100),
+                values ->
+                    values.isEmpty()
+                        ? "No active caravans."
+                        : values.stream()
+                            .map(
+                                value ->
+                                    value.shipment()
+                                        + " "
+                                        + value.state()
+                                        + " health="
+                                        + value.health()
+                                        + " cargo="
+                                        + value.cargo())
+                            .collect(java.util.stream.Collectors.joining(" | ")));
+        case "escort" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier caravan escort <shipment-uuid>");
+          UUID shipment = UUID.fromString(args[1]);
+          execute(
+              player,
+              () -> caravans.escort(shipment, player.getUniqueId(), Instant.now()),
+              value -> "You are escorting caravan " + value.shipment());
+        }
+        default -> throw new IllegalArgumentException("caravan actions: list, escort");
+      }
+    } catch (IllegalArgumentException failure) {
+      player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
+    }
+  }
+
   private void contracts(Player player, String[] args) {
     if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
       execute(
@@ -2071,6 +2118,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     sender.sendMessage(Component.text("/frontier production list|queue|hire", NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text("/frontier logistics list|node|connect|ship", NamedTextColor.GRAY));
+    sender.sendMessage(Component.text("/frontier caravan list|escort", NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text("/frontier contracts list|post|accept|deliver", NamedTextColor.GRAY));
     sender.sendMessage(
@@ -2182,6 +2230,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               .map(type -> type.name().toLowerCase(Locale.ROOT))
               .toList(),
           args[4]);
+    if (args.length == 2 && args[0].equalsIgnoreCase("caravan"))
+      return matching(List.of("list", "escort"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("contracts"))
       return matching(List.of("list", "post", "accept", "deliver"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("war"))

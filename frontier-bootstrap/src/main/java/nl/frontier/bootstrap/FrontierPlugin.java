@@ -24,6 +24,7 @@ import nl.frontier.city.DistrictApplicationService;
 import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementDailySimulation;
 import nl.frontier.city.SettlementLifecycleService;
+import nl.frontier.economy.CaravanService;
 import nl.frontier.economy.ContractGateway;
 import nl.frontier.economy.EconomyApplicationService;
 import nl.frontier.economy.FinanceApplicationService;
@@ -41,6 +42,7 @@ import nl.frontier.persistence.JdbcTransactionalStore;
 import nl.frontier.persistence.PostgresAdminDiagnostics;
 import nl.frontier.persistence.PostgresBuildingValidationGateway;
 import nl.frontier.persistence.PostgresCampaignGateway;
+import nl.frontier.persistence.PostgresCaravanGateway;
 import nl.frontier.persistence.PostgresCivilizationGateway;
 import nl.frontier.persistence.PostgresClaimProtectionGateway;
 import nl.frontier.persistence.PostgresContractGateway;
@@ -93,6 +95,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private ClaimProtectionSupervisor claimProtectionSupervisor;
   private DamageRecoverySupervisor damageRecoverySupervisor;
   private SettlementLifecycleSupervisor settlementLifecycleSupervisor;
+  private CaravanPresentationSupervisor caravanSupervisor;
   private volatile boolean acceptingWrites;
 
   @Override
@@ -139,6 +142,7 @@ public final class FrontierPlugin extends JavaPlugin {
       PostgresProductionGateway productionGateway = new PostgresProductionGateway(store);
       LogisticsGateway logisticsGateway = new PostgresLogisticsGateway(store);
       ContractGateway contractGateway = new PostgresContractGateway(store);
+      CaravanService caravans = new CaravanService(new PostgresCaravanGateway(store));
       CampaignGateway campaignGateway = new PostgresCampaignGateway(store);
       WarPolicyCache warPolicyCache = new WarPolicyCache();
       warPolicyCache.replace(campaignGateway.policySnapshot(Instant.now()));
@@ -183,6 +187,7 @@ public final class FrontierPlugin extends JavaPlugin {
                   new PaperInfrastructureSurveyor(),
                   new InfrastructureService(
                       new PostgresInfrastructureGateway(store), new InfrastructureValidator())),
+              caravans,
               finance,
               harbor,
               new EconomyApplicationService(economyGateway),
@@ -209,6 +214,12 @@ public final class FrontierPlugin extends JavaPlugin {
       getServer()
           .getPluginManager()
           .registerEvents(new SettlementActivityListener(schedulers, settlementLifecycle), this);
+      getServer()
+          .getPluginManager()
+          .registerEvents(new CaravanCombatListener(this, schedulers, caravans), this);
+      caravanSupervisor =
+          new CaravanPresentationSupervisor(this, schedulers, caravans, getLogger());
+      caravanSupervisor.start();
       settlementLifecycleSupervisor =
           new SettlementLifecycleSupervisor(schedulers, settlementLifecycle, getLogger());
       settlementLifecycleSupervisor.start();
@@ -395,6 +406,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (claimProtectionSupervisor != null) claimProtectionSupervisor.stop();
     if (damageRecoverySupervisor != null) damageRecoverySupervisor.stop();
     if (settlementLifecycleSupervisor != null) settlementLifecycleSupervisor.stop();
+    if (caravanSupervisor != null) caravanSupervisor.stop();
     if (schedulers != null) schedulers.close();
     if (database != null) database.close();
   }

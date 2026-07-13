@@ -66,6 +66,15 @@
 - Route use now increments authoritative edge traffic; routing continues to exclude unhealthy or zero-capacity edges.
 - Added validator exploit coverage plus PostgreSQL assertions for physical edge ownership, capacity, quality, health, traffic and route compatibility.
 
+### Sprint 8 — Caravan Simulation
+
+- Added PostgreSQL-authoritative caravan state and history for shipment loading, walking, route pauses, combat, retreat, unloading and despawn.
+- Added hybrid simulation: routes advance without loaded chunks, while nearby players materialize a chest llama projection that walks the persisted route.
+- Added plugin chunk tickets only around observed physical caravans and automatic dematerialization back to simulated mode when no player is nearby.
+- Cargo remains exclusively in shipment reservations/items; the NPC carries no authoritative inventory and cannot duplicate goods.
+- Added `/frontier caravan list|escort`, escort damage mitigation, entity combat projection, combat-paused delivery and bounded retreat/recovery before rerouting.
+- Added Flyway migration V22 and integration coverage for synchronization, routing, presentation binding, escort, combat pause, reroute, unloading, despawn and edge traffic.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.
