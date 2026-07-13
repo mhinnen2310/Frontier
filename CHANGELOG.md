@@ -112,6 +112,15 @@
 - Kept wonders, research and mega projects as shared kingdom projects and exposed them with treasury, roles and policies in the integrated report.
 - Added Flyway migration V26, fallback commands, an hourly governance/tax supervisor and clean-database coverage for roles, voting, treasury, tax, policy, secession and war approval.
 
+### Sprint 13 — Complete Dialog UX
+
+- Replaced the six disconnected early dialogs with one navigable Paper Dialog catalog covering Frontier, Settlement, District, Kingdom, Treasury, Repair, War, Market, Workers, Contracts, Infrastructure, History, Reports and Settings.
+- `/frontier` now opens the root Dialog for players; `/frontier menu <screen>` provides direct navigation and all legacy commands remain fallback paths.
+- Added form inputs and command-template actions for settlement founding, district lookup/rename, kingdom policy/war/tax, treasury transfers, repairs, campaigns, market orders, hiring, contracts and infrastructure.
+- Corrected obsolete dialog actions that referenced missing war, repair and market commands.
+- Retained player-bound single-use callbacks for contextual claim and upgrade actions and made general dialogs close after every submitted action to prevent repeated mutation clicks.
+- Added catalog tests proving all fourteen screens are reachable, have back navigation, use Frontier actions and expose required parameterized flows.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

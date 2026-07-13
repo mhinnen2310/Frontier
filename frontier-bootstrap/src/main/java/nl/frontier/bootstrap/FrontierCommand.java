@@ -64,6 +64,8 @@ import org.jetbrains.annotations.NotNull;
 public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private static final List<String> ROOTS =
       List.of(
+          "menu",
+          "help",
           "status",
           "balance",
           "pay",
@@ -188,7 +190,9 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       @NotNull String label,
       String[] args) {
     if (args.length == 0) {
-      help(sender);
+      if (sender instanceof Player player)
+        ui.openMenu(new PlayerId(player.getUniqueId()), FrontierUi.Screen.FRONTIER);
+      else help(sender);
       return true;
     }
     metrics.command();
@@ -201,6 +205,23 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       return true;
     }
     String root = args[0].toLowerCase(Locale.ROOT);
+    if (root.equals("menu") && sender instanceof Player player) {
+      FrontierUi.Screen screen = FrontierUi.Screen.FRONTIER;
+      if (args.length > 1) {
+        try {
+          screen = FrontierUi.Screen.valueOf(args[1].toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException invalid) {
+          player.sendMessage(Component.text("Unknown Frontier menu.", NamedTextColor.RED));
+          return true;
+        }
+      }
+      ui.openMenu(new PlayerId(player.getUniqueId()), screen);
+      return true;
+    }
+    if (root.equals("help")) {
+      help(sender);
+      return true;
+    }
     if (root.equals("status")
         || root.equals("admin") && args.length > 1 && args[1].equalsIgnoreCase("health")) {
       asyncHealth(sender);
@@ -2582,6 +2603,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private static void help(CommandSender sender) {
     sender.sendMessage(
         Component.text(
+            "/frontier or /frontier menu <screen> opens the complete Dialog UI",
+            NamedTextColor.AQUA));
+    sender.sendMessage(
+        Component.text(
             "/frontier city create|info|invite|accept|role|claim|building|upgrade|policy|transfer|succession|abandon|disband|recover|merge|merge-accept|history",
             NamedTextColor.GOLD));
     sender.sendMessage(
@@ -2779,6 +2804,12 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "tax-collect",
               "policy",
               "secede"),
+          args[1]);
+    if (args.length == 2 && args[0].equalsIgnoreCase("menu"))
+      return matching(
+          Arrays.stream(FrontierUi.Screen.values())
+              .map(value -> value.name().toLowerCase(Locale.ROOT))
+              .toList(),
           args[1]);
     return List.of();
   }

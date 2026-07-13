@@ -6,6 +6,25 @@ import static nl.frontier.domain.Ids.SettlementId;
 import static nl.frontier.domain.Ids.WarId;
 
 public interface FrontierUi {
+  enum Screen {
+    FRONTIER,
+    SETTLEMENT,
+    DISTRICT,
+    KINGDOM,
+    TREASURY,
+    REPAIR,
+    WAR,
+    MARKET,
+    WORKERS,
+    CONTRACTS,
+    INFRASTRUCTURE,
+    HISTORY,
+    REPORTS,
+    SETTINGS
+  }
+
+  void openMenu(PlayerId player, Screen screen);
+
   void openSettlement(PlayerId player, SettlementId settlement);
 
   void openTreasury(PlayerId player, SettlementId settlement);
