@@ -21,6 +21,7 @@ import nl.frontier.city.ClaimProtectionCache;
 import nl.frontier.city.ClaimProtectionGateway;
 import nl.frontier.city.ClaimProtectionService;
 import nl.frontier.city.DistrictApplicationService;
+import nl.frontier.city.PopulationService;
 import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementDailySimulation;
 import nl.frontier.city.SettlementLifecycleService;
@@ -55,6 +56,7 @@ import nl.frontier.persistence.PostgresInfrastructureGateway;
 import nl.frontier.persistence.PostgresLogisticsGateway;
 import nl.frontier.persistence.PostgresNpcMaterializationGateway;
 import nl.frontier.persistence.PostgresOutboxDispatcher;
+import nl.frontier.persistence.PostgresPopulationGateway;
 import nl.frontier.persistence.PostgresProductionGateway;
 import nl.frontier.persistence.PostgresRecoveryCoordinator;
 import nl.frontier.persistence.PostgresRepairGateway;
@@ -96,6 +98,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private DamageRecoverySupervisor damageRecoverySupervisor;
   private SettlementLifecycleSupervisor settlementLifecycleSupervisor;
   private CaravanPresentationSupervisor caravanSupervisor;
+  private PopulationSupervisor populationSupervisor;
   private volatile boolean acceptingWrites;
 
   @Override
@@ -143,6 +146,7 @@ public final class FrontierPlugin extends JavaPlugin {
       LogisticsGateway logisticsGateway = new PostgresLogisticsGateway(store);
       ContractGateway contractGateway = new PostgresContractGateway(store);
       CaravanService caravans = new CaravanService(new PostgresCaravanGateway(store));
+      PopulationService population = new PopulationService(new PostgresPopulationGateway(store));
       CampaignGateway campaignGateway = new PostgresCampaignGateway(store);
       WarPolicyCache warPolicyCache = new WarPolicyCache();
       warPolicyCache.replace(campaignGateway.policySnapshot(Instant.now()));
@@ -188,6 +192,7 @@ public final class FrontierPlugin extends JavaPlugin {
                   new InfrastructureService(
                       new PostgresInfrastructureGateway(store), new InfrastructureValidator())),
               caravans,
+              population,
               finance,
               harbor,
               new EconomyApplicationService(economyGateway),
@@ -220,6 +225,8 @@ public final class FrontierPlugin extends JavaPlugin {
       caravanSupervisor =
           new CaravanPresentationSupervisor(this, schedulers, caravans, getLogger());
       caravanSupervisor.start();
+      populationSupervisor = new PopulationSupervisor(schedulers, population, getLogger());
+      populationSupervisor.start();
       settlementLifecycleSupervisor =
           new SettlementLifecycleSupervisor(schedulers, settlementLifecycle, getLogger());
       settlementLifecycleSupervisor.start();
@@ -407,6 +414,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (damageRecoverySupervisor != null) damageRecoverySupervisor.stop();
     if (settlementLifecycleSupervisor != null) settlementLifecycleSupervisor.stop();
     if (caravanSupervisor != null) caravanSupervisor.stop();
+    if (populationSupervisor != null) populationSupervisor.stop();
     if (schedulers != null) schedulers.close();
     if (database != null) database.close();
   }

@@ -22,6 +22,7 @@ import nl.frontier.city.DistrictApplicationService;
 import nl.frontier.city.DistrictGateway;
 import nl.frontier.city.DistrictType;
 import nl.frontier.city.GovernmentRole;
+import nl.frontier.city.PopulationService;
 import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementGateway;
 import nl.frontier.city.SettlementLifecycleService;
@@ -64,6 +65,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           "city",
           "district",
           "caravan",
+          "population",
+          "workers",
           "treasury",
           "production",
           "logistics",
@@ -86,6 +89,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final SettlementFoundingCoordinator founding;
   private final InfrastructureRegistrationCoordinator infrastructureRegistrations;
   private final CaravanService caravans;
+  private final PopulationService population;
   private final FinanceApplicationService finance;
   private final HarborApplicationService harbor;
   private final EconomyApplicationService economy;
@@ -115,6 +119,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       SettlementFoundingCoordinator founding,
       InfrastructureRegistrationCoordinator infrastructureRegistrations,
       CaravanService caravans,
+      PopulationService population,
       FinanceApplicationService finance,
       HarborApplicationService harbor,
       EconomyApplicationService economy,
@@ -142,6 +147,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.founding = Objects.requireNonNull(founding);
     this.infrastructureRegistrations = Objects.requireNonNull(infrastructureRegistrations);
     this.caravans = Objects.requireNonNull(caravans);
+    this.population = Objects.requireNonNull(population);
     this.finance = Objects.requireNonNull(finance);
     this.harbor = Objects.requireNonNull(harbor);
     this.economy = Objects.requireNonNull(economy);
@@ -202,6 +208,14 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     }
     if (root.equals("caravan") && sender instanceof Player player) {
       caravan(player, Arrays.copyOfRange(args, 1, args.length));
+      return true;
+    }
+    if (root.equals("population") && sender instanceof Player player) {
+      population(player);
+      return true;
+    }
+    if (root.equals("workers") && sender instanceof Player player) {
+      workers(player);
       return true;
     }
     if (root.equals("balance") && sender instanceof Player player) {
@@ -1337,6 +1351,59 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     }
   }
 
+  private void population(Player player) {
+    withCity(
+        player,
+        city -> population.report(city.id(), player.getUniqueId()),
+        value ->
+            "Population "
+                + value.population()
+                + "/"
+                + value.housingCapacity()
+                + " | food "
+                + value.foodSecurity()
+                + "% | safety "
+                + value.safety()
+                + "% | prosperity "
+                + value.prosperity()
+                + " | births/deaths "
+                + value.births()
+                + "/"
+                + value.deaths()
+                + " | immigration/emigration "
+                + value.immigration()
+                + "/"
+                + value.emigration());
+  }
+
+  private void workers(Player player) {
+    withCity(
+        player,
+        city -> population.workers(city.id(), player.getUniqueId()),
+        values ->
+            values.isEmpty()
+                ? "No settlement workers."
+                : values.stream()
+                    .map(
+                        value ->
+                            value.id()
+                                + " "
+                                + value.profession()
+                                + " skill="
+                                + value.skill()
+                                + " morale="
+                                + value.morale()
+                                + " efficiency="
+                                + value.efficiency()
+                                + " employment="
+                                + value.employment()
+                                + " salary="
+                                + value.salaryMinor()
+                                + " xp="
+                                + value.experience())
+                    .collect(java.util.stream.Collectors.joining(" | ")));
+  }
+
   private void contracts(Player player, String[] args) {
     if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
       execute(
@@ -2119,6 +2186,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     sender.sendMessage(
         Component.text("/frontier logistics list|node|connect|ship", NamedTextColor.GRAY));
     sender.sendMessage(Component.text("/frontier caravan list|escort", NamedTextColor.GRAY));
+    sender.sendMessage(Component.text("/frontier population | workers", NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text("/frontier contracts list|post|accept|deliver", NamedTextColor.GRAY));
     sender.sendMessage(

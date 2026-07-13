@@ -168,7 +168,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(22, result.getInt(1));
+        assertEquals(23, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1163,6 +1163,44 @@ class DatabaseIntegrationTest {
               .contributeWonder(
                   wonder.id(), attacker.id(), attackerOwner, 2, UUID.randomUUID(), Instant.now())
               .status());
+
+      UUID populationOwner = UUID.randomUUID();
+      var populationCity =
+          settlements.create(
+              populationOwner, "Population-" + shortId(), sellerWorld, 70, 70, Instant.now());
+      settlements.registerBuilding(
+          populationCity.id(),
+          populationOwner,
+          nl.frontier.city.Building.Category.RESIDENTIAL,
+          new SettlementGateway.Bounds(sellerWorld, 1120, 50, 1120, 1135, 80, 1135),
+          EnumSet.of(GovernmentRole.MAYOR),
+          Instant.now());
+      var agingWorker =
+          production.hire(populationCity.id(), populationOwner, "FARMER", 80, 20, Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var cityStatement =
+              connection.prepareStatement(
+                  "UPDATE cities SET population=10,prosperity=80 WHERE id=?");
+          var workerStatement =
+              connection.prepareStatement(
+                  "UPDATE workers SET age_days=retirement_age_days-1 WHERE id=?")) {
+        cityStatement.setObject(1, populationCity.id());
+        cityStatement.executeUpdate();
+        workerStatement.setObject(1, agingWorker.id());
+        workerStatement.executeUpdate();
+      }
+      PostgresPopulationGateway population = new PostgresPopulationGateway(store);
+      var populationCycle = population.cycle(500, Instant.now());
+      assertTrue(populationCycle.settlements() > 0);
+      assertEquals(1, populationCycle.retiredWorkers());
+      var populationReport = population.report(populationCity.id(), populationOwner);
+      assertEquals(14, populationReport.population());
+      assertEquals(15, populationReport.housingCapacity());
+      assertEquals(1, populationReport.births());
+      assertEquals(3, populationReport.immigration());
+      assertEquals(
+          "RETIRED",
+          population.workers(populationCity.id(), populationOwner).getFirst().employment());
 
       ArrayList<PostgresOutboxDispatcher.Event> published = new ArrayList<>();
       PostgresOutboxDispatcher outbox = new PostgresOutboxDispatcher(store, published::add);

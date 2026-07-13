@@ -75,6 +75,15 @@
 - Added `/frontier caravan list|escort`, escort damage mitigation, entity combat projection, combat-paused delivery and bounded retreat/recovery before rerouting.
 - Added Flyway migration V22 and integration coverage for synchronization, routing, presentation binding, escort, combat pause, reroute, unloading, despawn and edge traffic.
 
+### Sprint 9 — Population Simulation
+
+- Expanded workers with persisted morale, derived efficiency, employment status, housing assignment, age, retirement age and retirement state while retaining profession, skill, salary and experience.
+- Added a daily transactional demographic cycle for births, deaths, immigration and emigration driven by physical housing capacity, food stock, military safety, campaign risk and prosperity.
+- Added demographic history, applied migration records and city population-state reports through Flyway migration V23.
+- District worker-efficiency and housing bonuses now feed worker output and capacity; employed workers gain experience and housed workers reference a real residential building.
+- Added `/frontier population` and `/frontier workers` reports plus a bounded population supervisor.
+- Added clean-database regression coverage for housing capacity, food/safety inputs, births, immigration, worker retirement and report output.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.
