@@ -11,8 +11,8 @@ This is the truthful baseline for the 60-sprint Master Remediation & Expansion R
 | Command roots | 25 |
 | Paper Dialog screens | 14 |
 | Paper listener adapters | 6 |
-| Flyway migrations | 34 (V1–V34) |
-| PostgreSQL public gameplay tables | 146 |
+| Flyway migrations | 36 (V1–V36) |
+| PostgreSQL public gameplay tables | 149 |
 | Bukkit permissions | 3 |
 
 The runtime modules are domain, API, city, influence, economy, warfare, repair, NPC, world, Paper UI, PostgreSQL persistence, observability and bootstrap. Testkit is build-only. `/frontier admin build` reports the packaged version, Git source revision/time, Java runtime, Paper target, live schema version and these module states.
@@ -24,7 +24,7 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 | Wallets, treasury and Harbor bootstrap | complete | Transactional player/city transfers, idempotency and audit plus config-driven low-tier stock/jobs/orders, non-arbitrage pricing and global/player daily caps have integration coverage |
 | Claim protection | complete | One cached `TerritoryActionPolicy` covers actor/action/source/target, ownership, roles, overrides, campaign, treaty, incident and bypass; all listed Paper actions plus cross-boundary propagation have exploit and handler-contract coverage |
 | Repair integrity | complete | Generation-linked breach accounting, two-phase mutation/material consumption, idempotent purchase/commit, multi-task progress, lease/restart recovery, unload defer, conflict quarantine and completion-based archive/re-break tests pass |
-| Settlement founding/lifecycle | partial | Physical expedition founding, charter, confirmed founders, configurable fee/material/location rules, Harbor exclusion, restart recovery, core uniqueness, succession, ruins and merge exist; Sprint 7 membership bans/revocation and strong disband UX remain |
+| Settlement founding/lifecycle | complete for Sprints 6–7 | Physical expedition founding, charter/founders, configurable fee/material/location rules, invitations/revocation, leave/kick/ban, role-safe transfer/succession, delayed disband, abandonment, asset-frozen ruins/recovery, merge and complete audit history have transactional integration coverage |
 | Districts | partial | Persistent bounded districts, managers, budgets, policies, workers, history and bonuses exist; district memberships/roles, logistics type and deeper balancing are incomplete |
 | Buildings | partial | Physical validators exist for six types and lifecycle/history are durable; Town Hall, Workshop, Mine, Watchtower and selection/preview UX are missing |
 | Roads/infrastructure | partial | Physical bounded validation, capacity/health/traffic and routing exist; dirty-segment invalidation, failure orders and critical-path gameplay are incomplete |

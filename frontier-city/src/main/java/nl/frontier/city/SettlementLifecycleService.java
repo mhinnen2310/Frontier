@@ -5,21 +5,31 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import nl.frontier.domain.DomainException;
 
 public final class SettlementLifecycleService {
   private final SettlementLifecycleGateway gateway;
   private final FoundingPolicy foundingPolicy;
+  private final SettlementGovernancePolicy governancePolicy;
 
   public SettlementLifecycleService(SettlementLifecycleGateway gateway) {
-    this(gateway, FoundingPolicy.defaults());
+    this(gateway, FoundingPolicy.defaults(), SettlementGovernancePolicy.defaults());
   }
 
   public SettlementLifecycleService(
       SettlementLifecycleGateway gateway, FoundingPolicy foundingPolicy) {
+    this(gateway, foundingPolicy, SettlementGovernancePolicy.defaults());
+  }
+
+  public SettlementLifecycleService(
+      SettlementLifecycleGateway gateway,
+      FoundingPolicy foundingPolicy,
+      SettlementGovernancePolicy governancePolicy) {
     this.gateway = Objects.requireNonNull(gateway);
     this.foundingPolicy = Objects.requireNonNull(foundingPolicy);
+    this.governancePolicy = Objects.requireNonNull(governancePolicy);
   }
 
   public SettlementLifecycleGateway.FoundingExpedition createExpedition(
@@ -146,15 +156,36 @@ public final class SettlementLifecycleService {
 
   public SettlementLifecycleGateway.LifecycleSnapshot succession(
       UUID city, UUID actor, Instant now) {
-    return gateway.succeed(city, actor, now);
+    return gateway.succeed(
+        city,
+        actor,
+        now.minus(governancePolicy.mayorInactivity()),
+        Set.of(
+            GovernmentRole.TREASURER,
+            GovernmentRole.GENERAL,
+            GovernmentRole.ARCHITECT,
+            GovernmentRole.BUILDER_MASTER,
+            GovernmentRole.DIPLOMAT),
+        now);
   }
 
   public SettlementLifecycleGateway.LifecycleSnapshot abandon(UUID city, UUID actor, Instant now) {
     return gateway.abandon(city, actor, now);
   }
 
-  public SettlementLifecycleGateway.LifecycleSnapshot disband(UUID city, UUID actor, Instant now) {
-    return gateway.disband(city, actor, now);
+  public SettlementLifecycleGateway.DisbandRequest requestDisband(
+      UUID city, UUID actor, Instant now) {
+    return gateway.requestDisband(
+        city,
+        actor,
+        now,
+        now.plus(governancePolicy.disbandConfirmationDelay()),
+        now.plus(governancePolicy.disbandRequestLifetime()));
+  }
+
+  public SettlementLifecycleGateway.LifecycleSnapshot confirmDisband(
+      UUID request, UUID actor, Instant now) {
+    return gateway.confirmDisband(request, actor, now);
   }
 
   public SettlementLifecycleGateway.LifecycleSnapshot recoverRuins(
@@ -164,6 +195,7 @@ public final class SettlementLifecycleService {
 
   public SettlementLifecycleGateway.MergeProposal merge(
       UUID source, UUID actor, UUID target, Instant now) {
+    if (source.equals(target)) throw new DomainException("a settlement cannot merge into itself");
     return gateway.proposeMerge(source, actor, target, now, now.plus(Duration.ofHours(48)));
   }
 
@@ -173,7 +205,11 @@ public final class SettlementLifecycleService {
   }
 
   public SettlementLifecycleGateway.RecoveryReport recover(Instant now, int limit) {
-    return gateway.recoverInactive(now.minus(Duration.ofDays(30)), now, limit);
+    return gateway.recoverInactive(
+        now.minus(governancePolicy.settlementInactivity()),
+        now.minus(governancePolicy.mayorInactivity()),
+        now,
+        limit);
   }
 
   public List<SettlementLifecycleGateway.HistoryEntry> history(UUID city, UUID actor) {
@@ -182,6 +218,10 @@ public final class SettlementLifecycleService {
 
   public FoundingPolicy foundingPolicy() {
     return foundingPolicy;
+  }
+
+  public SettlementGovernancePolicy governancePolicy() {
+    return governancePolicy;
   }
 
   private static String cleanCharter(String charter) {

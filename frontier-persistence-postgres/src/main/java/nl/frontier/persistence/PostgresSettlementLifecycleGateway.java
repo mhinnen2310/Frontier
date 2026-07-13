@@ -9,8 +9,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import nl.frontier.api.TransactionalStore;
+import nl.frontier.city.GovernmentRole;
 import nl.frontier.city.SettlementLifecycleGateway;
 import nl.frontier.domain.DomainException;
 
@@ -615,37 +617,137 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
   @Override
   public LifecycleSnapshot transfer(UUID city, UUID actor, UUID successor, Instant now) {
     return store.inTransaction(
-        connection -> transfer(connection, city, actor, successor, "OWNERSHIP_TRANSFERRED", now));
+        connection -> {
+          requireActiveLifecycle(connection, city);
+          return transfer(connection, city, actor, successor, "OWNERSHIP_TRANSFERRED", now);
+        });
   }
 
   @Override
-  public LifecycleSnapshot succeed(UUID city, UUID actor, Instant now) {
+  public LifecycleSnapshot succeed(
+      UUID city,
+      UUID actor,
+      Instant mayorInactiveBefore,
+      Set<GovernmentRole> allowedSuccessorRoles,
+      Instant now) {
     return store.inTransaction(
         connection -> {
+          requireActiveLifecycle(connection, city);
           UUID owner = owner(connection, city, true);
           requireMember(connection, city, actor);
+          String role =
+              text(
+                  connection,
+                  "SELECT role FROM city_members WHERE city_id=? AND player_id=?",
+                  city,
+                  actor);
+          if (allowedSuccessorRoles.stream().noneMatch(value -> value.name().equals(role)))
+            throw new DomainException("only an active settlement officer can succeed the mayor");
           Instant active = memberActivity(connection, city, owner);
-          if (active.plusSeconds(7L * 86_400L).isAfter(now))
-            throw new DomainException("mayor must be inactive for seven days");
+          if (active.isAfter(mayorInactiveBefore))
+            throw new DomainException("mayor inactivity period has not elapsed");
           return transfer(connection, city, owner, actor, "MAYOR_SUCCEEDED", now);
         });
   }
 
   @Override
   public LifecycleSnapshot abandon(UUID city, UUID actor, Instant now) {
-    return store.inTransaction(connection -> ruin(connection, city, actor, "ABANDONED", now));
+    return store.inTransaction(
+        connection -> {
+          requireActiveLifecycle(connection, city);
+          return ruin(connection, city, actor, "ABANDONED", now);
+        });
   }
 
   @Override
-  public LifecycleSnapshot disband(UUID city, UUID actor, Instant now) {
+  public DisbandRequest requestDisband(
+      UUID city, UUID actor, Instant now, Instant confirmsAfter, Instant expiresAt) {
     return store.inTransaction(
         connection -> {
+          requireMayor(connection, city, actor);
+          LifecycleSnapshot current = snapshot(connection, city);
+          if (!current.status().equals("ACTIVE"))
+            throw new DomainException("settlement is not active");
+          update(
+              connection,
+              "UPDATE settlement_disband_requests SET status='EXPIRED',version=version+1 WHERE city_id=? AND status='REQUESTED' AND expires_at<?",
+              city,
+              now);
+          if (scalar(
+                  connection,
+                  "SELECT count(*) FROM settlement_disband_requests WHERE city_id=? AND status='REQUESTED'",
+                  city)
+              > 0) throw new DomainException("a disband request is already pending");
+          UUID request = UUID.randomUUID();
+          update(
+              connection,
+              "INSERT INTO settlement_disband_requests(id,city_id,requested_by,status,requested_at,confirms_after,expires_at) VALUES(?,?,?,'REQUESTED',?,?,?)",
+              request,
+              city,
+              actor,
+              now,
+              confirmsAfter,
+              expiresAt);
+          history(
+              connection,
+              city,
+              "DISBAND_REQUESTED",
+              actor,
+              "{\"request\":\"" + request + "\"}",
+              now);
+          return new DisbandRequest(request, city, actor, "REQUESTED", confirmsAfter, expiresAt);
+        });
+  }
+
+  @Override
+  public LifecycleSnapshot confirmDisband(UUID request, UUID actor, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          UUID city = disbandRequestCity(connection, request);
+          if (!owner(connection, city, true).equals(actor))
+            throw new DomainException("only the mayor can change settlement lifecycle");
+          UUID requestedBy;
+          String status;
+          Instant confirmsAfter;
+          Instant expiresAt;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT city_id,requested_by,status,confirms_after,expires_at FROM settlement_disband_requests WHERE id=? FOR UPDATE")) {
+            statement.setObject(1, request);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) throw new DomainException("disband request not found");
+              if (!city.equals(result.getObject(1, UUID.class)))
+                throw new DomainException("disband request settlement changed unexpectedly");
+              requestedBy = result.getObject(2, UUID.class);
+              status = result.getString(3);
+              confirmsAfter = result.getTimestamp(4).toInstant();
+              expiresAt = result.getTimestamp(5).toInstant();
+            }
+          }
+          if (!requestedBy.equals(actor))
+            throw new DomainException("only the requesting mayor can confirm disbanding");
+          if (!status.equals("REQUESTED"))
+            throw new DomainException("disband request is no longer pending");
+          if (now.isBefore(confirmsAfter))
+            throw new DomainException("disband confirmation cooldown has not elapsed");
+          if (now.isAfter(expiresAt)) {
+            update(
+                connection,
+                "UPDATE settlement_disband_requests SET status='EXPIRED',version=version+1 WHERE id=?",
+                request);
+            throw new DomainException("disband request expired");
+          }
           if (scalar(
                   connection,
                   "SELECT count(*) FROM campaigns WHERE (attacker_city_id=? OR defender_city_id=?) AND phase<>'ENDED'",
                   city,
                   city)
               > 0) throw new DomainException("cannot disband during an active campaign");
+          update(
+              connection,
+              "UPDATE settlement_disband_requests SET status='CONFIRMED',confirmed_at=?,version=version+1 WHERE id=?",
+              now,
+              request);
           return ruin(connection, city, actor, "DISBANDED", now);
         });
   }
@@ -680,6 +782,15 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
               city);
           update(
               connection,
+              "UPDATE warehouses SET status='ACTIVE',version=version+1 WHERE city_id=? AND status='RUINS'",
+              city);
+          update(
+              connection,
+              "UPDATE market_orders o SET status=r.previous_status,version=o.version+1 FROM settlement_ruin_market_orders r WHERE r.city_id=? AND r.order_id=o.id AND o.status='FROZEN_RUINS'",
+              city);
+          update(connection, "DELETE FROM settlement_ruin_market_orders WHERE city_id=?", city);
+          update(
+              connection,
               "INSERT INTO dirty_settlements(city_id,reason,enqueued_at) VALUES(?,'RUINS_RECOVERED',?) ON CONFLICT(city_id) DO UPDATE SET reason=excluded.reason,enqueued_at=excluded.enqueued_at",
               city,
               now);
@@ -704,6 +815,8 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
     return store.inTransaction(
         connection -> {
           requireMayor(connection, source, actor);
+          requireActiveLifecycle(connection, source);
+          requireActiveLifecycle(connection, target);
           owner(connection, target, false);
           UUID proposal = UUID.randomUUID();
           update(
@@ -740,6 +853,9 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
                 throw new DomainException("merge proposal is no longer active");
             }
           }
+          lockCities(connection, source, target);
+          requireActiveLifecycle(connection, source);
+          requireActiveLifecycle(connection, target);
           requireMayor(connection, target, actor);
           if (scalar(
                   connection,
@@ -804,6 +920,12 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
               connection,
               "UPDATE warehouses SET status='MERGED',version=version+1 WHERE id=?",
               sourceWarehouse);
+          update(
+              connection,
+              "UPDATE market_orders SET settlement_id=?,owner_id=?,version=version+1 WHERE settlement_id=? AND status IN ('OPEN','PARTIAL')",
+              target,
+              target,
+              source);
           update(connection, "UPDATE road_nodes SET city_id=? WHERE city_id=?", target, source);
           update(connection, "UPDATE city_districts SET city_id=? WHERE city_id=?", target, source);
           update(connection, "DELETE FROM city_members WHERE city_id=?", source);
@@ -824,6 +946,15 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
               connection,
               "UPDATE settlement_cores SET status='MERGED',version=version+1 WHERE city_id=?",
               source);
+          update(
+              connection,
+              "UPDATE city_invitations SET status='REVOKED',version=version+1 WHERE city_id=? AND status='PENDING'",
+              source);
+          update(
+              connection,
+              "UPDATE settlement_disband_requests SET status='CANCELLED',version=version+1 WHERE city_id IN (?,?) AND status='REQUESTED'",
+              source,
+              target);
           update(connection, "DELETE FROM dirty_settlements WHERE city_id=?", source);
           update(connection, "DELETE FROM city_simulation_state WHERE city_id=?", source);
           update(connection, "DELETE FROM city_world_simulation_state WHERE city_id=?", source);
@@ -840,7 +971,8 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
   }
 
   @Override
-  public RecoveryReport recoverInactive(Instant inactiveBefore, Instant now, int limit) {
+  public RecoveryReport recoverInactive(
+      Instant settlementInactiveBefore, Instant mayorInactiveBefore, Instant now, int limit) {
     return store.inTransaction(
         connection -> {
           int refunded = 0, successions = 0, abandoned = 0;
@@ -877,22 +1009,34 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
             refundReservation(connection, id, null, now);
             refunded++;
           }
+          update(
+              connection,
+              "UPDATE settlement_disband_requests SET status='EXPIRED',version=version+1 WHERE status='REQUESTED' AND expires_at<?",
+              now);
+          List<UUID> inactiveMayors =
+              ids(
+                  connection,
+                  "SELECT c.id FROM cities c LEFT JOIN settlement_member_activity a ON a.city_id=c.id AND a.player_id=c.owner_id WHERE c.lifecycle_status='ACTIVE' AND coalesce(a.last_active_at,c.last_active_at)<? ORDER BY coalesce(a.last_active_at,c.last_active_at) LIMIT ? FOR UPDATE OF c SKIP LOCKED",
+                  mayorInactiveBefore,
+                  limit);
+          for (UUID city : inactiveMayors) {
+            UUID current = owner(connection, city, false);
+            UUID successor = activeSuccessor(connection, city, current, mayorInactiveBefore);
+            if (successor != null) {
+              transfer(connection, city, current, successor, "AUTOMATIC_SUCCESSION", now);
+              successions++;
+            }
+          }
           List<UUID> cities =
               ids(
                   connection,
                   "SELECT id FROM cities WHERE lifecycle_status='ACTIVE' AND last_active_at<? ORDER BY last_active_at LIMIT ? FOR UPDATE SKIP LOCKED",
-                  inactiveBefore,
+                  settlementInactiveBefore,
                   limit);
           for (UUID city : cities) {
             UUID current = owner(connection, city, false);
-            UUID successor = activeSuccessor(connection, city, current, inactiveBefore);
-            if (successor != null) {
-              transfer(connection, city, current, successor, "AUTOMATIC_SUCCESSION", now);
-              successions++;
-            } else {
-              ruin(connection, city, current, "INACTIVE_ABANDONMENT", now);
-              abandoned++;
-            }
+            ruin(connection, city, current, "INACTIVE_ABANDONMENT", now);
+            abandoned++;
           }
           return new RecoveryReport(abandoned, successions, refunded);
         });
@@ -1073,6 +1217,7 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
       throws SQLException {
     UUID owner = owner(c, city, true);
     if (!owner.equals(actor)) throw new DomainException("only the mayor can transfer ownership");
+    requireActiveLifecycle(c, city);
     requireMember(c, city, successor);
     update(
         c, "UPDATE city_members SET role='CITIZEN' WHERE city_id=? AND player_id=?", city, owner);
@@ -1083,6 +1228,10 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
         "UPDATE cities SET owner_id=?,last_active_at=?,version=version+1 WHERE id=?",
         successor,
         now,
+        city);
+    update(
+        c,
+        "UPDATE settlement_disband_requests SET status='CANCELLED',version=version+1 WHERE city_id=? AND status='REQUESTED'",
         city);
     history(c, city, event, actor, "{\"successor\":\"" + successor + "\"}", now);
     return snapshot(c, city);
@@ -1164,6 +1313,7 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
   private static LifecycleSnapshot ruin(
       Connection c, UUID city, UUID actor, String event, Instant now) throws SQLException {
     requireMayor(c, city, actor);
+    requireActiveLifecycle(c, city);
     Instant until = now.plusSeconds(30L * 86_400L);
     update(
         c,
@@ -1184,10 +1334,27 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
         c,
         "UPDATE city_buildings SET status=CASE WHEN status='DESTROYED' THEN status ELSE 'DISABLED' END,version=version+1 WHERE city_id=?",
         city);
+    update(
+        c,
+        "UPDATE warehouses SET status='RUINS',version=version+1 WHERE city_id=? AND status='ACTIVE'",
+        city);
+    update(
+        c,
+        "INSERT INTO settlement_ruin_market_orders(city_id,order_id,previous_status,frozen_at) SELECT settlement_id,id,status,? FROM market_orders WHERE settlement_id=? AND status IN ('OPEN','PARTIAL') ON CONFLICT(city_id,order_id) DO UPDATE SET previous_status=excluded.previous_status,frozen_at=excluded.frozen_at",
+        now,
+        city);
+    update(
+        c,
+        "UPDATE market_orders SET status='FROZEN_RUINS',version=version+1 WHERE settlement_id=? AND status IN ('OPEN','PARTIAL')",
+        city);
     update(c, "UPDATE settlement_cores SET status='RUINS',version=version+1 WHERE city_id=?", city);
     update(c, "DELETE FROM dirty_settlements WHERE city_id=?", city);
     update(c, "DELETE FROM city_simulation_state WHERE city_id=?", city);
     update(c, "DELETE FROM city_world_simulation_state WHERE city_id=?", city);
+    update(
+        c,
+        "UPDATE settlement_disband_requests SET status='CANCELLED',version=version+1 WHERE city_id=? AND status='REQUESTED'",
+        city);
     history(c, city, event, actor, "{\"ruinsUntil\":\"" + until + "\"}", now);
     return snapshot(c, city);
   }
@@ -1225,7 +1392,7 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
       throws SQLException {
     try (PreparedStatement s =
         c.prepareStatement(
-            "SELECT m.player_id FROM city_members m JOIN settlement_member_activity a ON a.city_id=m.city_id AND a.player_id=m.player_id WHERE m.city_id=? AND m.player_id<>? AND a.last_active_at>=? ORDER BY CASE m.role WHEN 'ARCHITECT' THEN 0 WHEN 'TREASURER' THEN 1 ELSE 2 END,m.joined_at LIMIT 1")) {
+            "SELECT m.player_id FROM city_members m JOIN settlement_member_activity a ON a.city_id=m.city_id AND a.player_id=m.player_id WHERE m.city_id=? AND m.player_id<>? AND m.role IN ('TREASURER','GENERAL','ARCHITECT','BUILDER_MASTER','DIPLOMAT') AND a.last_active_at>=? ORDER BY CASE m.role WHEN 'ARCHITECT' THEN 0 WHEN 'TREASURER' THEN 1 ELSE 2 END,m.joined_at LIMIT 1")) {
       s.setObject(1, city);
       s.setObject(2, owner);
       s.setTimestamp(3, Timestamp.from(cutoff));
@@ -1238,9 +1405,9 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
   private static Instant memberActivity(Connection c, UUID city, UUID player) throws SQLException {
     try (PreparedStatement s =
         c.prepareStatement(
-            "SELECT last_active_at FROM settlement_member_activity WHERE city_id=? AND player_id=?")) {
-      s.setObject(1, city);
-      s.setObject(2, player);
+            "SELECT coalesce(a.last_active_at,c.last_active_at) FROM cities c LEFT JOIN settlement_member_activity a ON a.city_id=c.id AND a.player_id=? WHERE c.id=?")) {
+      s.setObject(1, player);
+      s.setObject(2, city);
       try (ResultSet r = s.executeQuery()) {
         if (!r.next()) throw new DomainException("member activity missing");
         return r.getTimestamp(1).toInstant();
@@ -1278,13 +1445,42 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
   }
 
   private static void requireMayor(Connection c, UUID city, UUID actor) throws SQLException {
-    if (!owner(c, city, false).equals(actor))
+    if (!owner(c, city, true).equals(actor))
       throw new DomainException("only the mayor can change settlement lifecycle");
+  }
+
+  private static void requireActiveLifecycle(Connection c, UUID city) throws SQLException {
+    if (!snapshot(c, city).status().equals("ACTIVE"))
+      throw new DomainException("settlement is not active");
   }
 
   private static void requireMember(Connection c, UUID city, UUID actor) throws SQLException {
     if (scalar(c, "SELECT count(*) FROM city_members WHERE city_id=? AND player_id=?", city, actor)
         != 1) throw new DomainException("not a settlement member");
+  }
+
+  private static UUID disbandRequestCity(Connection c, UUID request) throws SQLException {
+    try (PreparedStatement statement =
+        c.prepareStatement("SELECT city_id FROM settlement_disband_requests WHERE id=?")) {
+      statement.setObject(1, request);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("disband request not found");
+        return result.getObject(1, UUID.class);
+      }
+    }
+  }
+
+  private static void lockCities(Connection c, UUID first, UUID second) throws SQLException {
+    try (PreparedStatement statement =
+        c.prepareStatement("SELECT id FROM cities WHERE id IN (?,?) ORDER BY id FOR UPDATE")) {
+      statement.setObject(1, first);
+      statement.setObject(2, second);
+      try (ResultSet result = statement.executeQuery()) {
+        int found = 0;
+        while (result.next()) found++;
+        if (found != 2) throw new DomainException("merge settlement not found");
+      }
+    }
   }
 
   private static UUID account(Connection c, UUID player) throws SQLException {
@@ -1392,6 +1588,16 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
       try (ResultSet r = s.executeQuery()) {
         r.next();
         return r.getLong(1);
+      }
+    }
+  }
+
+  private static String text(Connection c, String sql, Object... args) throws SQLException {
+    try (PreparedStatement s = c.prepareStatement(sql)) {
+      bind(s, args);
+      try (ResultSet r = s.executeQuery()) {
+        if (!r.next()) throw new DomainException("required record not found");
+        return r.getString(1);
       }
     }
   }

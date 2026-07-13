@@ -25,7 +25,25 @@ public interface SettlementGateway {
       Instant expiresAt,
       Instant now);
 
+  Invitation revokeInvitation(
+      UUID city, UUID actor, UUID invitation, Set<GovernmentRole> allowedRoles, Instant now);
+
   CitySnapshot acceptInvitation(UUID invitation, UUID player, Instant now);
+
+  MembershipChange leave(UUID city, UUID player, Instant now);
+
+  MembershipChange removeMember(
+      UUID city,
+      UUID actor,
+      UUID target,
+      boolean ban,
+      String reason,
+      Set<GovernmentRole> allowedRoles,
+      Instant now);
+
+  void revokeBan(UUID city, UUID actor, UUID target, Set<GovernmentRole> allowedRoles, Instant now);
+
+  java.util.List<MemberSnapshot> members(UUID city, UUID actor);
 
   void changeRole(
       UUID city,
@@ -89,6 +107,11 @@ public interface SettlementGateway {
       long version) {}
 
   record Invitation(UUID id, UUID city, UUID player, String status, Instant expiresAt) {}
+
+  record MembershipChange(
+      UUID city, UUID player, String action, int remainingMembers, Instant occurredAt) {}
+
+  record MemberSnapshot(UUID player, GovernmentRole role, Instant joinedAt) {}
 
   record Bounds(UUID world, int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
     public Bounds {

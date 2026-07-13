@@ -46,8 +46,18 @@ public final class PostgresSettlementGateway implements SettlementGateway {
     return store.inTransaction(
         connection -> {
           requireRole(connection, city, actor, allowedRoles);
+          requireActiveCity(connection, city);
           if (findByPlayer(connection, target).isPresent())
             throw new DomainException("player already belongs to a settlement");
+          if (isBanned(connection, city, target))
+            throw new DomainException("player is banned from this settlement");
+          if (scalarInt(
+                  connection,
+                  "SELECT count(*) FROM city_invitations WHERE city_id=? AND player_id=? AND status='PENDING' AND expires_at>?",
+                  city,
+                  target,
+                  now)
+              > 0) throw new DomainException("player already has a pending invitation");
           UUID id = UUID.randomUUID();
           update(
               connection,
@@ -67,7 +77,48 @@ public final class PostgresSettlementGateway implements SettlementGateway {
               null,
               "{\"player\":\"" + target + "\"}",
               now);
+          membershipHistory(connection, city, "MEMBER_INVITED", actor, target, null, now);
           return new Invitation(id, city, target, "PENDING", expiresAt);
+        });
+  }
+
+  @Override
+  public Invitation revokeInvitation(
+      UUID city, UUID actor, UUID invitation, Set<GovernmentRole> allowedRoles, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          requireRole(connection, city, actor, allowedRoles);
+          requireActiveCity(connection, city);
+          UUID target;
+          Instant expiresAt;
+          try (var statement =
+              connection.prepareStatement(
+                  "SELECT player_id,status,expires_at FROM city_invitations WHERE id=? AND city_id=? FOR UPDATE")) {
+            statement.setObject(1, invitation);
+            statement.setObject(2, city);
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) throw new DomainException("invitation does not exist");
+              if (!result.getString(2).equals("PENDING"))
+                throw new DomainException("invitation is no longer pending");
+              target = result.getObject(1, UUID.class);
+              expiresAt = result.getTimestamp(3).toInstant();
+            }
+          }
+          update(
+              connection,
+              "UPDATE city_invitations SET status='REVOKED',version=version+1 WHERE id=?",
+              invitation);
+          audit(
+              connection,
+              actor,
+              "INVITATION_REVOKED",
+              "CITY",
+              city,
+              null,
+              "{\"player\":\"" + target + "\"}",
+              now);
+          membershipHistory(connection, city, "INVITATION_REVOKED", actor, target, null, now);
+          return new Invitation(invitation, city, target, "REVOKED", expiresAt);
         });
   }
 
@@ -75,7 +126,8 @@ public final class PostgresSettlementGateway implements SettlementGateway {
   public CitySnapshot acceptInvitation(UUID invitation, UUID player, Instant now) {
     return store.inTransaction(
         connection -> {
-          UUID city;
+          UUID city = invitationCity(connection, invitation);
+          requireActiveCity(connection, city);
           try (var statement =
               connection.prepareStatement(
                   "SELECT city_id,player_id,status,expires_at FROM city_invitations WHERE id=? FOR UPDATE")) {
@@ -92,11 +144,21 @@ public final class PostgresSettlementGateway implements SettlementGateway {
                   .isBefore(now)) {
                 throw new DomainException("invitation has expired");
               }
-              city = result.getObject("city_id", UUID.class);
+              if (!city.equals(result.getObject("city_id", UUID.class)))
+                throw new DomainException("invitation settlement changed unexpectedly");
             }
           }
+          if (isBanned(connection, city, player))
+            throw new DomainException("you are banned from this settlement");
           if (findByPlayer(connection, player).isPresent())
             throw new DomainException("you already belong to a settlement");
+          if (scalarInt(
+                  connection,
+                  "SELECT count(*) FROM settlement_founding_expedition_members WHERE player_id=? AND status='ACCEPTED'",
+                  player)
+              > 0)
+            throw new DomainException(
+                "leave or cancel your active founding expedition before joining a settlement");
           update(
               connection,
               "UPDATE city_invitations SET status='ACCEPTED',version=version+1 WHERE id=?",
@@ -104,6 +166,12 @@ public final class PostgresSettlementGateway implements SettlementGateway {
           update(
               connection,
               "INSERT INTO city_members(city_id,player_id,role,joined_at) VALUES(?,?,'RECRUIT',?)",
+              city,
+              player,
+              now);
+          update(
+              connection,
+              "INSERT INTO settlement_member_activity(city_id,player_id,last_active_at) VALUES(?,?,?) ON CONFLICT(city_id,player_id) DO UPDATE SET last_active_at=excluded.last_active_at",
               city,
               player,
               now);
@@ -118,7 +186,152 @@ public final class PostgresSettlementGateway implements SettlementGateway {
               "{\"player\":\"" + player + "\"}",
               now);
           outbox(connection, "CITY", city, "MemberJoined", "{\"player\":\"" + player + "\"}", now);
+          membershipHistory(connection, city, "MEMBER_JOINED", player, player, null, now);
           return loadCity(connection, city, false);
+        });
+  }
+
+  @Override
+  public MembershipChange leave(UUID city, UUID player, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          CitySnapshot snapshot = loadCity(connection, city, true);
+          requireActiveCity(connection, city);
+          if (snapshot.owner().equals(player))
+            throw new DomainException("the mayor must transfer ownership before leaving");
+          removeMembership(connection, city, player);
+          int remaining =
+              scalarInt(connection, "SELECT count(*) FROM city_members WHERE city_id=?", city);
+          markDirty(connection, city, "MEMBERSHIP", now);
+          audit(
+              connection,
+              player,
+              "MEMBER_LEFT",
+              "CITY",
+              city,
+              null,
+              "{\"player\":\"" + player + "\"}",
+              now);
+          membershipHistory(connection, city, "MEMBER_LEFT", player, player, null, now);
+          outbox(connection, "CITY", city, "MemberLeft", "{\"player\":\"" + player + "\"}", now);
+          return new MembershipChange(city, player, "LEFT", remaining, now);
+        });
+  }
+
+  @Override
+  public MembershipChange removeMember(
+      UUID city,
+      UUID actor,
+      UUID target,
+      boolean ban,
+      String reason,
+      Set<GovernmentRole> allowedRoles,
+      Instant now) {
+    return store.inTransaction(
+        connection -> {
+          requireRole(connection, city, actor, allowedRoles);
+          requireActiveCity(connection, city);
+          CitySnapshot snapshot = loadCity(connection, city, true);
+          if (snapshot.owner().equals(target))
+            throw new DomainException("the mayor can only leave after ownership transfer");
+          boolean member =
+              scalarInt(
+                      connection,
+                      "SELECT count(*) FROM city_members WHERE city_id=? AND player_id=?",
+                      city,
+                      target)
+                  == 1;
+          if (!member && !ban) throw new DomainException("target is not a settlement member");
+          if (member) removeMembership(connection, city, target);
+          if (ban) {
+            update(
+                connection,
+                "INSERT INTO settlement_bans(city_id,player_id,status,reason,banned_by,banned_at) VALUES(?,?,'ACTIVE',?,?,?) ON CONFLICT(city_id,player_id) DO UPDATE SET status='ACTIVE',reason=excluded.reason,banned_by=excluded.banned_by,banned_at=excluded.banned_at,revoked_by=NULL,revoked_at=NULL,version=settlement_bans.version+1",
+                city,
+                target,
+                reason,
+                actor,
+                now);
+            update(
+                connection,
+                "UPDATE city_invitations SET status='REVOKED',version=version+1 WHERE city_id=? AND player_id=? AND status='PENDING'",
+                city,
+                target);
+          }
+          int remaining =
+              scalarInt(connection, "SELECT count(*) FROM city_members WHERE city_id=?", city);
+          if (remaining < 1) throw new DomainException("settlement cannot lose its last governor");
+          String event = ban ? "MEMBER_BANNED" : "MEMBER_KICKED";
+          markDirty(connection, city, "MEMBERSHIP", now);
+          audit(
+              connection, actor, event, "CITY", city, null, "{\"player\":\"" + target + "\"}", now);
+          membershipHistory(connection, city, event, actor, target, reason, now);
+          outbox(
+              connection,
+              "CITY",
+              city,
+              ban ? "MemberBanned" : "MemberKicked",
+              "{\"player\":\"" + target + "\"}",
+              now);
+          return new MembershipChange(city, target, ban ? "BANNED" : "KICKED", remaining, now);
+        });
+  }
+
+  @Override
+  public void revokeBan(
+      UUID city, UUID actor, UUID target, Set<GovernmentRole> allowedRoles, Instant now) {
+    store.inTransaction(
+        connection -> {
+          requireRole(connection, city, actor, allowedRoles);
+          requireActiveCity(connection, city);
+          int changed =
+              update(
+                  connection,
+                  "UPDATE settlement_bans SET status='REVOKED',revoked_by=?,revoked_at=?,version=version+1 WHERE city_id=? AND player_id=? AND status='ACTIVE'",
+                  actor,
+                  now,
+                  city,
+                  target);
+          if (changed != 1) throw new DomainException("active settlement ban not found");
+          audit(
+              connection,
+              actor,
+              "MEMBER_UNBANNED",
+              "CITY",
+              city,
+              null,
+              "{\"player\":\"" + target + "\"}",
+              now);
+          membershipHistory(connection, city, "MEMBER_UNBANNED", actor, target, null, now);
+          return null;
+        });
+  }
+
+  @Override
+  public java.util.List<MemberSnapshot> members(UUID city, UUID actor) {
+    return store.inTransaction(
+        connection -> {
+          if (scalarInt(
+                  connection,
+                  "SELECT count(*) FROM city_members WHERE city_id=? AND player_id=?",
+                  city,
+                  actor)
+              != 1) throw new DomainException("not a settlement member");
+          java.util.List<MemberSnapshot> members = new java.util.ArrayList<>();
+          try (var statement =
+              connection.prepareStatement(
+                  "SELECT player_id,role,joined_at FROM city_members WHERE city_id=? ORDER BY CASE role WHEN 'MAYOR' THEN 0 ELSE 1 END,joined_at,player_id")) {
+            statement.setObject(1, city);
+            try (ResultSet result = statement.executeQuery()) {
+              while (result.next())
+                members.add(
+                    new MemberSnapshot(
+                        result.getObject(1, UUID.class),
+                        GovernmentRole.valueOf(result.getString(2)),
+                        result.getTimestamp(3).toInstant()));
+            }
+          }
+          return java.util.List.copyOf(members);
         });
   }
 
@@ -133,6 +346,7 @@ public final class PostgresSettlementGateway implements SettlementGateway {
     store.inTransaction(
         connection -> {
           requireRole(connection, city, actor, allowedRoles);
+          requireActiveCity(connection, city);
           CitySnapshot snapshot = loadCity(connection, city, true);
           if (snapshot.owner().equals(target))
             throw new DomainException("the owner must remain mayor");
@@ -153,6 +367,7 @@ public final class PostgresSettlementGateway implements SettlementGateway {
               null,
               "{\"player\":\"" + target + "\",\"role\":\"" + role + "\"}",
               now);
+          membershipHistory(connection, city, "ROLE_CHANGED", actor, target, role.name(), now);
           return null;
         });
   }
@@ -482,6 +697,78 @@ public final class PostgresSettlementGateway implements SettlementGateway {
         connection,
         "INSERT INTO dirty_settlements(city_id,reason,enqueued_at) VALUES(?,?,?) ON CONFLICT(city_id) DO UPDATE SET reason=excluded.reason,enqueued_at=excluded.enqueued_at",
         city,
+        reason,
+        now);
+  }
+
+  private static void requireActiveCity(Connection connection, UUID city) throws SQLException {
+    try (var statement =
+        connection.prepareStatement("SELECT lifecycle_status FROM cities WHERE id=? FOR UPDATE")) {
+      statement.setObject(1, city);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("settlement not found");
+        if (!result.getString(1).equals("ACTIVE"))
+          throw new DomainException("settlement is not active");
+      }
+    }
+  }
+
+  private static UUID invitationCity(Connection connection, UUID invitation) throws SQLException {
+    try (var statement =
+        connection.prepareStatement("SELECT city_id FROM city_invitations WHERE id=?")) {
+      statement.setObject(1, invitation);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("invitation does not exist");
+        return result.getObject(1, UUID.class);
+      }
+    }
+  }
+
+  private static boolean isBanned(Connection connection, UUID city, UUID player)
+      throws SQLException {
+    return scalarInt(
+            connection,
+            "SELECT count(*) FROM settlement_bans WHERE city_id=? AND player_id=? AND status='ACTIVE'",
+            city,
+            player)
+        > 0;
+  }
+
+  private static void removeMembership(Connection connection, UUID city, UUID player)
+      throws SQLException {
+    update(
+        connection,
+        "DELETE FROM city_permission_overrides WHERE city_id=? AND player_id=?",
+        city,
+        player);
+    update(
+        connection,
+        "DELETE FROM settlement_member_activity WHERE city_id=? AND player_id=?",
+        city,
+        player);
+    int removed =
+        update(
+            connection, "DELETE FROM city_members WHERE city_id=? AND player_id=?", city, player);
+    if (removed != 1) throw new DomainException("target is not a settlement member");
+  }
+
+  private static void membershipHistory(
+      Connection connection,
+      UUID city,
+      String event,
+      UUID actor,
+      UUID subject,
+      String reason,
+      Instant now)
+      throws SQLException {
+    update(
+        connection,
+        "INSERT INTO settlement_lifecycle_history(id,city_id,event_type,actor_id,payload,occurred_at) VALUES(?,?,?,?,jsonb_build_object('player',?::text,'reason',?::text),?)",
+        UUID.randomUUID(),
+        city,
+        event,
+        actor,
+        subject,
         reason,
         now);
   }

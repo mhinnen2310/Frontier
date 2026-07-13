@@ -25,6 +25,7 @@ import nl.frontier.city.FoundingPolicy;
 import nl.frontier.city.PopulationService;
 import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementDailySimulation;
+import nl.frontier.city.SettlementGovernancePolicy;
 import nl.frontier.city.SettlementLifecycleService;
 import nl.frontier.economy.CaravanService;
 import nl.frontier.economy.CommercialService;
@@ -203,7 +204,13 @@ public final class FrontierPlugin extends JavaPlugin {
               config.settlements().harborExclusionRadius());
       SettlementLifecycleService settlementLifecycle =
           new SettlementLifecycleService(
-              new PostgresSettlementLifecycleGateway(store), foundingPolicy);
+              new PostgresSettlementLifecycleGateway(store),
+              foundingPolicy,
+              new SettlementGovernancePolicy(
+                  Duration.ofDays(config.settlements().mayorInactivityDays()),
+                  Duration.ofDays(config.settlements().settlementInactivityDays()),
+                  Duration.ofSeconds(config.settlements().disbandConfirmationSeconds()),
+                  Duration.ofMinutes(config.settlements().disbandRequestMinutes())));
       SettlementFoundingCoordinator foundingCoordinator =
           new SettlementFoundingCoordinator(
               schedulers,

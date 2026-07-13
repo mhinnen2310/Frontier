@@ -27,6 +27,7 @@ import nl.frontier.city.DistrictApplicationService;
 import nl.frontier.city.DistrictType;
 import nl.frontier.city.FoundingPolicy;
 import nl.frontier.city.GovernmentRole;
+import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementDailySimulation;
 import nl.frontier.city.SettlementGateway;
 import nl.frontier.city.SettlementLevel;
@@ -369,7 +370,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(34, result.getInt(1));
+        assertEquals(36, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -528,6 +529,81 @@ class DatabaseIntegrationTest {
           Instant.now());
       assertThrows(DomainException.class, () -> lifecycle.validateCore(core));
       assertEquals(2_500, finances.balance(founder, Instant.now()));
+      SettlementApplicationService memberships =
+          new SettlementApplicationService(starterSettlements);
+      UUID revokedPlayer = UUID.randomUUID();
+      var revokedInvitation =
+          memberships.invite(foundedCity.id(), founder, revokedPlayer, Instant.now());
+      assertEquals(
+          "REVOKED",
+          memberships
+              .revokeInvitation(foundedCity.id(), founder, revokedInvitation.id(), Instant.now())
+              .status());
+      assertThrows(
+          DomainException.class,
+          () -> memberships.accept(revokedInvitation.id(), revokedPlayer, Instant.now()));
+      UUID bannedPlayer = UUID.randomUUID();
+      assertEquals(
+          "BANNED",
+          memberships
+              .ban(foundedCity.id(), founder, bannedPlayer, "repeated griefing", Instant.now())
+              .action());
+      assertThrows(
+          DomainException.class,
+          () -> memberships.invite(foundedCity.id(), founder, bannedPlayer, Instant.now()));
+      memberships.unban(foundedCity.id(), founder, bannedPlayer, Instant.now());
+      var restoredInvitation =
+          memberships.invite(foundedCity.id(), founder, bannedPlayer, Instant.now());
+      memberships.accept(restoredInvitation.id(), bannedPlayer, Instant.now());
+      assertEquals(
+          "KICKED",
+          memberships.kick(foundedCity.id(), founder, bannedPlayer, Instant.now()).action());
+      UUID racedPlayer = UUID.randomUUID();
+      var racedInvitation =
+          memberships.invite(foundedCity.id(), founder, racedPlayer, Instant.now());
+      try (var executor = Executors.newFixedThreadPool(2)) {
+        var accepting =
+            executor.submit(
+                () -> memberships.accept(racedInvitation.id(), racedPlayer, Instant.now()));
+        var banning =
+            executor.submit(
+                () ->
+                    memberships.ban(
+                        foundedCity.id(),
+                        founder,
+                        racedPlayer,
+                        "concurrent removal",
+                        Instant.now()));
+        try {
+          accepting.get(10, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.ExecutionException ignored) {
+          // The ban may commit first; either ordering must end banned and not a member.
+        }
+        banning.get(10, TimeUnit.SECONDS);
+      }
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT (SELECT count(*) FROM city_members WHERE city_id=? AND player_id=?),(SELECT count(*) FROM settlement_bans WHERE city_id=? AND player_id=? AND status='ACTIVE')")) {
+        statement.setObject(1, foundedCity.id());
+        statement.setObject(2, racedPlayer);
+        statement.setObject(3, foundedCity.id());
+        statement.setObject(4, racedPlayer);
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals(0, result.getInt(1));
+          assertEquals(1, result.getInt(2));
+        }
+      }
+      memberships.unban(foundedCity.id(), founder, racedPlayer, Instant.now());
+      UUID leavingPlayer = UUID.randomUUID();
+      var leavingInvitation =
+          memberships.invite(foundedCity.id(), founder, leavingPlayer, Instant.now());
+      memberships.accept(leavingInvitation.id(), leavingPlayer, Instant.now());
+      assertEquals(
+          "LEFT", memberships.leave(foundedCity.id(), leavingPlayer, Instant.now()).action());
+      assertThrows(
+          DomainException.class, () -> memberships.leave(foundedCity.id(), founder, Instant.now()));
       UUID successor = UUID.randomUUID();
       SettlementGateway.Invitation successorInvite =
           starterSettlements.invite(
@@ -547,10 +623,26 @@ class DatabaseIntegrationTest {
         statement.setObject(2, founder);
         statement.executeUpdate();
       }
+      assertThrows(
+          DomainException.class,
+          () -> lifecycle.succession(foundedCity.id(), successor, Instant.now()));
+      starterSettlements.changeRole(
+          foundedCity.id(),
+          founder,
+          successor,
+          GovernmentRole.ARCHITECT,
+          EnumSet.of(GovernmentRole.MAYOR),
+          Instant.now());
       assertEquals(
           successor, lifecycle.succession(foundedCity.id(), successor, Instant.now()).owner());
+      var staleDisband = lifecycle.requestDisband(foundedCity.id(), successor, Instant.now());
       assertEquals(
           founder, lifecycle.transfer(foundedCity.id(), successor, founder, Instant.now()).owner());
+      assertThrows(
+          DomainException.class,
+          () ->
+              lifecycle.confirmDisband(
+                  staleDisband.id(), successor, Instant.now().plusSeconds(31)));
       assertTrue(lifecycle.history(foundedCity.id(), founder).size() >= 3);
       UUID cancelledFounder = UUID.randomUUID();
       try (var connection = database.dataSource().getConnection();
@@ -564,9 +656,49 @@ class DatabaseIntegrationTest {
       var cancelledReservation = lifecycle.reserve(cancelledFounder, Instant.now());
       lifecycle.cancel(cancelledReservation.id(), cancelledFounder, Instant.now());
       assertEquals(3_000, finances.balance(cancelledFounder, Instant.now()));
-      assertEquals("RUINS", lifecycle.disband(foundedCity.id(), founder, Instant.now()).status());
+      Instant disbandedAt = Instant.now();
+      var disbandRequest = lifecycle.requestDisband(foundedCity.id(), founder, disbandedAt);
+      PostgresEconomyGateway lifecycleEconomy = new PostgresEconomyGateway(store);
+      lifecycleEconomy.deposit(foundedCity.id(), founder, "minecraft:cobblestone", 2, disbandedAt);
+      var frozenOrder =
+          lifecycleEconomy.placeOrder(
+              foundedCity.id(),
+              founder,
+              MarketEngine.Side.SELL,
+              "minecraft:cobblestone",
+              1,
+              5,
+              UUID.randomUUID(),
+              disbandedAt);
+      assertThrows(
+          DomainException.class,
+          () -> lifecycle.confirmDisband(disbandRequest.id(), founder, disbandedAt));
       assertEquals(
-          "ACTIVE", lifecycle.recoverRuins(foundedCity.id(), founder, Instant.now()).status());
+          "RUINS",
+          lifecycle
+              .confirmDisband(disbandRequest.id(), founder, disbandedAt.plusSeconds(31))
+              .status());
+      assertThrows(
+          DomainException.class,
+          () ->
+              finances.deposit(
+                  founder, foundedCity.id(), 1, UUID.randomUUID(), disbandedAt.plusSeconds(32)));
+      assertTrue(lifecycleEconomy.openOrders(foundedCity.id()).isEmpty());
+      assertThrows(
+          DomainException.class,
+          () ->
+              lifecycleEconomy.deposit(
+                  foundedCity.id(),
+                  founder,
+                  "minecraft:cobblestone",
+                  1,
+                  disbandedAt.plusSeconds(32)));
+      assertEquals(
+          "ACTIVE",
+          lifecycle.recoverRuins(foundedCity.id(), founder, disbandedAt.plusSeconds(32)).status());
+      assertEquals(frozenOrder.id(), lifecycleEconomy.openOrders(foundedCity.id()).getFirst().id());
+      finances.deposit(
+          founder, foundedCity.id(), 1, UUID.randomUUID(), disbandedAt.plusSeconds(33));
       assertEquals("RUINS", lifecycle.abandon(foundedCity.id(), founder, Instant.now()).status());
       UUID mergeSourceOwner = UUID.randomUUID();
       UUID mergeTargetOwner = UUID.randomUUID();
@@ -576,6 +708,19 @@ class DatabaseIntegrationTest {
       var mergeTarget =
           starterSettlements.create(
               mergeTargetOwner, "MergeTarget-" + shortId(), harborWorld, 60, 60, Instant.now());
+      PostgresEconomyGateway mergeEconomy = new PostgresEconomyGateway(store);
+      mergeEconomy.deposit(
+          mergeSource.id(), mergeSourceOwner, "minecraft:oak_log", 2, Instant.now());
+      var sourceOrder =
+          mergeEconomy.placeOrder(
+              mergeSource.id(),
+              mergeSourceOwner,
+              MarketEngine.Side.SELL,
+              "minecraft:oak_log",
+              1,
+              9,
+              UUID.randomUUID(),
+              Instant.now());
       var mergeProposal =
           lifecycle.merge(mergeSource.id(), mergeSourceOwner, mergeTarget.id(), Instant.now());
       assertEquals(
@@ -583,6 +728,57 @@ class DatabaseIntegrationTest {
           lifecycle.acceptMerge(mergeProposal.id(), mergeTargetOwner, Instant.now()).city());
       assertEquals(
           mergeTarget.id(), starterSettlements.findByPlayer(mergeSourceOwner).orElseThrow().id());
+      assertEquals(sourceOrder.id(), mergeEconomy.openOrders(mergeTarget.id()).getFirst().id());
+      UUID inactiveMayor = UUID.randomUUID();
+      UUID emergencyOfficer = UUID.randomUUID();
+      var successionCity =
+          starterSettlements.create(
+              inactiveMayor, "Succession-" + shortId(), harborWorld, 90, 90, Instant.now());
+      var officerInvitation =
+          starterSettlements.invite(
+              successionCity.id(),
+              inactiveMayor,
+              emergencyOfficer,
+              EnumSet.of(GovernmentRole.MAYOR),
+              Instant.now().plusSeconds(60),
+              Instant.now());
+      starterSettlements.acceptInvitation(officerInvitation.id(), emergencyOfficer, Instant.now());
+      starterSettlements.changeRole(
+          successionCity.id(),
+          inactiveMayor,
+          emergencyOfficer,
+          GovernmentRole.TREASURER,
+          EnumSet.of(GovernmentRole.MAYOR),
+          Instant.now());
+      UUID inactiveSettlementOwner = UUID.randomUUID();
+      var inactiveCity =
+          starterSettlements.create(
+              inactiveSettlementOwner,
+              "Inactive-" + shortId(),
+              harborWorld,
+              100,
+              100,
+              Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "INSERT INTO settlement_member_activity(city_id,player_id,last_active_at) VALUES('"
+                + successionCity.id()
+                + "','"
+                + inactiveMayor
+                + "',now()-interval '8 days') ON CONFLICT(city_id,player_id) DO UPDATE SET last_active_at=excluded.last_active_at");
+        statement.executeUpdate(
+            "UPDATE cities SET last_active_at=now()-interval '31 days' WHERE id='"
+                + inactiveCity.id()
+                + "'");
+      }
+      lifecycle.recover(Instant.now(), 100);
+      assertEquals(
+          emergencyOfficer,
+          starterSettlements.findByPlayer(emergencyOfficer).orElseThrow().owner());
+      assertEquals(
+          "INACTIVE_ABANDONMENT",
+          lifecycle.history(inactiveCity.id(), inactiveSettlementOwner).getFirst().event());
       RecoveryCoordinator.RecoveryReport report = new PostgresRecoveryCoordinator(store).recover();
       assertTrue(report.outboxEvents() >= 0);
       assertEquals(0, report.leases());

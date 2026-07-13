@@ -3,6 +3,7 @@ package nl.frontier.city;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public interface SettlementLifecycleGateway {
@@ -67,11 +68,19 @@ public interface SettlementLifecycleGateway {
 
   LifecycleSnapshot transfer(UUID city, UUID actor, UUID successor, Instant now);
 
-  LifecycleSnapshot succeed(UUID city, UUID actor, Instant now);
+  LifecycleSnapshot succeed(
+      UUID city,
+      UUID actor,
+      Instant mayorInactiveBefore,
+      Set<GovernmentRole> allowedSuccessorRoles,
+      Instant now);
 
   LifecycleSnapshot abandon(UUID city, UUID actor, Instant now);
 
-  LifecycleSnapshot disband(UUID city, UUID actor, Instant now);
+  DisbandRequest requestDisband(
+      UUID city, UUID actor, Instant now, Instant confirmsAfter, Instant expiresAt);
+
+  LifecycleSnapshot confirmDisband(UUID request, UUID actor, Instant now);
 
   LifecycleSnapshot recoverRuins(UUID city, UUID actor, Instant now);
 
@@ -79,7 +88,8 @@ public interface SettlementLifecycleGateway {
 
   LifecycleSnapshot acceptMerge(UUID proposal, UUID actor, Instant now);
 
-  RecoveryReport recoverInactive(Instant inactiveBefore, Instant now, int limit);
+  RecoveryReport recoverInactive(
+      Instant settlementInactiveBefore, Instant mayorInactiveBefore, Instant now, int limit);
 
   List<HistoryEntry> history(UUID city, UUID actor, int limit);
 
@@ -104,6 +114,14 @@ public interface SettlementLifecycleGateway {
       UUID city, UUID owner, String status, Instant abandonedAt, Instant ruinsUntil) {}
 
   record MergeProposal(UUID id, UUID source, UUID target, String status, Instant expiresAt) {}
+
+  record DisbandRequest(
+      UUID id,
+      UUID city,
+      UUID requestedBy,
+      String status,
+      Instant confirmsAfter,
+      Instant expiresAt) {}
 
   record RecoveryReport(int abandoned, int successions, int reservationsRefunded) {}
 

@@ -18,4 +18,4 @@ If startup fails before migrations, restore the prior JAR/config. If any new mig
 
 ## From 1.0.0
 
-The 1.0.0 artifact remains immutable. Frontier 1.1 adds migrations V16–V34 for Harbor/wallets through repair integrity and settlement founding expeditions. Back up first and allow the application to apply the entire sequence once. Existing cities remain authoritative; new founding attempts use V33–V34 while legacy cities retain their migrated core, charter and founder records.
+The 1.0.0 artifact remains immutable. Frontier 1.1 currently adds migrations V16–V36 for Harbor/wallets through repair integrity, founding expeditions and membership governance. Back up first and allow the application to apply the entire sequence once. Existing cities remain authoritative; new founding attempts use V33–V34 while V35–V36 add empty ban/disband/freeze state without changing active settlements or balances.

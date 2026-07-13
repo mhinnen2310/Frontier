@@ -1,5 +1,14 @@
 # Changelog
 
+## Master Roadmap Sprint 7 — Settlement Membership and Governance
+
+- Completed player membership commands for invitation revocation, member listing, leave, kick, pre-emptive/member bans and unban, with transactional role/state rechecks and lifecycle audit history.
+- Serialized invitation acceptance against concurrent bans and proved the race cannot leave a banned player in the settlement.
+- Split mayor and whole-settlement inactivity policy, restricted emergency/manual succession to active officers and added automatic officer takeover without letting recruits seize control.
+- Replaced immediate disbanding with a persistent request, cooldown, expiry and same-mayor confirmation; active campaigns still block final disbanding.
+- Froze treasury mutations, warehouses and open/partial market orders in ruins and restored their exact operational state on recovery.
+- Added typed governance configuration, Flyway V35–V36, command/config/schema/player documentation and PostgreSQL coverage for every membership/lifecycle path.
+
 ## Master Roadmap Sprint 6 — Settlement Founding Lifecycle
 
 - Replaced one-command settlement creation with a durable founding expedition: charter, leader, invitations, founder confirmations, location selection, fee/material claim, physical core placement and final Camp creation.

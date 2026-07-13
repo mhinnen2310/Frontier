@@ -10,7 +10,9 @@ import nl.frontier.domain.DomainException;
 /** Player-facing settlement commands with rules independent of Paper and SQL. */
 public final class SettlementApplicationService {
   private static final EnumSet<GovernmentRole> GOVERNMENT = EnumSet.of(GovernmentRole.MAYOR);
-  private static final EnumSet<GovernmentRole> INVITERS = EnumSet.of(GovernmentRole.MAYOR);
+  private static final EnumSet<GovernmentRole> INVITERS =
+      EnumSet.of(GovernmentRole.MAYOR, GovernmentRole.DIPLOMAT);
+  private static final EnumSet<GovernmentRole> MEMBER_MANAGERS = EnumSet.of(GovernmentRole.MAYOR);
   private static final EnumSet<GovernmentRole> ARCHITECTS =
       EnumSet.of(GovernmentRole.MAYOR, GovernmentRole.ARCHITECT);
   private final SettlementGateway gateway;
@@ -24,8 +26,40 @@ public final class SettlementApplicationService {
     return gateway.invite(city, actor, target, INVITERS, now.plus(Duration.ofHours(48)), now);
   }
 
+  public SettlementGateway.Invitation revokeInvitation(
+      UUID city, UUID actor, UUID invitation, Instant now) {
+    return gateway.revokeInvitation(city, actor, invitation, INVITERS, now);
+  }
+
   public SettlementGateway.CitySnapshot accept(UUID invitation, UUID player, Instant now) {
     return gateway.acceptInvitation(invitation, player, now);
+  }
+
+  public SettlementGateway.MembershipChange leave(UUID city, UUID player, Instant now) {
+    return gateway.leave(city, player, now);
+  }
+
+  public SettlementGateway.MembershipChange kick(UUID city, UUID actor, UUID target, Instant now) {
+    if (actor.equals(target)) throw new DomainException("use leave to remove yourself");
+    return gateway.removeMember(
+        city, actor, target, false, "removed by settlement government", MEMBER_MANAGERS, now);
+  }
+
+  public SettlementGateway.MembershipChange ban(
+      UUID city, UUID actor, UUID target, String reason, Instant now) {
+    if (actor.equals(target)) throw new DomainException("you cannot ban yourself");
+    String clean = Objects.requireNonNull(reason).strip();
+    if (clean.length() < 3 || clean.length() > 200)
+      throw new DomainException("ban reason must be 3-200 characters");
+    return gateway.removeMember(city, actor, target, true, clean, MEMBER_MANAGERS, now);
+  }
+
+  public void unban(UUID city, UUID actor, UUID target, Instant now) {
+    gateway.revokeBan(city, actor, target, MEMBER_MANAGERS, now);
+  }
+
+  public java.util.List<SettlementGateway.MemberSnapshot> members(UUID city, UUID actor) {
+    return gateway.members(city, actor);
   }
 
   public void role(UUID city, UUID actor, UUID target, GovernmentRole role, Instant now) {

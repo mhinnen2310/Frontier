@@ -47,7 +47,11 @@ public record FrontierConfiguration(
       int stoneBricksRequired,
       int oakLogsRequired,
       int bellsRequired,
-      Set<String> allowedEnvironments) {
+      Set<String> allowedEnvironments,
+      long mayorInactivityDays,
+      long settlementInactivityDays,
+      long disbandConfirmationSeconds,
+      long disbandRequestMinutes) {
     public Settlements {
       allowedEnvironments = Set.copyOf(allowedEnvironments);
     }

@@ -28,6 +28,8 @@ class ConfigRegistryTest {
     assertEquals(2_500, config.settlements().foundingFeeMinor());
     assertEquals(256, config.settlements().harborExclusionRadius());
     assertEquals(java.util.Set.of("NORMAL"), config.settlements().allowedEnvironments());
+    assertEquals(7, config.settlements().mayorInactivityDays());
+    assertEquals(30, config.settlements().settlementInactivityDays());
     assertTrue(config.enabled("settlements"));
     assertFalse(config.enabled("waypoints"));
     assertFalse(config.enabled("cartography"));
@@ -60,6 +62,14 @@ class ConfigRegistryTest {
             IllegalStateException.class,
             () -> ConfigRegistry.parse(resource("config.yml"), invalidFounding, ignored -> {}));
     assertTrue(foundingFailure.getMessage().contains("cannot be smaller"));
+
+    var invalidMembership = moduleResources();
+    invalidMembership.get("settlements").set("membership.settlement-inactivity-days", 3);
+    var membershipFailure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> ConfigRegistry.parse(resource("config.yml"), invalidMembership, ignored -> {}));
+    assertTrue(membershipFailure.getMessage().contains("mayor-inactivity-days"));
   }
 
   @Test

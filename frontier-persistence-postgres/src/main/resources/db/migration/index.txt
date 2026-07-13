@@ -32,3 +32,5 @@ V31__performance_indexes.sql
 V32__repair_occurrence_and_completion_integrity.sql
 V33__settlement_founding_expeditions.sql
 V34__active_founding_member_uniqueness.sql
+V35__settlement_membership_and_disband_requests.sql
+V36__ruin_market_order_freeze.sql

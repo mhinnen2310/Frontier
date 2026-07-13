@@ -19,3 +19,8 @@ founding:
     bells: 1
   allowed-environments:
     - NORMAL
+membership:
+  mayor-inactivity-days: 7
+  settlement-inactivity-days: 30
+  disband-confirmation-seconds: 30
+  disband-request-minutes: 10

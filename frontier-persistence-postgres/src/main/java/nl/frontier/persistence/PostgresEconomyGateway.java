@@ -29,6 +29,7 @@ public final class PostgresEconomyGateway implements EconomyGateway {
   public WarehouseSnapshot warehouse(UUID city, UUID actor, Instant now) {
     return store.inTransaction(
         connection -> {
+          requireActiveCity(connection, city);
           requireRole(connection, city, actor, STOCK_ROLES);
           return loadWarehouse(connection, ensureWarehouse(connection, city));
         });
@@ -39,6 +40,7 @@ public final class PostgresEconomyGateway implements EconomyGateway {
       UUID city, UUID actor, String commodity, long quantity, Instant now) {
     return store.inTransaction(
         connection -> {
+          requireActiveCity(connection, city);
           requireRole(connection, city, actor, STOCK_ROLES);
           UUID warehouse = ensureWarehouse(connection, city);
           long used = usedCapacity(connection, warehouse);
@@ -69,6 +71,7 @@ public final class PostgresEconomyGateway implements EconomyGateway {
       Instant now) {
     return store.inTransaction(
         connection -> {
+          requireActiveCity(connection, city);
           requireRole(connection, city, actor, ECONOMY_ROLES);
           OrderSnapshot existing = byIdempotency(connection, idempotencyKey);
           if (existing != null) return existing;
@@ -137,6 +140,7 @@ public final class PostgresEconomyGateway implements EconomyGateway {
   public void cancel(UUID city, UUID actor, UUID order, Instant now) {
     store.inTransaction(
         connection -> {
+          requireActiveCity(connection, city);
           requireRole(connection, city, actor, ECONOMY_ROLES);
           LockedOrder value = lockOrder(connection, order);
           if (!value.city.equals(city)) throw new DomainException("order belongs to another city");
@@ -401,6 +405,18 @@ public final class PostgresEconomyGateway implements EconomyGateway {
       }
     }
     throw new DomainException("could not create warehouse");
+  }
+
+  private static void requireActiveCity(Connection connection, UUID city) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement("SELECT lifecycle_status FROM cities WHERE id=? FOR UPDATE")) {
+      statement.setObject(1, city);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("settlement not found");
+        if (!result.getString(1).equals("ACTIVE"))
+          throw new DomainException("settlement economy is frozen while inactive");
+      }
+    }
   }
 
   private static WarehouseSnapshot loadWarehouse(Connection connection, UUID warehouse)

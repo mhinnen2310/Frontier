@@ -54,6 +54,7 @@ public final class PostgresFinanceGateway implements FinanceGateway {
       UUID player, UUID settlement, long amountMinor, UUID idempotency, Instant now) {
     return store.inTransaction(
         connection -> {
+          requireActiveSettlement(connection, settlement);
           requireMember(connection, settlement, player);
           UUID source = account(connection, "PLAYER", player, now);
           UUID destination = account(connection, "CITY", settlement, now);
@@ -78,6 +79,7 @@ public final class PostgresFinanceGateway implements FinanceGateway {
       UUID settlement, UUID actor, long amountMinor, UUID idempotency, Instant now) {
     return store.inTransaction(
         connection -> {
+          requireActiveSettlement(connection, settlement);
           requireFinanceRole(connection, settlement, actor);
           UUID source = account(connection, "CITY", settlement, now);
           UUID destination = account(connection, "PLAYER", actor, now);
@@ -107,6 +109,7 @@ public final class PostgresFinanceGateway implements FinanceGateway {
       Instant now) {
     return store.inTransaction(
         connection -> {
+          requireActiveSettlement(connection, settlement);
           requireFinanceRole(connection, settlement, actor);
           UUID source = account(connection, "CITY", settlement, now);
           UUID destination = account(connection, "PLAYER", recipient, now);
@@ -363,6 +366,19 @@ public final class PostgresFinanceGateway implements FinanceGateway {
       statement.setObject(2, actor);
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) throw new DomainException("you are not a settlement member");
+      }
+    }
+  }
+
+  private static void requireActiveSettlement(Connection connection, UUID city)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement("SELECT lifecycle_status FROM cities WHERE id=? FOR UPDATE")) {
+      statement.setObject(1, city);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("settlement not found");
+        if (!result.getString(1).equals("ACTIVE"))
+          throw new DomainException("settlement treasury is frozen while inactive");
       }
     }
   }

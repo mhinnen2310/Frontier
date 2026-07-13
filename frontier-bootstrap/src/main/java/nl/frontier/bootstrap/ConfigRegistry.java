@@ -138,6 +138,17 @@ public final class ConfigRegistry {
         || !Set.of("NORMAL", "NETHER", "THE_END", "CUSTOM").containsAll(allowedEnvironments))
       throw invalid(
           "founding.allowed-environments must contain NORMAL, NETHER, THE_END, or CUSTOM");
+    long mayorInactivityDays = positiveLong(settlements, "membership.mayor-inactivity-days");
+    long settlementInactivityDays =
+        positiveLong(settlements, "membership.settlement-inactivity-days");
+    if (settlementInactivityDays < mayorInactivityDays)
+      throw invalid(
+          "membership.settlement-inactivity-days cannot be smaller than membership.mayor-inactivity-days");
+    long disbandConfirmationSeconds =
+        positiveLong(settlements, "membership.disband-confirmation-seconds");
+    long disbandRequestMinutes = positiveLong(settlements, "membership.disband-request-minutes");
+    if (disbandRequestMinutes * 60 <= disbandConfirmationSeconds)
+      throw invalid("disband request lifetime must exceed its confirmation cooldown");
     var settlementConfig =
         new FrontierConfiguration.Settlements(
             control(settlements),
@@ -153,7 +164,11 @@ public final class ConfigRegistry {
             positive(settlements, "founding.materials.stone-bricks", 100_000),
             positive(settlements, "founding.materials.oak-logs", 100_000),
             positive(settlements, "founding.materials.bells", 100_000),
-            allowedEnvironments);
+            allowedEnvironments,
+            mayorInactivityDays,
+            settlementInactivityDays,
+            disbandConfirmationSeconds,
+            disbandRequestMinutes);
     YamlConfiguration influence = modules.get("influence");
     var influenceConfig =
         new FrontierConfiguration.Influence(
@@ -638,7 +653,11 @@ public final class ConfigRegistry {
             "founding.materials.stone-bricks",
             "founding.materials.oak-logs",
             "founding.materials.bells",
-            "founding.allowed-environments"));
+            "founding.allowed-environments",
+            "membership.mayor-inactivity-days",
+            "membership.settlement-inactivity-days",
+            "membership.disband-confirmation-seconds",
+            "membership.disband-request-minutes"));
     keys.put(
         "influence",
         leaves(

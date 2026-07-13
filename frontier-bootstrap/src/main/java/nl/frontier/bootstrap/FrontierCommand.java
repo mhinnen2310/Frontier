@@ -383,6 +383,18 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                       city.id(), player.getUniqueId(), target.getUniqueId(), Instant.now()),
               invitation -> "Invitation created: " + invitation.id());
         }
+        case "invite-revoke" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException(
+                "usage: /frontier city invite-revoke <invitation-uuid>");
+          UUID invitation = UUID.fromString(args[1]);
+          withCity(
+              player,
+              city ->
+                  settlements.revokeInvitation(
+                      city.id(), player.getUniqueId(), invitation, Instant.now()),
+              value -> "Invitation revoked: " + value.id());
+        }
         case "accept" -> {
           if (args.length != 2)
             throw new IllegalArgumentException("usage: /frontier city accept <invitation-uuid>");
@@ -393,6 +405,51 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               city -> "Joined " + city.name());
         }
         case "role" -> role(player, args);
+        case "leave" ->
+            withCity(
+                player,
+                city -> settlements.leave(city.id(), player.getUniqueId(), Instant.now()),
+                value -> "You left the settlement.");
+        case "kick" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier city kick <player>");
+          UUID target = resolvePlayer(player, args[1]);
+          withCity(
+              player,
+              city -> settlements.kick(city.id(), player.getUniqueId(), target, Instant.now()),
+              value -> "Member removed: " + value.player());
+        }
+        case "ban" -> {
+          if (args.length < 3)
+            throw new IllegalArgumentException("usage: /frontier city ban <player> <reason>");
+          UUID target = resolvePlayer(player, args[1]);
+          String reason = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
+          withCity(
+              player,
+              city ->
+                  settlements.ban(city.id(), player.getUniqueId(), target, reason, Instant.now()),
+              value -> "Player banned: " + value.player());
+        }
+        case "unban" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier city unban <player>");
+          UUID target = resolvePlayer(player, args[1]);
+          withCity(
+              player,
+              city -> {
+                settlements.unban(city.id(), player.getUniqueId(), target, Instant.now());
+                return target;
+              },
+              value -> "Player unbanned: " + value);
+        }
+        case "members" ->
+            withCity(
+                player,
+                city -> settlements.members(city.id(), player.getUniqueId()),
+                values ->
+                    values.stream()
+                        .map(value -> value.player() + " (" + value.role() + ")")
+                        .collect(java.util.stream.Collectors.joining(" | ")));
         case "claim" ->
             withCity(
                 player,
@@ -437,11 +494,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                 player,
                 city -> settlementLifecycle.abandon(city.id(), player.getUniqueId(), Instant.now()),
                 value -> "Settlement abandoned; ruins remain until " + value.ruinsUntil());
-        case "disband" ->
-            withCity(
-                player,
-                city -> settlementLifecycle.disband(city.id(), player.getUniqueId(), Instant.now()),
-                value -> "Settlement disbanded; ruins remain until " + value.ruinsUntil());
+        case "disband" -> disband(player, args);
         case "recover" ->
             withCity(
                 player,
@@ -482,10 +535,44 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                             .collect(java.util.stream.Collectors.joining(" | ")));
         default ->
             throw new IllegalArgumentException(
-                "city actions: create, expedition, info, invite, accept, role, claim, building, upgrade, policy, transfer, succession, abandon, disband, recover, merge, merge-accept, history");
+                "city actions: create, expedition, info, invite, invite-revoke, accept, members, leave, kick, ban, unban, role, claim, building, upgrade, policy, transfer, succession, abandon, disband, recover, merge, merge-accept, history");
       }
     } catch (IllegalArgumentException failure) {
       player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
+    }
+  }
+
+  private void disband(Player player, String[] args) {
+    if (args.length < 2)
+      throw new IllegalArgumentException(
+          "usage: /frontier city disband <request|confirm> [request-uuid]");
+    switch (args[1].toLowerCase(Locale.ROOT)) {
+      case "request" ->
+          withCity(
+              player,
+              city ->
+                  settlementLifecycle.requestDisband(
+                      city.id(), player.getUniqueId(), Instant.now()),
+              value ->
+                  "Disband request "
+                      + value.id()
+                      + "; confirm after "
+                      + value.confirmsAfter()
+                      + " and before "
+                      + value.expiresAt());
+      case "confirm" -> {
+        if (args.length != 3)
+          throw new IllegalArgumentException(
+              "usage: /frontier city disband confirm <request-uuid>");
+        UUID request = UUID.fromString(args[2]);
+        execute(
+            player,
+            () -> settlementLifecycle.confirmDisband(request, player.getUniqueId(), Instant.now()),
+            value -> "Settlement disbanded; ruins remain until " + value.ruinsUntil());
+      }
+      default ->
+          throw new IllegalArgumentException(
+              "usage: /frontier city disband <request|confirm> [request-uuid]");
     }
   }
 
@@ -3051,7 +3138,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
             NamedTextColor.AQUA));
     sender.sendMessage(
         Component.text(
-            "/frontier city create|expedition|info|invite|accept|role|claim|building|upgrade|policy|transfer|succession|abandon|disband|recover|merge|merge-accept|history",
+            "/frontier city create|expedition|info|invite|invite-revoke|accept|members|leave|kick|ban|unban|role|claim|building|upgrade|policy|transfer|succession|abandon|disband|recover|merge|merge-accept|history",
             NamedTextColor.GOLD));
     sender.sendMessage(
         Component.text(
@@ -3136,7 +3223,13 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "expedition",
               "info",
               "invite",
+              "invite-revoke",
               "accept",
+              "members",
+              "leave",
+              "kick",
+              "ban",
+              "unban",
               "role",
               "claim",
               "building",
@@ -3151,6 +3244,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "merge-accept",
               "history"),
           args[1]);
+    if (args.length == 3 && args[0].equalsIgnoreCase("city") && args[1].equalsIgnoreCase("disband"))
+      return matching(List.of("request", "confirm"), args[2]);
     if (args.length == 3
         && args[0].equalsIgnoreCase("city")
         && args[1].equalsIgnoreCase("expedition"))
