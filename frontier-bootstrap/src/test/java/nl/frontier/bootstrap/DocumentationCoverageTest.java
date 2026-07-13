@@ -22,6 +22,7 @@ class DocumentationCoverageTest {
           "DEVELOPER_API.md",
           "DATABASE.md",
           "CONFIGURATION.md",
+          "SETTLEMENT_FOUNDING.md",
           "UPGRADE.md");
 
   @Test
@@ -57,7 +58,7 @@ class DocumentationCoverageTest {
 
     String database = Files.readString(docs.resolve("DATABASE.md"));
     assertTrue(database.contains("V1–V3"));
-    assertTrue(database.contains("V30–V32"));
+    assertTrue(database.contains("V30–V34"));
     assertTrue(database.contains("flyway_schema_history"));
   }
 

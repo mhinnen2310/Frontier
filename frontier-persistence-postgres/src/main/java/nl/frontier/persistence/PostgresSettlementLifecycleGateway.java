@@ -8,6 +8,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import nl.frontier.api.TransactionalStore;
 import nl.frontier.city.SettlementLifecycleGateway;
@@ -24,8 +25,448 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
   public void validateCore(CoreLocation core) {
     store.inTransaction(
         connection -> {
-          requireCoreDistance(connection, core);
+          requireCoreLocation(connection, core, 128, 256);
           return null;
+        });
+  }
+
+  @Override
+  public FoundingExpedition createExpedition(
+      UUID leader, String name, String charter, Instant now, Instant expiresAt) {
+    return store.inTransaction(
+        connection -> {
+          if (scalar(connection, "SELECT count(*) FROM city_members WHERE player_id=?", leader) > 0)
+            throw new DomainException("you already belong to a settlement");
+          if (scalar(
+                  connection,
+                  "SELECT count(*) FROM settlement_founding_expedition_members WHERE player_id=? AND status='ACCEPTED'",
+                  leader)
+              > 0) throw new DomainException("you already joined an active founding expedition");
+          if (scalar(
+                  connection,
+                  "SELECT count(*) FROM settlement_founding_expeditions WHERE leader_id=? AND status NOT IN ('CANCELLED','EXPIRED','COMPLETED','REVIEW_REQUIRED')",
+                  leader)
+              > 0) throw new DomainException("you already lead an active founding expedition");
+          UUID expedition = UUID.randomUUID();
+          UUID city = UUID.randomUUID();
+          update(
+              connection,
+              "INSERT INTO settlement_founding_expeditions(id,city_id,leader_id,settlement_name,charter_text,status,created_at,updated_at,expires_at) VALUES(?,?,?,?,?,'RECRUITING',?,?,?)",
+              expedition,
+              city,
+              leader,
+              name,
+              charter,
+              now,
+              now,
+              expiresAt);
+          update(
+              connection,
+              "INSERT INTO settlement_founding_expedition_members(expedition_id,player_id,status,invited_by,invited_at,accepted_at) VALUES(?,?,'ACCEPTED',?,?,?)",
+              expedition,
+              leader,
+              leader,
+              now,
+              now);
+          expeditionHistory(connection, expedition, "EXPEDITION_CREATED", leader, "{}", now);
+          return expedition(connection, expedition, false);
+        });
+  }
+
+  @Override
+  public FoundingExpedition inviteFounder(
+      UUID expedition, UUID actor, UUID player, Instant now, Instant expiresAt) {
+    return store.inTransaction(
+        connection -> {
+          FoundingExpedition current = expedition(connection, expedition, true);
+          requireExpeditionLeader(current, actor);
+          requireExpeditionOpen(current, now, "RECRUITING", "LOCATION_SELECTED");
+          if (scalar(connection, "SELECT count(*) FROM city_members WHERE player_id=?", player) > 0)
+            throw new DomainException("founder already belongs to a settlement");
+          update(
+              connection,
+              "INSERT INTO settlement_founding_expedition_members(expedition_id,player_id,status,invited_by,invited_at) VALUES(?,?,'INVITED',?,?) ON CONFLICT(expedition_id,player_id) DO UPDATE SET status=CASE WHEN settlement_founding_expedition_members.status='ACCEPTED' THEN 'ACCEPTED' ELSE 'INVITED' END,invited_by=excluded.invited_by,invited_at=excluded.invited_at",
+              expedition,
+              player,
+              actor,
+              now);
+          update(
+              connection,
+              "UPDATE settlement_founding_expeditions SET expires_at=greatest(expires_at,?),updated_at=?,version=version+1 WHERE id=?",
+              expiresAt,
+              now,
+              expedition);
+          expeditionHistory(
+              connection,
+              expedition,
+              "FOUNDER_INVITED",
+              actor,
+              "{\"player\":\"" + player + "\"}",
+              now);
+          return expedition(connection, expedition, false);
+        });
+  }
+
+  @Override
+  public FoundingExpedition acceptFounder(UUID expedition, UUID player, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          FoundingExpedition current = expedition(connection, expedition, true);
+          requireExpeditionOpen(current, now, "RECRUITING", "LOCATION_SELECTED");
+          if (scalar(connection, "SELECT count(*) FROM city_members WHERE player_id=?", player) > 0)
+            throw new DomainException("you already belong to a settlement");
+          if (scalar(
+                  connection,
+                  "SELECT count(*) FROM settlement_founding_expedition_members WHERE player_id=? AND status='ACCEPTED' AND expedition_id<>?",
+                  player,
+                  expedition)
+              > 0) throw new DomainException("you already confirmed another founding expedition");
+          int changed =
+              updateCount(
+                  connection,
+                  "UPDATE settlement_founding_expedition_members SET status='ACCEPTED',accepted_at=? WHERE expedition_id=? AND player_id=? AND status='INVITED'",
+                  now,
+                  expedition,
+                  player);
+          if (changed != 1) throw new DomainException("founding invitation is not active");
+          expeditionHistory(connection, expedition, "FOUNDER_ACCEPTED", player, "{}", now);
+          return expedition(connection, expedition, false);
+        });
+  }
+
+  @Override
+  public FoundingExpedition selectCore(
+      UUID expedition,
+      UUID actor,
+      CoreLocation core,
+      int minimumDistance,
+      int harborExclusionRadius,
+      Instant now) {
+    return store.inTransaction(
+        connection -> {
+          FoundingExpedition current = expedition(connection, expedition, true);
+          requireExpeditionLeader(current, actor);
+          requireExpeditionOpen(current, now, "RECRUITING", "LOCATION_SELECTED");
+          requireCoreLocation(connection, core, minimumDistance, harborExclusionRadius, expedition);
+          update(
+              connection,
+              "UPDATE settlement_founding_expeditions SET world_id=?,x=?,y=?,z=?,minimum_core_distance=?,harbor_exclusion_radius=?,status='LOCATION_SELECTED',updated_at=?,version=version+1 WHERE id=?",
+              core.world(),
+              core.x(),
+              core.y(),
+              core.z(),
+              minimumDistance,
+              harborExclusionRadius,
+              now,
+              expedition);
+          expeditionHistory(connection, expedition, "CORE_SELECTED", actor, "{}", now);
+          return expedition(connection, expedition, false);
+        });
+  }
+
+  @Override
+  public FoundingReservation reserveExpedition(
+      UUID expedition,
+      UUID actor,
+      long feeMinor,
+      int minimumFounders,
+      Instant now,
+      Instant expiresAt) {
+    return store.inTransaction(
+        connection -> {
+          FoundingExpedition current = expedition(connection, expedition, true);
+          requireExpeditionLeader(current, actor);
+          if (List.of("FEE_RESERVED", "MATERIALS_CLAIMED", "MATERIALS_RESERVED", "CORE_PLACED")
+              .contains(current.status())) return reservationForExpedition(connection, expedition);
+          requireExpeditionOpen(current, now, "LOCATION_SELECTED");
+          if (current.acceptedFounders() < minimumFounders)
+            throw new DomainException(
+                "founding requires " + minimumFounders + " confirmed founder(s)");
+          if (current.core() == null) throw new DomainException("founding location is missing");
+          int minimumDistance =
+              (int)
+                  scalar(
+                      connection,
+                      "SELECT minimum_core_distance FROM settlement_founding_expeditions WHERE id=?",
+                      expedition);
+          int harborExclusionRadius =
+              (int)
+                  scalar(
+                      connection,
+                      "SELECT harbor_exclusion_radius FROM settlement_founding_expeditions WHERE id=?",
+                      expedition);
+          requireCoreLocation(
+              connection, current.core(), minimumDistance, harborExclusionRadius, expedition);
+          if (scalar(
+                  connection,
+                  "SELECT count(*) FROM settlement_founding_expedition_members m JOIN city_members c ON c.player_id=m.player_id WHERE m.expedition_id=? AND m.status='ACCEPTED'",
+                  expedition)
+              > 0) throw new DomainException("an accepted founder already joined a settlement");
+          UUID account = account(connection, actor);
+          long balance = balance(connection, account);
+          if (balance < feeMinor)
+            throw new DomainException("founding fee requires " + feeMinor + " cents");
+          UUID reservation = UUID.randomUUID();
+          update(
+              connection,
+              "UPDATE accounts SET balance_minor=balance_minor-?,version=version+1 WHERE id=?",
+              feeMinor,
+              account);
+          update(
+              connection,
+              "INSERT INTO settlement_founding_reservations(id,player_id,fee_minor,status,created_at,expires_at,expedition_id) VALUES(?,?,?,'FEE_RESERVED',?,?,?)",
+              reservation,
+              actor,
+              feeMinor,
+              now,
+              expiresAt,
+              expedition);
+          update(
+              connection,
+              "UPDATE settlement_founding_expeditions SET status='FEE_RESERVED',minimum_founders=?,updated_at=?,version=version+1 WHERE id=?",
+              minimumFounders,
+              now,
+              expedition);
+          ledger(
+              connection,
+              account,
+              actor,
+              -feeMinor,
+              balance - feeMinor,
+              reservation,
+              "FOUNDING_FEE",
+              now);
+          expeditionHistory(connection, expedition, "FEE_RESERVED", actor, "{}", now);
+          return new FoundingReservation(reservation, actor, feeMinor, "FEE_RESERVED", expiresAt);
+        });
+  }
+
+  @Override
+  public boolean claimMaterials(UUID expedition, UUID actor, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          FoundingExpedition current = expedition(connection, expedition, true);
+          requireExpeditionLeader(current, actor);
+          if (!current.status().equals("FEE_RESERVED")) return false;
+          FoundingReservation reservation = reservationForExpedition(connection, expedition);
+          if (reservation.expiresAt().isBefore(now))
+            throw new DomainException("founding reservation expired");
+          update(
+              connection,
+              "UPDATE settlement_founding_expeditions SET status='MATERIALS_CLAIMED',updated_at=?,version=version+1 WHERE id=?",
+              now,
+              expedition);
+          update(
+              connection,
+              "UPDATE settlement_founding_reservations SET status='MATERIALS_CLAIMED',version=version+1 WHERE expedition_id=?",
+              expedition);
+          expeditionHistory(connection, expedition, "MATERIALS_CLAIMED", actor, "{}", now);
+          return true;
+        });
+  }
+
+  @Override
+  public void confirmMaterials(UUID expedition, UUID actor, Instant now) {
+    transitionExpedition(
+        expedition, actor, "MATERIALS_CLAIMED", "MATERIALS_RESERVED", "MATERIALS_RESERVED", now);
+  }
+
+  @Override
+  public void releaseMaterials(UUID expedition, UUID actor, Instant now) {
+    store.inTransaction(
+        connection -> {
+          FoundingExpedition current = expedition(connection, expedition, true);
+          requireExpeditionLeader(current, actor);
+          if (!List.of("MATERIALS_CLAIMED", "MATERIALS_RESERVED").contains(current.status()))
+            throw new DomainException("founding materials are not reserved");
+          refundReservation(
+              connection, reservationForExpedition(connection, expedition).id(), actor, now);
+          update(
+              connection,
+              "UPDATE settlement_founding_expeditions SET status='LOCATION_SELECTED',updated_at=?,version=version+1 WHERE id=?",
+              now,
+              expedition);
+          expeditionHistory(connection, expedition, "MATERIALS_RELEASED", actor, "{}", now);
+          return null;
+        });
+  }
+
+  @Override
+  public void confirmCorePlacement(UUID expedition, UUID actor, Instant now) {
+    transitionExpedition(
+        expedition, actor, "MATERIALS_RESERVED", "CORE_PLACED", "CORE_PLACED", now);
+  }
+
+  @Override
+  public void completeExpedition(UUID expedition, UUID city, UUID actor, Instant now) {
+    store.inTransaction(
+        connection -> {
+          FoundingExpedition current = expedition(connection, expedition, true);
+          requireExpeditionLeader(current, actor);
+          if (!current.city().equals(city))
+            throw new DomainException("expedition city identity mismatch");
+          if (current.status().equals("COMPLETED")) return null;
+          if (!current.status().equals("CORE_PLACED"))
+            throw new DomainException("settlement core placement is not confirmed");
+          int minimumFounders =
+              (int)
+                  scalar(
+                      connection,
+                      "SELECT minimum_founders FROM settlement_founding_expeditions WHERE id=?",
+                      expedition);
+          List<UUID> founders =
+              ids(
+                  connection,
+                  "SELECT player_id FROM settlement_founding_expedition_members WHERE expedition_id=? AND status='ACCEPTED' ORDER BY CASE WHEN player_id=? THEN 0 ELSE 1 END,accepted_at,player_id",
+                  expedition,
+                  actor);
+          if (founders.size() < minimumFounders)
+            throw new DomainException("minimum founders have not accepted");
+          if (scalar(
+                  connection,
+                  "SELECT count(*) FROM city_members c JOIN settlement_founding_expedition_members m ON m.player_id=c.player_id WHERE m.expedition_id=? AND m.status='ACCEPTED'",
+                  expedition)
+              > 0) throw new DomainException("an accepted founder already joined a settlement");
+          CoreLocation core = current.core();
+          if (core == null) throw new DomainException("expedition core is missing");
+          SettlementBootstrapOperations.create(
+              connection,
+              city,
+              actor,
+              current.name(),
+              core.world(),
+              Math.floorDiv(core.x(), 16),
+              Math.floorDiv(core.z(), 16),
+              now);
+          update(
+              connection,
+              "INSERT INTO settlement_cores(city_id,world_id,x,y,z,status,placed_at) VALUES(?,?,?,?,?,'ACTIVE',?) ON CONFLICT(city_id) DO NOTHING",
+              city,
+              core.world(),
+              core.x(),
+              core.y(),
+              core.z(),
+              now);
+          FoundingReservation reservation = reservationForExpedition(connection, expedition);
+          update(
+              connection,
+              "INSERT INTO settlement_charters(city_id,charter_text,founding_fee_minor,minimum_founders,ratified_at) VALUES(?,?,?,?,?) ON CONFLICT(city_id) DO NOTHING",
+              city,
+              current.charter(),
+              reservation.feeMinor(),
+              minimumFounders,
+              now);
+          int order = 1;
+          for (UUID founder : founders) {
+            update(
+                connection,
+                "INSERT INTO settlement_founders(city_id,player_id,founder_order,accepted_at) VALUES(?,?,?,?) ON CONFLICT(city_id,player_id) DO NOTHING",
+                city,
+                founder,
+                order++,
+                now);
+            update(
+                connection,
+                "INSERT INTO city_members(city_id,player_id,role,joined_at) VALUES(?,?,?,?) ON CONFLICT(player_id) DO NOTHING",
+                city,
+                founder,
+                founder.equals(actor) ? "MAYOR" : "CITIZEN",
+                now);
+            update(
+                connection,
+                "INSERT INTO settlement_member_activity(city_id,player_id,last_active_at) VALUES(?,?,?) ON CONFLICT(city_id,player_id) DO UPDATE SET last_active_at=excluded.last_active_at",
+                city,
+                founder,
+                now);
+          }
+          update(
+              connection,
+              "UPDATE cities SET population=greatest(population,?),last_active_at=?,version=version+1 WHERE id=?",
+              founders.size(),
+              now,
+              city);
+          update(
+              connection,
+              "UPDATE settlement_founding_reservations SET status='COMPLETED',city_id=?,version=version+1 WHERE expedition_id=?",
+              city,
+              expedition);
+          update(
+              connection,
+              "UPDATE settlement_founding_expeditions SET status='COMPLETED',updated_at=?,version=version+1 WHERE id=?",
+              now,
+              expedition);
+          update(
+              connection,
+              "UPDATE settlement_founding_expedition_members SET status=CASE WHEN status='ACCEPTED' THEN 'FOUNDED' ELSE 'EXPIRED' END WHERE expedition_id=?",
+              expedition);
+          history(
+              connection,
+              city,
+              "FOUNDED",
+              actor,
+              "{\"expedition\":\"" + expedition + "\",\"founders\":" + founders.size() + "}",
+              now);
+          expeditionHistory(connection, expedition, "FOUNDING_COMPLETED", actor, "{}", now);
+          return null;
+        });
+  }
+
+  @Override
+  public FoundingExpedition cancelExpedition(UUID expedition, UUID actor, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          FoundingExpedition current = expedition(connection, expedition, true);
+          requireExpeditionLeader(current, actor);
+          if (List.of("MATERIALS_CLAIMED", "MATERIALS_RESERVED", "CORE_PLACED", "COMPLETED")
+              .contains(current.status()))
+            throw new DomainException("founding can no longer be cancelled after material claim");
+          Optional<UUID> reservation = expeditionReservationId(connection, expedition);
+          if (reservation.isPresent()) refundReservation(connection, reservation.get(), actor, now);
+          update(
+              connection,
+              "UPDATE settlement_founding_expeditions SET status='CANCELLED',updated_at=?,version=version+1 WHERE id=?",
+              now,
+              expedition);
+          update(
+              connection,
+              "UPDATE settlement_founding_expedition_members SET status='CANCELLED' WHERE expedition_id=?",
+              expedition);
+          expeditionHistory(connection, expedition, "EXPEDITION_CANCELLED", actor, "{}", now);
+          return expedition(connection, expedition, false);
+        });
+  }
+
+  @Override
+  public Optional<FoundingExpedition> activeExpedition(UUID player, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT e.id FROM settlement_founding_expeditions e LEFT JOIN settlement_founding_expedition_members m ON m.expedition_id=e.id AND m.player_id=? WHERE (e.leader_id=? OR m.player_id IS NOT NULL) AND e.status NOT IN ('CANCELLED','EXPIRED','COMPLETED','REVIEW_REQUIRED') AND (e.expires_at>? OR e.status IN ('MATERIALS_CLAIMED','MATERIALS_RESERVED','CORE_PLACED')) ORDER BY CASE WHEN e.leader_id=? THEN 0 ELSE 1 END,e.created_at LIMIT 1")) {
+            statement.setObject(1, player);
+            statement.setObject(2, player);
+            statement.setTimestamp(3, Timestamp.from(now));
+            statement.setObject(4, player);
+            try (ResultSet result = statement.executeQuery()) {
+              return result.next()
+                  ? Optional.of(expedition(connection, result.getObject(1, UUID.class), false))
+                  : Optional.empty();
+            }
+          }
+        });
+  }
+
+  @Override
+  public List<FoundingExpedition> pendingExpeditions(int limit) {
+    return store.inTransaction(
+        connection -> {
+          List<FoundingExpedition> pending = new ArrayList<>();
+          for (UUID id :
+              ids(
+                  connection,
+                  "SELECT id FROM settlement_founding_expeditions WHERE status IN ('MATERIALS_RESERVED','CORE_PLACED') ORDER BY updated_at LIMIT ?",
+                  limit)) pending.add(expedition(connection, id, false));
+          return List.copyOf(pending);
         });
   }
 
@@ -103,10 +544,9 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
               now);
           update(
               connection,
-              "INSERT INTO settlement_charters(city_id,charter_text,founding_fee_minor,minimum_founders,ratified_at) SELECT ?,?,?,?,? FROM settlement_founding_reservations WHERE id=?",
+              "INSERT INTO settlement_charters(city_id,charter_text,founding_fee_minor,minimum_founders,ratified_at) SELECT ?,?,fee_minor,?,? FROM settlement_founding_reservations WHERE id=?",
               city,
               charter,
-              2_500,
               minimumFounders,
               now,
               reservation);
@@ -404,6 +844,29 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
     return store.inTransaction(
         connection -> {
           int refunded = 0, successions = 0, abandoned = 0;
+          List<UUID> expiredExpeditions =
+              ids(
+                  connection,
+                  "SELECT id FROM settlement_founding_expeditions WHERE status IN ('RECRUITING','LOCATION_SELECTED','FEE_RESERVED') AND expires_at<? ORDER BY expires_at LIMIT ? FOR UPDATE SKIP LOCKED",
+                  now,
+                  limit);
+          for (UUID expedition : expiredExpeditions) {
+            Optional<UUID> reservation = expeditionReservationId(connection, expedition);
+            if (reservation.isPresent()) {
+              refundReservation(connection, reservation.get(), null, now);
+              refunded++;
+            }
+            update(
+                connection,
+                "UPDATE settlement_founding_expeditions SET status='EXPIRED',updated_at=?,version=version+1 WHERE id=?",
+                now,
+                expedition);
+            update(
+                connection,
+                "UPDATE settlement_founding_expedition_members SET status='EXPIRED' WHERE expedition_id=?",
+                expedition);
+            expeditionHistory(connection, expedition, "EXPEDITION_EXPIRED", null, "{}", now);
+          }
           List<UUID> reservations =
               ids(
                   connection,
@@ -460,6 +923,151 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
         });
   }
 
+  private void transitionExpedition(
+      UUID expedition,
+      UUID actor,
+      String expected,
+      String target,
+      String reservationStatus,
+      Instant now) {
+    store.inTransaction(
+        connection -> {
+          FoundingExpedition current = expedition(connection, expedition, true);
+          requireExpeditionLeader(current, actor);
+          if (current.status().equals(target)) return null;
+          if (!current.status().equals(expected))
+            throw new DomainException(
+                "founding expedition is " + current.status() + ", expected " + expected);
+          update(
+              connection,
+              "UPDATE settlement_founding_expeditions SET status=?,updated_at=?,version=version+1 WHERE id=?",
+              target,
+              now,
+              expedition);
+          update(
+              connection,
+              "UPDATE settlement_founding_reservations SET status=?,version=version+1 WHERE expedition_id=?",
+              reservationStatus,
+              expedition);
+          expeditionHistory(connection, expedition, target, actor, "{}", now);
+          return null;
+        });
+  }
+
+  private static FoundingExpedition expedition(Connection connection, UUID id, boolean lock)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT e.id,e.city_id,e.leader_id,e.settlement_name,e.charter_text,e.status,e.world_id,e.x,e.y,e.z,(SELECT count(*) FROM settlement_founding_expedition_members m WHERE m.expedition_id=e.id AND m.status='ACCEPTED') AS accepted,e.expires_at,(SELECT r.id FROM settlement_founding_reservations r WHERE r.expedition_id=e.id ORDER BY r.created_at DESC LIMIT 1) AS reservation_id FROM settlement_founding_expeditions e WHERE e.id=?"
+                + (lock ? " FOR UPDATE OF e" : ""))) {
+      statement.setObject(1, id);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("founding expedition not found");
+        UUID world = result.getObject(7, UUID.class);
+        CoreLocation core =
+            world == null
+                ? null
+                : new CoreLocation(world, result.getInt(8), result.getInt(9), result.getInt(10));
+        return new FoundingExpedition(
+            result.getObject(1, UUID.class),
+            result.getObject(2, UUID.class),
+            result.getObject(3, UUID.class),
+            result.getString(4),
+            result.getString(5),
+            result.getString(6),
+            core,
+            result.getInt(11),
+            result.getTimestamp(12).toInstant(),
+            result.getObject(13, UUID.class));
+      }
+    }
+  }
+
+  private static FoundingReservation reservationForExpedition(
+      Connection connection, UUID expedition) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT id,player_id,fee_minor,status,expires_at FROM settlement_founding_reservations WHERE expedition_id=? ORDER BY created_at DESC LIMIT 1 FOR UPDATE")) {
+      statement.setObject(1, expedition);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("founding reservation not found");
+        return new FoundingReservation(
+            result.getObject(1, UUID.class),
+            result.getObject(2, UUID.class),
+            result.getLong(3),
+            result.getString(4),
+            result.getTimestamp(5).toInstant());
+      }
+    }
+  }
+
+  private static Optional<UUID> expeditionReservationId(Connection connection, UUID expedition)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT id FROM settlement_founding_reservations WHERE expedition_id=? ORDER BY created_at DESC LIMIT 1")) {
+      statement.setObject(1, expedition);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next() ? Optional.of(result.getObject(1, UUID.class)) : Optional.empty();
+      }
+    }
+  }
+
+  private static void requireExpeditionLeader(FoundingExpedition expedition, UUID actor) {
+    if (!expedition.leader().equals(actor))
+      throw new DomainException("only the expedition leader can perform this action");
+  }
+
+  private static void requireExpeditionOpen(
+      FoundingExpedition expedition, Instant now, String... allowedStatuses) {
+    if (expedition.expiresAt().isBefore(now))
+      throw new DomainException("founding expedition expired");
+    if (!List.of(allowedStatuses).contains(expedition.status()))
+      throw new DomainException("founding expedition is " + expedition.status());
+  }
+
+  private static void expeditionHistory(
+      Connection connection, UUID expedition, String event, UUID actor, String payload, Instant now)
+      throws SQLException {
+    update(
+        connection,
+        "INSERT INTO settlement_founding_expedition_history(id,expedition_id,event_type,actor_id,payload,occurred_at) VALUES(?,?,?,?,?::jsonb,?)",
+        UUID.randomUUID(),
+        expedition,
+        event,
+        actor,
+        payload,
+        now);
+  }
+
+  @Override
+  public void reviewExpedition(UUID expedition, UUID actor, String reason, Instant now) {
+    store.inTransaction(
+        connection -> {
+          FoundingExpedition current = expedition(connection, expedition, true);
+          requireExpeditionLeader(current, actor);
+          if (current.status().equals("COMPLETED")) return null;
+          update(
+              connection,
+              "UPDATE settlement_founding_expeditions SET status='REVIEW_REQUIRED',updated_at=?,version=version+1 WHERE id=?",
+              now,
+              expedition);
+          update(
+              connection,
+              "UPDATE settlement_founding_reservations SET status='REVIEW_REQUIRED',version=version+1 WHERE id=?",
+              reservationForExpedition(connection, expedition).id());
+          update(
+              connection,
+              "INSERT INTO settlement_founding_expedition_history(id,expedition_id,event_type,actor_id,payload,occurred_at) VALUES(?,?, 'REVIEW_REQUIRED',?,jsonb_build_object('reason',?),?)",
+              UUID.randomUUID(),
+              expedition,
+              actor,
+              reason,
+              now);
+          return null;
+        });
+  }
+
   private static LifecycleSnapshot transfer(
       Connection c, UUID city, UUID actor, UUID successor, String event, Instant now)
       throws SQLException {
@@ -492,6 +1100,65 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
             core.z(),
             128L * 128L)
         > 0) throw new DomainException("settlement core must be at least 128 blocks away");
+  }
+
+  private static void requireCoreLocation(
+      Connection connection, CoreLocation core, int minimumDistance, int harborExclusionRadius)
+      throws SQLException {
+    requireCoreLocation(connection, core, minimumDistance, harborExclusionRadius, null);
+  }
+
+  private static void requireCoreLocation(
+      Connection connection,
+      CoreLocation core,
+      int minimumDistance,
+      int harborExclusionRadius,
+      UUID excludedExpedition)
+      throws SQLException {
+    if (scalar(
+            connection,
+            "SELECT count(*) FROM settlement_cores WHERE world_id=? AND ((x-?::int)::bigint*(x-?::int)::bigint+(z-?::int)::bigint*(z-?::int)::bigint)<?",
+            core.world(),
+            core.x(),
+            core.x(),
+            core.z(),
+            core.z(),
+            (long) minimumDistance * minimumDistance)
+        > 0)
+      throw new DomainException(
+          "settlement core must be at least " + minimumDistance + " blocks away");
+    if (scalar(
+            connection,
+            "SELECT count(*) FROM road_nodes WHERE node_type='HARBOR' AND world_id=? AND ((x-?::int)::bigint*(x-?::int)::bigint+(z-?::int)::bigint*(z-?::int)::bigint)<?",
+            core.world(),
+            core.x(),
+            core.x(),
+            core.z(),
+            core.z(),
+            (long) harborExclusionRadius * harborExclusionRadius)
+        > 0)
+      throw new DomainException(
+          "settlement core must be outside the "
+              + harborExclusionRadius
+              + " block Harbor exclusion zone");
+    if (scalar(
+            connection,
+            "SELECT count(*) FROM city_claims WHERE world_id=? AND chunk_x=? AND chunk_z=? AND city_id IS NOT NULL",
+            core.world(),
+            Math.floorDiv(core.x(), 16),
+            Math.floorDiv(core.z(), 16))
+        > 0) throw new DomainException("settlement core chunk is already controlled");
+    if (scalar(
+            connection,
+            "SELECT count(*) FROM settlement_founding_expeditions WHERE world_id=? AND id<>coalesce(?, '00000000-0000-0000-0000-000000000000'::uuid) AND status NOT IN ('CANCELLED','EXPIRED','COMPLETED','REVIEW_REQUIRED') AND ((x-?::int)::bigint*(x-?::int)::bigint+(z-?::int)::bigint*(z-?::int)::bigint)<?",
+            core.world(),
+            excludedExpedition,
+            core.x(),
+            core.x(),
+            core.z(),
+            core.z(),
+            (long) minimumDistance * minimumDistance)
+        > 0) throw new DomainException("another founding expedition selected a nearby core");
   }
 
   private static LifecycleSnapshot ruin(
@@ -536,7 +1203,8 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
         UUID owner = r.getObject(1, UUID.class);
         if (player != null && !player.equals(owner))
           throw new DomainException("founding reservation belongs to another player");
-        if (!r.getString(3).equals("RESERVED")) return;
+        if (!List.of("RESERVED", "FEE_RESERVED", "MATERIALS_CLAIMED", "MATERIALS_RESERVED")
+            .contains(r.getString(3))) return;
         long fee = r.getLong(2), before = balance(c, account(c, owner));
         UUID account = account(c, owner);
         update(
@@ -732,6 +1400,13 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
     try (PreparedStatement s = c.prepareStatement(sql)) {
       bind(s, args);
       s.executeUpdate();
+    }
+  }
+
+  private static int updateCount(Connection c, String sql, Object... args) throws SQLException {
+    try (PreparedStatement s = c.prepareStatement(sql)) {
+      bind(s, args);
+      return s.executeUpdate();
     }
   }
 

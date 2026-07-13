@@ -6,3 +6,16 @@ simulation:
   maximum-per-cycle: 32
 protection:
   cache-refresh-seconds: 2
+founding:
+  fee-minor: 2500
+  minimum-founders: 1
+  expedition-lifetime-hours: 24
+  reservation-lifetime-minutes: 5
+  minimum-core-distance: 128
+  harbor-exclusion-radius: 256
+  materials:
+    stone-bricks: 64
+    oak-logs: 16
+    bells: 1
+  allowed-environments:
+    - NORMAL

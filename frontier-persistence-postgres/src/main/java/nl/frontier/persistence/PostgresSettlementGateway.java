@@ -23,88 +23,11 @@ public final class PostgresSettlementGateway implements SettlementGateway {
 
   @Override
   public CitySnapshot create(
-      UUID owner, String name, UUID world, int chunkX, int chunkZ, Instant now) {
+      UUID city, UUID owner, String name, UUID world, int chunkX, int chunkZ, Instant now) {
     return store.inTransaction(
-        connection -> {
-          if (findByPlayer(connection, owner).isPresent())
-            throw new DomainException("you already belong to a settlement");
-          UUID city = UUID.randomUUID();
-          update(
-              connection,
-              "INSERT INTO cities(id,name,owner_id,level,population,prosperity,civilization,created_at) VALUES(?,?,?,1,1,50,1,?)",
-              city,
-              name,
-              owner,
-              now);
-          update(
-              connection,
-              "INSERT INTO city_members(city_id,player_id,role,joined_at) VALUES(?,?,'MAYOR',?)",
-              city,
-              owner,
-              now);
-          update(
-              connection,
-              "INSERT INTO city_claims(city_id,world_id,chunk_x,chunk_z,state,influence) VALUES(?,?,?,?,'CAPITAL',100)",
-              city,
-              world,
-              chunkX,
-              chunkZ);
-          UUID treasury = UUID.randomUUID();
-          update(
-              connection,
-              "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(?,'CITY',?,10000)",
-              treasury,
-              city);
-          update(
-              connection,
-              "INSERT INTO ledger_entries(id,account_id,actor_id,entry_type,amount_minor,balance_after_minor,reference_id,idempotency_key,occurred_at,description) VALUES(?,?,?,'HARBOR_FOUNDING_GRANT',10000,10000,?,?,?,'Frontier Harbor settlement bootstrap')",
-              UUID.randomUUID(),
-              treasury,
-              owner,
-              city,
-              UUID.nameUUIDFromBytes(
-                  (city + ":founding-grant").getBytes(java.nio.charset.StandardCharsets.UTF_8)),
-              now);
-          UUID warehouse = UUID.randomUUID();
-          update(
-              connection,
-              "INSERT INTO warehouses(id,city_id,capacity,status,version) VALUES(?,?,1000,'ACTIVE',0)",
-              warehouse,
-              city);
-          update(
-              connection,
-              "INSERT INTO warehouse_stock(warehouse_id,commodity_key,available_quantity,reserved_quantity,version) VALUES(?,'minecraft:wheat',64,0,0),(?,'minecraft:bread',16,0,0)",
-              warehouse,
-              warehouse);
-          update(
-              connection,
-              "INSERT INTO dirty_settlements(city_id,reason,enqueued_at) VALUES(?,'CREATED',?)",
-              city,
-              now);
-          update(
-              connection,
-              "INSERT INTO city_simulation_state(city_id,next_cycle_at) VALUES(?,?)",
-              city,
-              now);
-          update(
-              connection,
-              "INSERT INTO city_world_simulation_state(city_id,region_key,next_cycle_at) VALUES(?,?,?)",
-              city,
-              world + ":" + Math.floorDiv(chunkX, 32) + ":" + Math.floorDiv(chunkZ, 32),
-              now);
-          audit(
-              connection,
-              owner,
-              "CITY_CREATED",
-              "CITY",
-              city,
-              null,
-              "{\"name\":\"" + name + "\"}",
-              now);
-          outbox(
-              connection, "CITY", city, "SettlementCreated", "{\"owner\":\"" + owner + "\"}", now);
-          return new CitySnapshot(city, name, owner, SettlementLevel.CAMP, 1, 50, 1, 10_000);
-        });
+        connection ->
+            SettlementBootstrapOperations.create(
+                connection, city, owner, name, world, chunkX, chunkZ, now));
   }
 
   @Override

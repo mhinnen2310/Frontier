@@ -1,13 +1,13 @@
 # Database schema
 
-PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persistence-postgres/src/main/resources/db/migration/index.txt`; never modify a migration already used by a server. UUID primary keys identify aggregates, integer columns hold cents/units, timestamps are UTC, constraints protect lifecycle values, V31 indexes cover active work/lookups and V32 hardens repair occurrence/completion integrity.
+PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persistence-postgres/src/main/resources/db/migration/index.txt`; never modify a migration already used by a server. UUID primary keys identify aggregates, integer columns hold cents/units, timestamps are UTC, constraints protect lifecycle values, V31 indexes cover active work/lookups, V32 hardens repair occurrence/completion integrity and V33–V34 add recoverable settlement-founding expeditions plus active-founder uniqueness.
 
 ## Table families
 
 | Family | Principal tables |
 |---|---|
 | Identity/audit | `accounts`, `idempotency_tokens`, `audit_log`, `ledger_entries`, `financial_transfers`, `outbox_events`, `server_history` |
-| Settlements/claims | `cities`, `city_members`, `city_roles`, `city_permission_overrides`, `city_claims`, `city_policies`, `city_upgrades`, `settlement_*`, `influence_*`, `dirty_settlements` |
+| Settlements/claims | `cities`, `city_members`, `city_roles`, `city_permission_overrides`, `city_claims`, `city_policies`, `city_upgrades`, `settlement_founding_expeditions`, `settlement_founding_expedition_members`, `settlement_founding_expedition_history`, other `settlement_*`, `influence_*`, `dirty_settlements` |
 | Districts/buildings | `city_districts`, `district_workers`, `district_storage`, `district_budget`, `district_history`, `district_effects`, `city_buildings`, `building_validation_history` |
 | Economy | `warehouses`, `warehouse_stock`, `market_orders`, `trades`, `trade_history`, `price_history`, `companies`, `commercial_*`, `company_loans`, `business_tax_*`, `government_procurements`, `emergency_purchases` |
 | Production/population | `recipes`, `recipe_*`, `production_*`, `workers`, `work_packages`, `city_population_state`, `population_history`, `demographic_history`, `migration_*` |
@@ -27,6 +27,6 @@ PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persi
 | V16–V20 | Player wallets/Harbor, repair integrity, building lifecycle, districts and settlement lifecycle |
 | V21–V24 | Physical infrastructure, caravans, population and complete economy |
 | V25–V29 | Campaign outcomes, kingdom integration, world simulation, dynamic events and endgame |
-| V30–V32 | Security constraints, performance indexes and repair occurrence/completion integrity |
+| V30–V34 | Security constraints, performance indexes, repair occurrence/completion integrity and settlement founding expeditions |
 
 For exact columns, foreign keys, checks and indexes, read the corresponding migration rather than relying on an independently generated schema dump. Backups must contain the complete database, including `flyway_schema_history`.

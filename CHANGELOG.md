@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 6 — Settlement Founding Lifecycle
+
+- Replaced one-command settlement creation with a durable founding expedition: charter, leader, invitations, founder confirmations, location selection, fee/material claim, physical core placement and final Camp creation.
+- Added configurable founder count, fee, expedition/reservation lifetime, material requirements, world environments, core distance and Harbor exclusion radius.
+- Made city identity deterministic per expedition so restart after city creation replays safely instead of duplicating a settlement.
+- Added recovery for material/core placement states, login resume for the inventory handoff, explicit cancellation/expiry/refund, conflict quarantine and one-minute recovery polling.
+- Added Flyway V33–V34 plus PostgreSQL coverage for multi-founder acceptance, Harbor exclusion, fee cancellation, material release, expiry, restart completion, duplicate material/core protection and founder roles.
+
 ## 1.1.0-RC2 - Release Train A
 
 - Completed Master Roadmap Sprints 1-5: truthful baseline, centralized typed configuration, fresh-world Harbor economy, complete centralized claim protection and repair-engine integrity.

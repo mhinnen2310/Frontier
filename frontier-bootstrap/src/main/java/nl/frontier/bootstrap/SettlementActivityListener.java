@@ -10,14 +10,20 @@ import org.bukkit.event.player.PlayerJoinEvent;
 final class SettlementActivityListener implements Listener {
   private final SchedulerFacade schedulers;
   private final SettlementLifecycleService lifecycle;
+  private final SettlementFoundingCoordinator founding;
 
-  SettlementActivityListener(SchedulerFacade schedulers, SettlementLifecycleService lifecycle) {
+  SettlementActivityListener(
+      SchedulerFacade schedulers,
+      SettlementLifecycleService lifecycle,
+      SettlementFoundingCoordinator founding) {
     this.schedulers = schedulers;
     this.lifecycle = lifecycle;
+    this.founding = founding;
   }
 
   @EventHandler
   public void onJoin(PlayerJoinEvent event) {
+    founding.resume(event.getPlayer());
     var player = event.getPlayer().getUniqueId();
     schedulers.async(
         () -> {

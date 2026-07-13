@@ -25,6 +25,7 @@ import nl.frontier.city.BuildingValidator;
 import nl.frontier.city.ClaimProtectionGateway;
 import nl.frontier.city.DistrictApplicationService;
 import nl.frontier.city.DistrictType;
+import nl.frontier.city.FoundingPolicy;
 import nl.frontier.city.GovernmentRole;
 import nl.frontier.city.SettlementDailySimulation;
 import nl.frontier.city.SettlementGateway;
@@ -208,6 +209,153 @@ class DatabaseIntegrationTest {
   }
 
   @Test
+  void foundingExpeditionsEnforceHarborCancellationExpiryAndMaterialRelease() throws Exception {
+    String url = System.getProperty("frontier.test.database.url");
+    Assumptions.assumeTrue(url != null && !url.isBlank(), "integration database not configured");
+    try (DatabaseManager database =
+        new DatabaseManager(
+            new DatabaseManager.Configuration(url, "frontier", "", 2, Duration.ofSeconds(5)))) {
+      database.migrate();
+      resetData(database);
+      JdbcTransactionalStore store = new JdbcTransactionalStore(database.dataSource());
+      UUID world = UUID.randomUUID();
+      new PostgresHarborGateway(store).bootstrap(world, 0, 0, Instant.now());
+      UUID leader = UUID.randomUUID();
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(?,'PLAYER',?,10000)")) {
+        statement.setObject(1, UUID.randomUUID());
+        statement.setObject(2, leader);
+        statement.executeUpdate();
+      }
+      PostgresSettlementLifecycleGateway gateway = new PostgresSettlementLifecycleGateway(store);
+      SettlementLifecycleService lifecycle =
+          new SettlementLifecycleService(gateway, FoundingPolicy.defaults());
+      Instant now = Instant.now();
+      var harborAttempt =
+          lifecycle.createExpedition(
+              leader, "HarborBlocked-" + shortId(), "A valid charter outside Harbor.", now);
+      assertThrows(
+          DomainException.class,
+          () ->
+              lifecycle.prepareFounding(
+                  harborAttempt.id(),
+                  leader,
+                  new SettlementLifecycleGateway.CoreLocation(world, 100, 64, 100),
+                  now.plusSeconds(1)));
+      lifecycle.cancelExpedition(harborAttempt.id(), leader, now.plusSeconds(2));
+
+      var cancelled =
+          lifecycle.createExpedition(
+              leader,
+              "Cancelled-" + shortId(),
+              "A valid cancellation charter.",
+              now.plusSeconds(3));
+      lifecycle.prepareFounding(
+          cancelled.id(),
+          leader,
+          new SettlementLifecycleGateway.CoreLocation(world, 512, 64, 512),
+          now.plusSeconds(4));
+      assertEquals(
+          7_500,
+          new FinanceApplicationService(new PostgresFinanceGateway(store)).balance(leader, now));
+      assertEquals(
+          "CANCELLED",
+          lifecycle.cancelExpedition(cancelled.id(), leader, now.plusSeconds(5)).status());
+      assertEquals(
+          10_000,
+          new FinanceApplicationService(new PostgresFinanceGateway(store)).balance(leader, now));
+
+      var released =
+          lifecycle.createExpedition(
+              leader,
+              "Released-" + shortId(),
+              "A valid material release charter.",
+              now.plusSeconds(6));
+      lifecycle.prepareFounding(
+          released.id(),
+          leader,
+          new SettlementLifecycleGateway.CoreLocation(world, 800, 64, 800),
+          now.plusSeconds(7));
+      assertTrue(lifecycle.claimMaterials(released.id(), leader, now.plusSeconds(8)));
+      lifecycle.confirmMaterials(released.id(), leader, now.plusSeconds(9));
+      lifecycle.releaseMaterials(released.id(), leader, now.plusSeconds(10));
+      assertEquals(
+          10_000,
+          new FinanceApplicationService(new PostgresFinanceGateway(store)).balance(leader, now));
+      lifecycle.cancelExpedition(released.id(), leader, now.plusSeconds(11));
+
+      UUID expiredLeader = UUID.randomUUID();
+      var expired =
+          gateway.createExpedition(
+              expiredLeader,
+              "Expired-" + shortId(),
+              "A valid expired expedition charter.",
+              now.minusSeconds(120),
+              now.minusSeconds(60));
+      lifecycle.recover(now, 10);
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT status FROM settlement_founding_expeditions WHERE id=?")) {
+        statement.setObject(1, expired.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("EXPIRED", result.getString(1));
+        }
+      }
+
+      UUID firstLeader = UUID.randomUUID();
+      UUID secondLeader = UUID.randomUUID();
+      UUID sharedFounder = UUID.randomUUID();
+      var firstExpedition =
+          lifecycle.createExpedition(
+              firstLeader,
+              "FounderRaceA-" + shortId(),
+              "A valid first concurrency charter.",
+              now.plusSeconds(20));
+      var secondExpedition =
+          lifecycle.createExpedition(
+              secondLeader,
+              "FounderRaceB-" + shortId(),
+              "A valid second concurrency charter.",
+              now.plusSeconds(20));
+      lifecycle.inviteFounder(
+          firstExpedition.id(), firstLeader, sharedFounder, now.plusSeconds(21));
+      lifecycle.inviteFounder(
+          secondExpedition.id(), secondLeader, sharedFounder, now.plusSeconds(21));
+      try (var executor = Executors.newFixedThreadPool(2)) {
+        var first =
+            executor.submit(
+                () -> {
+                  try {
+                    lifecycle.acceptFounder(
+                        firstExpedition.id(), sharedFounder, now.plusSeconds(22));
+                    return true;
+                  } catch (RuntimeException expected) {
+                    return false;
+                  }
+                });
+        var second =
+            executor.submit(
+                () -> {
+                  try {
+                    lifecycle.acceptFounder(
+                        secondExpedition.id(), sharedFounder, now.plusSeconds(22));
+                    return true;
+                  } catch (RuntimeException expected) {
+                    return false;
+                  }
+                });
+        assertEquals(1, (first.get() ? 1 : 0) + (second.get() ? 1 : 0));
+      }
+      lifecycle.cancelExpedition(firstExpedition.id(), firstLeader, now.plusSeconds(23));
+      lifecycle.cancelExpedition(secondExpedition.id(), secondLeader, now.plusSeconds(23));
+    }
+  }
+
+  @Test
   void migrationsConstraintsAndRecoveryQueriesWorkOnPostgres() throws Exception {
     String url = System.getProperty("frontier.test.database.url");
     Assumptions.assumeTrue(url != null && !url.isBlank(), "integration database not configured");
@@ -221,7 +369,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(32, result.getInt(1));
+        assertEquals(34, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -270,6 +418,92 @@ class DatabaseIntegrationTest {
       assertTrue(finances.audit(starterCity.id(), starter, 20).size() >= 3);
       SettlementLifecycleService lifecycle =
           new SettlementLifecycleService(new PostgresSettlementLifecycleGateway(store));
+      UUID expeditionLeader = UUID.randomUUID();
+      UUID expeditionFounder = UUID.randomUUID();
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "INSERT INTO accounts(id,owner_type,owner_id,balance_minor) VALUES(?,'PLAYER',?,10000)")) {
+        statement.setObject(1, UUID.randomUUID());
+        statement.setObject(2, expeditionLeader);
+        statement.executeUpdate();
+      }
+      SettlementLifecycleService expeditionLifecycle =
+          new SettlementLifecycleService(
+              new PostgresSettlementLifecycleGateway(store),
+              new FoundingPolicy(2_500, 2, Duration.ofHours(24), Duration.ofMinutes(5), 128, 256));
+      Instant expeditionNow = Instant.now();
+      var expedition =
+          expeditionLifecycle.createExpedition(
+              expeditionLeader,
+              "Expedition-" + shortId(),
+              "We jointly establish a durable settlement charter.",
+              expeditionNow);
+      var expeditionCore = new SettlementLifecycleGateway.CoreLocation(harborWorld, 1120, 64, 1120);
+      assertThrows(
+          DomainException.class,
+          () ->
+              expeditionLifecycle.prepareFounding(
+                  expedition.id(), expeditionLeader, expeditionCore, expeditionNow.plusSeconds(1)));
+      expeditionLifecycle.inviteFounder(
+          expedition.id(), expeditionLeader, expeditionFounder, expeditionNow.plusSeconds(2));
+      assertEquals(
+          2,
+          expeditionLifecycle
+              .acceptFounder(expedition.id(), expeditionFounder, expeditionNow.plusSeconds(3))
+              .acceptedFounders());
+      var expeditionReservation =
+          expeditionLifecycle.prepareFounding(
+              expedition.id(), expeditionLeader, expeditionCore, expeditionNow.plusSeconds(4));
+      assertEquals("FEE_RESERVED", expeditionReservation.status());
+      assertTrue(
+          expeditionLifecycle.claimMaterials(
+              expedition.id(), expeditionLeader, expeditionNow.plusSeconds(5)));
+      assertFalse(
+          expeditionLifecycle.claimMaterials(
+              expedition.id(), expeditionLeader, expeditionNow.plusSeconds(5)));
+      expeditionLifecycle.confirmMaterials(
+          expedition.id(), expeditionLeader, expeditionNow.plusSeconds(6));
+      assertEquals(1, expeditionLifecycle.pendingExpeditions(10).size());
+      SettlementLifecycleService restartedLifecycle =
+          new SettlementLifecycleService(
+              new PostgresSettlementLifecycleGateway(store), expeditionLifecycle.foundingPolicy());
+      restartedLifecycle.confirmCorePlacement(
+          expedition.id(), expeditionLeader, expeditionNow.plusSeconds(7));
+      restartedLifecycle.completeExpedition(
+          expedition.id(), expedition.city(), expeditionLeader, expeditionNow.plusSeconds(8));
+      restartedLifecycle.completeExpedition(
+          expedition.id(), expedition.city(), expeditionLeader, expeditionNow.plusSeconds(9));
+      SettlementGateway.CitySnapshot expeditionCity =
+          starterSettlements.findByPlayer(expeditionLeader).orElseThrow();
+      assertEquals(
+          expeditionCity,
+          starterSettlements.create(
+              expedition.city(),
+              expeditionLeader,
+              expedition.name(),
+              expeditionCore.world(),
+              Math.floorDiv(expeditionCore.x(), 16),
+              Math.floorDiv(expeditionCore.z(), 16),
+              expeditionNow.plusSeconds(10)));
+      assertEquals(
+          expeditionCity.id(),
+          starterSettlements.findByPlayer(expeditionFounder).orElseThrow().id());
+      assertEquals(7_500, finances.balance(expeditionLeader, Instant.now()));
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT e.status,r.status,(SELECT count(*) FROM settlement_founders WHERE city_id=e.city_id),(SELECT count(*) FROM settlement_cores WHERE city_id=e.city_id AND status='ACTIVE') FROM settlement_founding_expeditions e JOIN settlement_founding_reservations r ON r.expedition_id=e.id WHERE e.id=?")) {
+        statement.setObject(1, expedition.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("COMPLETED", result.getString(1));
+          assertEquals("COMPLETED", result.getString(2));
+          assertEquals(2, result.getInt(3));
+          assertEquals(1, result.getInt(4));
+        }
+      }
+      assertThrows(DomainException.class, () -> restartedLifecycle.validateCore(expeditionCore));
       UUID founder = UUID.randomUUID();
       try (var connection = database.dataSource().getConnection();
           var statement =
@@ -280,11 +514,11 @@ class DatabaseIntegrationTest {
         statement.executeUpdate();
       }
       var foundingReservation = lifecycle.reserve(founder, Instant.now());
+      var core = new SettlementLifecycleGateway.CoreLocation(harborWorld, 648, 64, 648);
+      lifecycle.validateCore(core);
       var foundedCity =
           starterSettlements.create(
               founder, "Founded-" + shortId(), harborWorld, 40, 40, Instant.now());
-      var core = new SettlementLifecycleGateway.CoreLocation(harborWorld, 648, 64, 648);
-      lifecycle.validateCore(core);
       lifecycle.complete(
           foundingReservation.id(),
           foundedCity.id(),

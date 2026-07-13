@@ -128,12 +128,32 @@ public final class ConfigRegistry {
         new FrontierConfiguration.Global(CONFIG_VERSION, database, runtime, security);
 
     YamlConfiguration settlements = modules.get("settlements");
+    int minimumCoreDistance = positive(settlements, "founding.minimum-core-distance", 100_000);
+    int harborExclusionRadius = positive(settlements, "founding.harbor-exclusion-radius", 100_000);
+    if (harborExclusionRadius < minimumCoreDistance)
+      throw invalid(
+          "founding.harbor-exclusion-radius cannot be smaller than founding.minimum-core-distance");
+    Set<String> allowedEnvironments = normalizedSet(settlements, "founding.allowed-environments");
+    if (allowedEnvironments.isEmpty()
+        || !Set.of("NORMAL", "NETHER", "THE_END", "CUSTOM").containsAll(allowedEnvironments))
+      throw invalid(
+          "founding.allowed-environments must contain NORMAL, NETHER, THE_END, or CUSTOM");
     var settlementConfig =
         new FrontierConfiguration.Settlements(
             control(settlements),
             positiveLong(settlements, "simulation.check-seconds"),
             positive(settlements, "simulation.maximum-per-cycle", Integer.MAX_VALUE),
-            positiveLong(settlements, "protection.cache-refresh-seconds"));
+            positiveLong(settlements, "protection.cache-refresh-seconds"),
+            positiveLong(settlements, "founding.fee-minor"),
+            positive(settlements, "founding.minimum-founders", 100),
+            positiveLong(settlements, "founding.expedition-lifetime-hours"),
+            positiveLong(settlements, "founding.reservation-lifetime-minutes"),
+            minimumCoreDistance,
+            harborExclusionRadius,
+            positive(settlements, "founding.materials.stone-bricks", 100_000),
+            positive(settlements, "founding.materials.oak-logs", 100_000),
+            positive(settlements, "founding.materials.bells", 100_000),
+            allowedEnvironments);
     YamlConfiguration influence = modules.get("influence");
     var influenceConfig =
         new FrontierConfiguration.Influence(
@@ -530,6 +550,14 @@ public final class ConfigRegistry {
     return value;
   }
 
+  private static Set<String> normalizedSet(FileConfiguration document, String key) {
+    Set<String> values = new LinkedHashSet<>();
+    for (String value : document.getStringList(key)) {
+      if (!value.isBlank()) values.add(value.strip().toUpperCase(Locale.ROOT));
+    }
+    return Set.copyOf(values);
+  }
+
   private static void requireVersion(FileConfiguration document, String source) {
     int version = document.getInt("config-version", -1);
     if (version != CONFIG_VERSION)
@@ -600,7 +628,17 @@ public final class ConfigRegistry {
             "enabled",
             "simulation.check-seconds",
             "simulation.maximum-per-cycle",
-            "protection.cache-refresh-seconds"));
+            "protection.cache-refresh-seconds",
+            "founding.fee-minor",
+            "founding.minimum-founders",
+            "founding.expedition-lifetime-hours",
+            "founding.reservation-lifetime-minutes",
+            "founding.minimum-core-distance",
+            "founding.harbor-exclusion-radius",
+            "founding.materials.stone-bricks",
+            "founding.materials.oak-logs",
+            "founding.materials.bells",
+            "founding.allowed-environments"));
     keys.put(
         "influence",
         leaves(

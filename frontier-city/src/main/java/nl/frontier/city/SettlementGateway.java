@@ -7,7 +7,13 @@ import java.util.UUID;
 
 /** Atomic persistence boundary. Implementations recheck actor roles inside each transaction. */
 public interface SettlementGateway {
-  CitySnapshot create(UUID owner, String name, UUID world, int chunkX, int chunkZ, Instant now);
+  default CitySnapshot create(
+      UUID owner, String name, UUID world, int chunkX, int chunkZ, Instant now) {
+    return create(UUID.randomUUID(), owner, name, world, chunkX, chunkZ, now);
+  }
+
+  CitySnapshot create(
+      UUID city, UUID owner, String name, UUID world, int chunkX, int chunkZ, Instant now);
 
   Optional<CitySnapshot> findByPlayer(UUID player);
 

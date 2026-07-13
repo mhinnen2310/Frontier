@@ -31,6 +31,13 @@ Dependencies point inward: bootstrap/Paper and PostgreSQL adapters depend on ser
 4. A service locks aggregates in a fixed order, validates authorization and idempotency, writes state/audit/outbox atomically, then commits.
 5. Caches and visible NPCs update from committed state. A restart reconstructs both safely.
 
+Settlement founding is a cross-resource saga rather than a database transaction pretending to own
+a Paper inventory and block. PostgreSQL first records the expedition, accepted founders, selected
+core and fee/material intent. The entity scheduler performs the inventory handoff, the region
+scheduler places the bell, and a deterministic preallocated city UUID makes final database creation
+idempotent. Login and minute recovery resume `MATERIALS_CLAIMED`, `MATERIALS_RESERVED`, and
+`CORE_PLACED`; see [Settlement founding](SETTLEMENT_FOUNDING.md).
+
 Claim events are a specialized read-only hot path: Paper adapters create a complete actor/action/
 source/target context, `TerritoryActionPolicy` decides from the in-memory projection, and only an
 authorized campaign break/explosion enters the transactional structural-damage journal. Actorless

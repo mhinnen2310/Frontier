@@ -21,6 +21,7 @@ import nl.frontier.city.ClaimProtectionCache;
 import nl.frontier.city.ClaimProtectionGateway;
 import nl.frontier.city.ClaimProtectionService;
 import nl.frontier.city.DistrictApplicationService;
+import nl.frontier.city.FoundingPolicy;
 import nl.frontier.city.PopulationService;
 import nl.frontier.city.SettlementApplicationService;
 import nl.frontier.city.SettlementDailySimulation;
@@ -83,6 +84,7 @@ import nl.frontier.world.EndgameService;
 import nl.frontier.world.KingdomIntegrationService;
 import nl.frontier.world.WorldSimulationGateway;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -191,8 +193,31 @@ public final class FrontierPlugin extends JavaPlugin {
       EndgameService endgame = new EndgameService(new PostgresEndgameGateway(store));
       SettlementApplicationService settlements =
           new SettlementApplicationService(new PostgresSettlementGateway(store));
+      FoundingPolicy foundingPolicy =
+          new FoundingPolicy(
+              config.settlements().foundingFeeMinor(),
+              config.settlements().minimumFounders(),
+              Duration.ofHours(config.settlements().expeditionLifetimeHours()),
+              Duration.ofMinutes(config.settlements().reservationLifetimeMinutes()),
+              config.settlements().minimumCoreDistance(),
+              config.settlements().harborExclusionRadius());
       SettlementLifecycleService settlementLifecycle =
-          new SettlementLifecycleService(new PostgresSettlementLifecycleGateway(store));
+          new SettlementLifecycleService(
+              new PostgresSettlementLifecycleGateway(store), foundingPolicy);
+      SettlementFoundingCoordinator foundingCoordinator =
+          new SettlementFoundingCoordinator(
+              schedulers,
+              settlements,
+              settlementLifecycle,
+              Map.of(
+                  Material.STONE_BRICKS,
+                  config.settlements().stoneBricksRequired(),
+                  Material.OAK_LOG,
+                  config.settlements().oakLogsRequired(),
+                  Material.BELL,
+                  config.settlements().bellsRequired()),
+              config.settlements().allowedEnvironments(),
+              getLogger());
       BuildingRegistrationCoordinator buildingRegistrations =
           new BuildingRegistrationCoordinator(
               schedulers,
@@ -241,7 +266,7 @@ public final class FrontierPlugin extends JavaPlugin {
               buildingRegistrations,
               new DistrictApplicationService(new PostgresDistrictGateway(store)),
               settlementLifecycle,
-              new SettlementFoundingCoordinator(schedulers, settlements, settlementLifecycle),
+              foundingCoordinator,
               new InfrastructureRegistrationCoordinator(
                   schedulers,
                   new PaperInfrastructureSurveyor(),
@@ -282,7 +307,10 @@ public final class FrontierPlugin extends JavaPlugin {
       if (config.enabled("settlements"))
         getServer()
             .getPluginManager()
-            .registerEvents(new SettlementActivityListener(schedulers, settlementLifecycle), this);
+            .registerEvents(
+                new SettlementActivityListener(
+                    schedulers, settlementLifecycle, foundingCoordinator),
+                this);
       if (config.enabled("caravans"))
         getServer()
             .getPluginManager()
@@ -298,7 +326,8 @@ public final class FrontierPlugin extends JavaPlugin {
           new CampaignOutcomeSupervisor(schedulers, campaignOutcomes, getLogger());
       if (config.enabled("warfare")) campaignOutcomeSupervisor.start();
       settlementLifecycleSupervisor =
-          new SettlementLifecycleSupervisor(schedulers, settlementLifecycle, getLogger());
+          new SettlementLifecycleSupervisor(
+              schedulers, settlementLifecycle, foundingCoordinator, getLogger());
       if (config.enabled("settlements")) settlementLifecycleSupervisor.start();
       influenceSupervisor =
           new InfluenceSupervisor(

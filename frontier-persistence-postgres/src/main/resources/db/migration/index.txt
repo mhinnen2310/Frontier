@@ -30,3 +30,5 @@ V29__wonders_and_endgame.sql
 V30__security_hardening.sql
 V31__performance_indexes.sql
 V32__repair_occurrence_and_completion_integrity.sql
+V33__settlement_founding_expeditions.sql
+V34__active_founding_member_uniqueness.sql

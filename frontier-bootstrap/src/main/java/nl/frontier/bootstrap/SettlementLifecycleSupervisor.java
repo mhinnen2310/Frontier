@@ -11,13 +11,18 @@ import nl.frontier.city.SettlementLifecycleService;
 final class SettlementLifecycleSupervisor {
   private final SchedulerFacade schedulers;
   private final SettlementLifecycleService lifecycle;
+  private final SettlementFoundingCoordinator founding;
   private final Logger logger;
   private final AtomicBoolean active = new AtomicBoolean();
 
   SettlementLifecycleSupervisor(
-      SchedulerFacade schedulers, SettlementLifecycleService lifecycle, Logger logger) {
+      SchedulerFacade schedulers,
+      SettlementLifecycleService lifecycle,
+      SettlementFoundingCoordinator founding,
+      Logger logger) {
     this.schedulers = schedulers;
     this.lifecycle = lifecycle;
+    this.founding = founding;
     this.logger = logger;
   }
 
@@ -31,13 +36,14 @@ final class SettlementLifecycleSupervisor {
 
   private void cycle() {
     if (!active.get()) return;
+    founding.recoverPending();
     schedulers
         .async(() -> lifecycle.recover(Instant.now(), 32))
         .whenComplete(
             (ignored, failure) -> {
               if (failure != null)
                 logger.log(Level.WARNING, "Settlement lifecycle recovery failed", failure);
-              schedulers.later(Duration.ofHours(1), this::cycle);
+              schedulers.later(Duration.ofMinutes(1), this::cycle);
             });
   }
 }

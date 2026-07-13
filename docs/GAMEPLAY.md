@@ -4,14 +4,15 @@
 
 1. Join at Frontier Harbor and run `/frontier harbor tutorial`.
 2. Inspect `/frontier harbor jobs`, perform `/frontier harbor work`, and receive wallet money from the Harbor's daily starter budget.
-3. Create a settlement with `/frontier city create <name>` after meeting its material, fee, player, location and distance requirements.
-4. Deposit money with `/frontier treasury deposit <cents>`, claim land, register valid buildings and upgrade.
+3. Start an expedition with `/frontier city create <name> [| <charter>]`. Invite founders with `/frontier city expedition invite`, and each invited player confirms with `accept`.
+4. Stand at the intended core with the configured materials and use `/frontier city expedition found <expedition-uuid>`. The service revalidates world, terrain, claims, distance and the Harbor exclusion zone before reserving the fee and placing the bell.
+5. Deposit money with `/frontier treasury deposit <cents>`, claim land, register valid buildings and upgrade.
 
 Harbor guarantees limited bad-price buy orders and starter contracts. Typed server configuration controls only a hard low-tier commodity set, finite daily quantities, global currency creation and per-player rewards. Its enforced loss-making spread makes it an early-game source and sink, not a competitive late-game market.
 
 ## Settlement progression
 
-Settlements have a core, charter, founders, members, roles, treasury, population, claims and lifecycle. Buildings progress through `PLANNED`, `UNDER_CONSTRUCTION`, `VALIDATING`, `ACTIVE`, `DAMAGED`, `DISABLED`, and `DESTROYED`. Validators check physical requirements for warehouses, housing, farms, builder guilds, markets and barracks. Abandonment creates ruins; succession, transfer, recovery, merge and disband are explicit audited operations.
+Settlements have a physical bell core, charter, confirmed founders, members, roles, treasury, population, claims and lifecycle. Founding is a persistent [expedition saga](SETTLEMENT_FOUNDING.md); creating an expedition alone never creates a settlement. Buildings progress through `PLANNED`, `UNDER_CONSTRUCTION`, `VALIDATING`, `ACTIVE`, `DAMAGED`, `DISABLED`, and `DESTROYED`. Validators check physical requirements for warehouses, housing, farms, builder guilds, markets and barracks. Abandonment creates ruins; succession, transfer, recovery, merge and disband are explicit audited operations.
 
 Districts divide owned land into residential, agricultural, industrial, commercial, military, government, harbor, mining, forestry, research or culture areas. Managers control budgets, worker allocation, priorities and policies. Effects influence production, housing, maintenance, defense, trade, efficiency and repair priority.
 

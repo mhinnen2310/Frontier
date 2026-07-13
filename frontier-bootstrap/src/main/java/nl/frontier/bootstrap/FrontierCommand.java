@@ -368,8 +368,9 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         case "create" -> {
           if (args.length < 2)
             throw new IllegalArgumentException("usage: /frontier city create <name> [| <charter>]");
-          createCity(player, Arrays.copyOfRange(args, 1, args.length));
+          createExpedition(player, Arrays.copyOfRange(args, 1, args.length));
         }
+        case "expedition" -> expedition(player, args);
         case "invite" -> {
           if (args.length != 2)
             throw new IllegalArgumentException("usage: /frontier city invite <online-player>");
@@ -481,7 +482,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                             .collect(java.util.stream.Collectors.joining(" | ")));
         default ->
             throw new IllegalArgumentException(
-                "city actions: create, info, invite, accept, role, claim, building, upgrade, policy, transfer, succession, abandon, disband, recover, merge, merge-accept, history");
+                "city actions: create, expedition, info, invite, accept, role, claim, building, upgrade, policy, transfer, succession, abandon, disband, recover, merge, merge-accept, history");
       }
     } catch (IllegalArgumentException failure) {
       player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
@@ -501,7 +502,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                       } else if (result.isEmpty()) {
                         player.sendMessage(
                             Component.text(
-                                "Create a settlement with /frontier city create <name>",
+                                "Start a founding expedition with /frontier city create <name>",
                                 NamedTextColor.YELLOW));
                       } else {
                         ui.openSettlement(
@@ -826,7 +827,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         value -> "Tax policy changed to " + value);
   }
 
-  private void createCity(Player player, String[] values) {
+  private void createExpedition(Player player, String[] values) {
     if (!player.hasPermission("frontier.city.create")) {
       player.sendMessage(Component.text("No permission.", NamedTextColor.RED));
       return;
@@ -843,16 +844,105 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         separator < 0
             ? "Charter of " + name + ": mutual prosperity, safety, and fair government."
             : String.join(" ", Arrays.copyOfRange(values, separator + 1, values.length));
-    founding.found(
+    founding.createExpedition(
         player,
         name,
         charter,
-        city -> {
+        expedition -> {
           player.sendMessage(
-              Component.text("Settlement founded: " + city.name(), NamedTextColor.GREEN));
-          presentation.settlementFounded(player, city.name());
+              Component.text(
+                  "Founding expedition created: "
+                      + expedition.id()
+                      + ". Invite/confirm founders, stand at the core location, then use /frontier city expedition found "
+                      + expedition.id(),
+                  NamedTextColor.GREEN));
         },
         failure -> player.sendMessage(Component.text(rootMessage(failure), NamedTextColor.RED)));
+  }
+
+  private void expedition(Player player, String[] args) {
+    if (!player.hasPermission("frontier.city.create"))
+      throw new IllegalArgumentException("No permission.");
+    if (args.length < 2)
+      throw new IllegalArgumentException(
+          "usage: /frontier city expedition <status|create|invite|accept|found|cancel>");
+    switch (args[1].toLowerCase(Locale.ROOT)) {
+      case "status" ->
+          executeOptional(
+              player,
+              () -> settlementLifecycle.activeExpedition(player.getUniqueId(), Instant.now()),
+              value ->
+                  "Expedition "
+                      + value.id()
+                      + ": "
+                      + value.status()
+                      + ", founders="
+                      + value.acceptedFounders()
+                      + ", expires="
+                      + value.expiresAt(),
+              "No active founding expedition.");
+      case "create" -> {
+        if (args.length < 3)
+          throw new IllegalArgumentException(
+              "usage: /frontier city expedition create <name> [| <charter>]");
+        createExpedition(player, Arrays.copyOfRange(args, 2, args.length));
+      }
+      case "invite" -> {
+        if (args.length != 4)
+          throw new IllegalArgumentException(
+              "usage: /frontier city expedition invite <expedition-uuid> <online-player>");
+        UUID expedition = UUID.fromString(args[2]);
+        Player target = player.getServer().getPlayerExact(args[3]);
+        if (target == null) throw new IllegalArgumentException("target player must be online");
+        execute(
+            player,
+            () ->
+                settlementLifecycle.inviteFounder(
+                    expedition, player.getUniqueId(), target.getUniqueId(), Instant.now()),
+            value -> "Founder invited to expedition " + value.id());
+      }
+      case "accept" -> {
+        if (args.length != 3)
+          throw new IllegalArgumentException(
+              "usage: /frontier city expedition accept <expedition-uuid>");
+        UUID expedition = UUID.fromString(args[2]);
+        execute(
+            player,
+            () ->
+                settlementLifecycle.acceptFounder(expedition, player.getUniqueId(), Instant.now()),
+            value -> "Founder confirmation recorded; accepted=" + value.acceptedFounders());
+      }
+      case "found" -> {
+        if (args.length != 3)
+          throw new IllegalArgumentException(
+              "usage: /frontier city expedition found <expedition-uuid>");
+        founding.found(
+            player,
+            UUID.fromString(args[2]),
+            city -> {
+              player.sendMessage(
+                  Component.text("Settlement founded: " + city.name(), NamedTextColor.GREEN));
+              presentation.settlementFounded(player, city.name());
+            },
+            failure ->
+                player.sendMessage(Component.text(rootMessage(failure), NamedTextColor.RED)));
+      }
+      case "cancel" -> {
+        if (args.length != 3)
+          throw new IllegalArgumentException(
+              "usage: /frontier city expedition cancel <expedition-uuid>");
+        UUID expedition = UUID.fromString(args[2]);
+        execute(
+            player,
+            () ->
+                settlementLifecycle.cancelExpedition(
+                    expedition, player.getUniqueId(), Instant.now()),
+            value -> "Founding expedition cancelled; reserved fee refunded.");
+      }
+      default ->
+          throw new IllegalArgumentException(
+              "usage: /frontier city expedition <status|create|invite|accept|found|cancel>");
+    }
   }
 
   private void cityInfo(Player player) {
@@ -966,7 +1056,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                 player,
                 () -> harbor.onboard(player.getUniqueId(), Instant.now()),
                 tutorial ->
-                    "Frontier Harbor: take a starter contract with /frontier harbor jobs, complete it with /frontier harbor work, then use /frontier city create and /frontier treasury deposit. Wallet="
+                    "Frontier Harbor: take a starter contract with /frontier harbor jobs, complete it with /frontier harbor work, then create and complete a /frontier city expedition before filling its treasury. Wallet="
                         + tutorial.balanceMinor());
         case "jobs" ->
             execute(
@@ -2913,10 +3003,18 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                     }));
   }
 
-  private void executeOptional(
+  private <T> void executeOptional(
       Player player,
-      java.util.function.Supplier<java.util.Optional<SettlementGateway.CitySnapshot>> work,
-      java.util.function.Function<SettlementGateway.CitySnapshot, String> success) {
+      java.util.function.Supplier<java.util.Optional<T>> work,
+      java.util.function.Function<T, String> success) {
+    executeOptional(player, work, success, "You do not belong to a settlement.");
+  }
+
+  private <T> void executeOptional(
+      Player player,
+      java.util.function.Supplier<java.util.Optional<T>> work,
+      java.util.function.Function<T, String> success,
+      String emptyMessage) {
     schedulers
         .async(work)
         .whenComplete(
@@ -2927,9 +3025,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                         player.sendMessage(
                             Component.text(rootMessage(failure), NamedTextColor.RED));
                       else if (result.isEmpty())
-                        player.sendMessage(
-                            Component.text(
-                                "You do not belong to a settlement.", NamedTextColor.YELLOW));
+                        player.sendMessage(Component.text(emptyMessage, NamedTextColor.YELLOW));
                       else
                         player.sendMessage(
                             Component.text(
@@ -2955,7 +3051,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
             NamedTextColor.AQUA));
     sender.sendMessage(
         Component.text(
-            "/frontier city create|info|invite|accept|role|claim|building|upgrade|policy|transfer|succession|abandon|disband|recover|merge|merge-accept|history",
+            "/frontier city create|expedition|info|invite|accept|role|claim|building|upgrade|policy|transfer|succession|abandon|disband|recover|merge|merge-accept|history",
             NamedTextColor.GOLD));
     sender.sendMessage(
         Component.text(
@@ -3037,6 +3133,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       return matching(
           List.of(
               "create",
+              "expedition",
               "info",
               "invite",
               "accept",
@@ -3054,6 +3151,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "merge-accept",
               "history"),
           args[1]);
+    if (args.length == 3
+        && args[0].equalsIgnoreCase("city")
+        && args[1].equalsIgnoreCase("expedition"))
+      return matching(List.of("status", "create", "invite", "accept", "found", "cancel"), args[2]);
     if (args.length == 3
         && args[0].equalsIgnoreCase("city")
         && args[1].equalsIgnoreCase("building"))

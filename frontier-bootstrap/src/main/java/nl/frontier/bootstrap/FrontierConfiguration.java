@@ -1,5 +1,6 @@
 package nl.frontier.bootstrap;
 
+import java.util.Set;
 import nl.frontier.economy.HarborPolicy;
 
 public record FrontierConfiguration(
@@ -36,7 +37,21 @@ public record FrontierConfiguration(
       Control control,
       long simulationCheckSeconds,
       int maximumPerCycle,
-      long protectionCacheRefreshSeconds) {}
+      long protectionCacheRefreshSeconds,
+      long foundingFeeMinor,
+      int minimumFounders,
+      long expeditionLifetimeHours,
+      long reservationLifetimeMinutes,
+      int minimumCoreDistance,
+      int harborExclusionRadius,
+      int stoneBricksRequired,
+      int oakLogsRequired,
+      int bellsRequired,
+      Set<String> allowedEnvironments) {
+    public Settlements {
+      allowedEnvironments = Set.copyOf(allowedEnvironments);
+    }
+  }
 
   public record Influence(
       Control control,

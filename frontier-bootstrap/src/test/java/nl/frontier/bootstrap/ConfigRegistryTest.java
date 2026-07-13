@@ -25,6 +25,9 @@ class ConfigRegistryTest {
     assertEquals(75, config.influence().contestedThreshold());
     assertEquals(300, config.economy().harborRefreshSeconds());
     assertEquals(96.0, config.repairs().unsafeRadius());
+    assertEquals(2_500, config.settlements().foundingFeeMinor());
+    assertEquals(256, config.settlements().harborExclusionRadius());
+    assertEquals(java.util.Set.of("NORMAL"), config.settlements().allowedEnvironments());
     assertTrue(config.enabled("settlements"));
     assertFalse(config.enabled("waypoints"));
     assertFalse(config.enabled("cartography"));
@@ -49,6 +52,14 @@ class ConfigRegistryTest {
     assertEquals(1, warnings.size());
     assertTrue(warnings.getFirst().contains("secret-example"));
     assertFalse(warnings.getFirst().contains("must-not-appear"));
+
+    var invalidFounding = moduleResources();
+    invalidFounding.get("settlements").set("founding.harbor-exclusion-radius", 64);
+    var foundingFailure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> ConfigRegistry.parse(resource("config.yml"), invalidFounding, ignored -> {}));
+    assertTrue(foundingFailure.getMessage().contains("cannot be smaller"));
   }
 
   @Test

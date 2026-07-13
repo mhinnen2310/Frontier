@@ -19,14 +19,6 @@ public final class SettlementApplicationService {
     this.gateway = Objects.requireNonNull(gateway);
   }
 
-  public SettlementGateway.CitySnapshot create(
-      UUID owner, String name, UUID world, int chunkX, int chunkZ, Instant now) {
-    String clean = Objects.requireNonNull(name).strip();
-    if (clean.length() < 3 || clean.length() > 32)
-      throw new DomainException("settlement name must be 3-32 characters");
-    return gateway.create(owner, clean, world, chunkX, chunkZ, now);
-  }
-
   public SettlementGateway.Invitation invite(UUID city, UUID actor, UUID target, Instant now) {
     if (actor.equals(target)) throw new DomainException("you cannot invite yourself");
     return gateway.invite(city, actor, target, INVITERS, now.plus(Duration.ofHours(48)), now);
