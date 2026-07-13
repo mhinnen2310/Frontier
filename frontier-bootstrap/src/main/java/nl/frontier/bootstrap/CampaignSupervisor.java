@@ -16,6 +16,7 @@ final class CampaignSupervisor {
   private final Duration interval;
   private final int maximum;
   private final Logger logger;
+  private final PaperPresentationService presentation;
   private final AtomicBoolean active = new AtomicBoolean();
 
   CampaignSupervisor(
@@ -24,13 +25,15 @@ final class CampaignSupervisor {
       WarPolicyCache cache,
       Duration interval,
       int maximum,
-      Logger logger) {
+      Logger logger,
+      PaperPresentationService presentation) {
     this.schedulers = schedulers;
     this.campaigns = campaigns;
     this.cache = cache;
     this.interval = interval;
     this.maximum = maximum;
     this.logger = logger;
+    this.presentation = presentation;
   }
 
   void start() {
@@ -55,12 +58,16 @@ final class CampaignSupervisor {
             (report, failure) -> {
               if (failure != null) logger.log(Level.WARNING, "Campaign cycle failed", failure);
               else if (report.activated() + report.resolving() > 0)
-                logger.info(
-                    "Campaign cycle activated "
-                        + report.activated()
-                        + " and moved "
-                        + report.resolving()
-                        + " to resolution.");
+                schedulers.global(
+                    () -> {
+                      presentation.campaignTransition(report.activated(), report.resolving());
+                      logger.info(
+                          "Campaign cycle activated "
+                              + report.activated()
+                              + " and moved "
+                              + report.resolving()
+                              + " to resolution.");
+                    });
               schedulers.later(interval, this::cycle);
             });
   }

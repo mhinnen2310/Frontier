@@ -189,6 +189,16 @@
 - Booted and JFR-profiled real Paper against the 500-player dataset; region/global callbacks remained 0.04 ms average/3.17 ms maximum, scheduler queue was empty at sample and live security passed.
 - Documented methodology, exact tier results and scope limitations in `SCALE_TEST.md`.
 
+### Sprint 21 — Polish
+
+- Added repair placement animation with builder arm swings, happy-villager/electric particles and quiet anvil feedback on the correct region thread.
+- Added server-wide campaign activation/resolution announcements and raid-horn audio cues.
+- Added settlement founding broadcasts, founder title animation and advancement sound.
+- Added first-visit Frontier Harbor title, ambient overworld music and bell welcome cue.
+- Improved Dialog titles, explanatory bodies, action colors, mutation/read tooltips, button sizing and single-use action warnings.
+- Reformatted settlement, population and worker reports into readable multi-line reports.
+- Kept all polish in the Paper presentation adapter/service; no particle, sound or notification changes authoritative gameplay state.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

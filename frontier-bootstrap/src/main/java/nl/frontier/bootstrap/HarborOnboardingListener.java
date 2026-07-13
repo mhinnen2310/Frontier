@@ -12,10 +12,15 @@ import org.bukkit.event.player.PlayerJoinEvent;
 final class HarborOnboardingListener implements Listener {
   private final SchedulerFacade schedulers;
   private final HarborApplicationService harbor;
+  private final PaperPresentationService presentation;
 
-  HarborOnboardingListener(SchedulerFacade schedulers, HarborApplicationService harbor) {
+  HarborOnboardingListener(
+      SchedulerFacade schedulers,
+      HarborApplicationService harbor,
+      PaperPresentationService presentation) {
     this.schedulers = schedulers;
     this.harbor = harbor;
+    this.presentation = presentation;
   }
 
   @EventHandler
@@ -27,11 +32,13 @@ final class HarborOnboardingListener implements Listener {
             tutorial -> {
               if (!tutorial.firstVisit()) return;
               schedulers.global(
-                  () ->
-                      player.sendMessage(
-                          Component.text(
-                              "Welcome to Frontier Harbor. Use /frontier harbor tutorial to begin without admin help.",
-                              NamedTextColor.GOLD)));
+                  () -> {
+                    presentation.harborWelcome(player);
+                    player.sendMessage(
+                        Component.text(
+                            "Welcome to Frontier Harbor. Use /frontier harbor tutorial to begin without admin help.",
+                            NamedTextColor.GOLD));
+                  });
             });
   }
 }

@@ -19,6 +19,7 @@ import java.util.Objects;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
+import net.kyori.adventure.text.format.NamedTextColor;
 import nl.frontier.api.DialogScreenCatalog;
 import nl.frontier.api.FrontierUi;
 import org.bukkit.Server;
@@ -37,7 +38,7 @@ public final class PaperFrontierUi implements FrontierUi {
   public void openMenu(PlayerId player, Screen screen) {
     List<ActionButton> actions =
         DialogScreenCatalog.actions(screen).stream()
-            .map(action -> command(action.label(), action.command()))
+            .map(action -> command(action.label(), action.command(), action.mutation()))
             .toList();
     open(
         player,
@@ -149,8 +150,16 @@ public final class PaperFrontierUi implements FrontierUi {
                 builder
                     .empty()
                     .base(
-                        DialogBase.builder(Component.text(title))
-                            .body(List.of(DialogBody.plainMessage(Component.text(message))))
+                        DialogBase.builder(Component.text(title, NamedTextColor.GOLD))
+                            .body(
+                                List.of(
+                                    DialogBody.plainMessage(
+                                        Component.text(message, NamedTextColor.GRAY)
+                                            .append(Component.newline())
+                                            .append(
+                                                Component.text(
+                                                    "Select an action below. Submitted actions close this dialog.",
+                                                    NamedTextColor.DARK_GRAY)))))
                             .inputs(inputs)
                             .afterAction(DialogBase.DialogAfterAction.CLOSE)
                             .build())
@@ -216,8 +225,18 @@ public final class PaperFrontierUi implements FrontierUi {
   }
 
   private static ActionButton command(String label, String command) {
-    return ActionButton.builder(Component.text(label))
-        .tooltip(Component.text("Runs /" + command))
+    return command(label, command, false);
+  }
+
+  private static ActionButton command(String label, String command, boolean mutation) {
+    return ActionButton.builder(
+            Component.text(label, mutation ? NamedTextColor.YELLOW : NamedTextColor.AQUA))
+        .tooltip(
+            Component.text(
+                mutation
+                    ? "Submits a protected gameplay change. Check the fields first."
+                    : "Opens or refreshes this Frontier report.",
+                mutation ? NamedTextColor.GOLD : NamedTextColor.GRAY))
         .width(150)
         .action(DialogAction.commandTemplate(command))
         .build();
@@ -228,6 +247,10 @@ public final class PaperFrontierUi implements FrontierUi {
         actionTokens.issue(
             playerId.value(), command, aggregate, Duration.ofMinutes(2), Instant.now());
     return ActionButton.builder(Component.text(label))
+        .tooltip(
+            Component.text(
+                "Single-use protected action; expires in two minutes.", NamedTextColor.GOLD))
+        .width(150)
         .action(
             DialogAction.customClick(
                 (view, audience) -> {

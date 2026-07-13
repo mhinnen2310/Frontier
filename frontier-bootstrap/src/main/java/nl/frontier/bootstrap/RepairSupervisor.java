@@ -26,6 +26,7 @@ final class RepairSupervisor {
   private final int maximumTasks;
   private final double hostileRadius;
   private final Logger logger;
+  private final PaperPresentationService presentation;
   private final UUID coordinator = UUID.randomUUID();
   private final AtomicBoolean active = new AtomicBoolean();
 
@@ -38,7 +39,8 @@ final class RepairSupervisor {
       Duration archiveDelay,
       int maximumTasks,
       double hostileRadius,
-      Logger logger) {
+      Logger logger,
+      PaperPresentationService presentation) {
     this.schedulers = schedulers;
     this.repairs = repairs;
     this.wars = wars;
@@ -48,6 +50,7 @@ final class RepairSupervisor {
     this.maximumTasks = maximumTasks;
     this.hostileRadius = hostileRadius;
     this.logger = logger;
+    this.presentation = presentation;
   }
 
   void start() {
@@ -110,6 +113,7 @@ final class RepairSupervisor {
               return;
             }
             animate(task);
+            presentation.repair(location);
             block.setBlockData(Bukkit.createBlockData(task.targetData()), false);
             commit(task);
           });

@@ -136,6 +136,7 @@ public final class FrontierPlugin extends JavaPlugin {
       schedulers =
           new PaperSchedulerFacade(this, getConfig().getInt("performance.async-threads", 4));
       metrics = new FrontierMetrics(new SimpleMeterRegistry());
+      PaperPresentationService presentation = new PaperPresentationService(getServer());
       PostgresAdminDiagnostics diagnostics = new PostgresAdminDiagnostics(store);
       ChunkOwnershipCache ownershipCache = new ChunkOwnershipCache();
       InfluenceSimulationService influence =
@@ -234,7 +235,8 @@ public final class FrontierPlugin extends JavaPlugin {
               Duration.ofDays(getConfig().getLong("campaigns.maximum-duration-days", 14)),
               getConfig().getLong("campaigns.declaration-cost-minor", 5_000),
               schedulers,
-              new PaperFrontierUi(getServer()));
+              new PaperFrontierUi(getServer()),
+              presentation);
       PluginCommand command = getCommand("frontier");
       if (command == null)
         throw new IllegalStateException("frontier command is missing from plugin.yml");
@@ -242,7 +244,7 @@ public final class FrontierPlugin extends JavaPlugin {
       command.setTabCompleter(handler);
       getServer()
           .getPluginManager()
-          .registerEvents(new HarborOnboardingListener(schedulers, harbor), this);
+          .registerEvents(new HarborOnboardingListener(schedulers, harbor, presentation), this);
       getServer()
           .getPluginManager()
           .registerEvents(new SettlementActivityListener(schedulers, settlementLifecycle), this);
@@ -318,7 +320,8 @@ public final class FrontierPlugin extends JavaPlugin {
               warPolicyCache,
               Duration.ofSeconds(getConfig().getLong("campaigns.lifecycle-cycle-seconds", 5)),
               getConfig().getInt("campaigns.maximum-transitions-per-cycle", 32),
-              getLogger());
+              getLogger(),
+              presentation);
       campaignSupervisor.start();
       objectiveSupervisor =
           new ObjectiveSupervisor(
@@ -365,7 +368,8 @@ public final class FrontierPlugin extends JavaPlugin {
               Duration.ofHours(getConfig().getLong("repairs.archive-after-hours", 24)),
               getConfig().getInt("repairs.maximum-tasks-per-cycle", 8),
               getConfig().getDouble("repairs.unsafe-radius", 96),
-              getLogger());
+              getLogger(),
+              presentation);
       repairSupervisor.start();
       damageRecoverySupervisor =
           new DamageRecoverySupervisor(

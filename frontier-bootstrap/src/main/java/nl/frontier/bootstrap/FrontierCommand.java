@@ -123,6 +123,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final long campaignDeclarationCost;
   private final SchedulerFacade schedulers;
   private final FrontierUi ui;
+  private final PaperPresentationService presentation;
 
   public FrontierCommand(
       Supplier<HealthStatus> health,
@@ -157,7 +158,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       Duration campaignMaximumDuration,
       long campaignDeclarationCost,
       SchedulerFacade schedulers,
-      FrontierUi ui) {
+      FrontierUi ui,
+      PaperPresentationService presentation) {
     this.health = Objects.requireNonNull(health);
     this.recovery = Objects.requireNonNull(recovery);
     this.diagnostics = Objects.requireNonNull(diagnostics);
@@ -191,6 +193,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.campaignDeclarationCost = campaignDeclarationCost;
     this.schedulers = Objects.requireNonNull(schedulers);
     this.ui = Objects.requireNonNull(ui);
+    this.presentation = Objects.requireNonNull(presentation);
   }
 
   @Override
@@ -829,9 +832,11 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         player,
         name,
         charter,
-        city ->
-            player.sendMessage(
-                Component.text("Settlement founded: " + city.name(), NamedTextColor.GREEN)),
+        city -> {
+          player.sendMessage(
+              Component.text("Settlement founded: " + city.name(), NamedTextColor.GREEN));
+          presentation.settlementFounded(player, city.name());
+        },
         failure -> player.sendMessage(Component.text(rootMessage(failure), NamedTextColor.RED)));
   }
 
@@ -840,15 +845,17 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         player,
         () -> settlements.city(player.getUniqueId()),
         city ->
-            city.name()
-                + " | "
+            "=== "
+                + city.name()
+                + " ===\nLevel: "
                 + city.level()
-                + " | population "
+                + "\nPopulation: "
                 + city.population()
-                + " | prosperity "
+                + "\nProsperity: "
                 + city.prosperity()
-                + " | civilization "
-                + city.civilization());
+                + "/100\nCivilization: "
+                + city.civilization()
+                + "/100");
   }
 
   private void pay(Player player, String[] args) {
@@ -1414,21 +1421,21 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         player,
         city -> population.report(city.id(), player.getUniqueId()),
         value ->
-            "Population "
+            "=== Population Report ===\nPopulation: "
                 + value.population()
                 + "/"
                 + value.housingCapacity()
-                + " | food "
+                + "\nFood security: "
                 + value.foodSecurity()
-                + "% | safety "
+                + "%\nSafety: "
                 + value.safety()
-                + "% | prosperity "
+                + "%\nProsperity: "
                 + value.prosperity()
-                + " | births/deaths "
+                + "\nBirths / deaths: "
                 + value.births()
                 + "/"
                 + value.deaths()
-                + " | immigration/emigration "
+                + "\nImmigration / emigration: "
                 + value.immigration()
                 + "/"
                 + value.emigration());
@@ -1459,7 +1466,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                                 + value.salaryMinor()
                                 + " xp="
                                 + value.experience())
-                    .collect(java.util.stream.Collectors.joining(" | ")));
+                    .collect(java.util.stream.Collectors.joining("\n")));
   }
 
   private void commercial(Player player, String[] args) {
