@@ -149,7 +149,7 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
     if (building == null) return 0;
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT coalesce(de.defense_bonus,0) FROM city_buildings b LEFT JOIN district_effects de ON de.district_id::text=b.district_key WHERE b.id=?")) {
+            "SELECT coalesce(de.defense_bonus,0) FROM city_buildings b LEFT JOIN district_effects de ON de.district_id=b.district_id WHERE b.id=?")) {
       statement.setObject(1, building);
       try (ResultSet result = statement.executeQuery()) {
         return result.next() ? result.getInt(1) : 0;

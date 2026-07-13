@@ -21,7 +21,7 @@ public final class DistrictApplicationService {
       DistrictType type,
       SettlementGateway.Bounds bounds,
       Instant now) {
-    return gateway.create(city, actor, cleanName(name), type, bounds, now);
+    return gateway.create(city, actor, cleanName(name), type, bounds, maintenance(bounds, 1), now);
   }
 
   public List<DistrictGateway.DistrictSnapshot> list(UUID city, UUID actor) {
@@ -39,7 +39,7 @@ public final class DistrictApplicationService {
 
   public DistrictGateway.DistrictSnapshot resize(
       UUID district, UUID actor, SettlementGateway.Bounds bounds, Instant now) {
-    return gateway.resize(district, actor, bounds, now);
+    return gateway.resize(district, actor, bounds, maintenance(bounds, 1), now);
   }
 
   public DistrictGateway.DistrictSnapshot manager(
@@ -82,6 +82,16 @@ public final class DistrictApplicationService {
 
   public void removeWorker(UUID district, UUID actor, UUID worker, Instant now) {
     gateway.removeWorker(district, actor, worker, now);
+  }
+
+  public List<DistrictGateway.DistrictMembership> memberships(UUID district, UUID actor) {
+    return gateway.memberships(district, actor);
+  }
+
+  private static long maintenance(SettlementGateway.Bounds bounds, int tier) {
+    long chunksX = Math.floorDiv(bounds.maxX(), 16) - Math.floorDiv(bounds.minX(), 16) + 1L;
+    long chunksZ = Math.floorDiv(bounds.maxZ(), 16) - Math.floorDiv(bounds.minZ(), 16) + 1L;
+    return Math.multiplyExact(Math.multiplyExact(chunksX, chunksZ), 25L * tier);
   }
 
   private static String cleanName(String name) {

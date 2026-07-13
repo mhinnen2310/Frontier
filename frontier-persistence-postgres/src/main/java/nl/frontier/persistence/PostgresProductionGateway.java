@@ -144,7 +144,7 @@ public final class PostgresProductionGateway implements ProductionGateway {
     OrderRow order;
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT p.id,p.building_id,p.recipe_key,p.requested_quantity,p.progress_units,p.target_units,b.city_id,b.integrity,r.worker_profession,coalesce(de.production_bonus,0),coalesce(de.worker_efficiency_bonus,0) FROM production_orders p JOIN city_buildings b ON b.id=p.building_id JOIN recipes r ON r.recipe_key=p.recipe_key LEFT JOIN district_effects de ON de.district_id::text=b.district_key WHERE p.status IN ('QUEUED','ACTIVE','PAUSED_NO_INPUT','PAUSED_NO_WORKERS','PAUSED_UNSAFE') AND (p.lease_expires_at IS NULL OR p.lease_expires_at<?) ORDER BY p.priority DESC,p.created_at LIMIT 1 FOR UPDATE OF p SKIP LOCKED")) {
+            "SELECT p.id,p.building_id,p.recipe_key,p.requested_quantity,p.progress_units,p.target_units,b.city_id,b.integrity,r.worker_profession,coalesce(de.production_bonus,0),coalesce(de.worker_efficiency_bonus,0) FROM production_orders p JOIN city_buildings b ON b.id=p.building_id JOIN recipes r ON r.recipe_key=p.recipe_key LEFT JOIN district_effects de ON de.district_id=b.district_id WHERE p.status IN ('QUEUED','ACTIVE','PAUSED_NO_INPUT','PAUSED_NO_WORKERS','PAUSED_UNSAFE') AND (p.lease_expires_at IS NULL OR p.lease_expires_at<?) ORDER BY p.priority DESC,p.created_at LIMIT 1 FOR UPDATE OF p SKIP LOCKED")) {
       statement.setTimestamp(1, Timestamp.from(now));
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) return CycleResult.NONE;

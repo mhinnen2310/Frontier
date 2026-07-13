@@ -7,8 +7,8 @@ import org.junit.jupiter.api.Test;
 
 class DistrictTypeTest {
   @Test
-  void allElevenDistrictTypesExposeBoundedGameplayBonuses() {
-    assertEquals(11, DistrictType.values().length);
+  void allTwelveDistrictTypesExposeBoundedGameplayBonuses() {
+    assertEquals(12, DistrictType.values().length);
     for (DistrictType type : DistrictType.values()) {
       var bonuses = type.bonuses();
       assertTrue(bonuses.production() >= 0 && bonuses.production() <= 20, type.name());

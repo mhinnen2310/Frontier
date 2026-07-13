@@ -60,13 +60,14 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
             throw new DomainException("building district changed during registration");
           UUID building = UUID.randomUUID();
           String report = report(validation);
+          UUID district = districtId(districtKey);
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "INSERT INTO city_buildings(id,city_id,category,district_key,bounds,integrity,status,version,building_type,validation_report,last_validated_at,validation_version) VALUES(?,?,?,?,?::jsonb,100,'PLANNED',0,?,?::jsonb,?,1)")) {
+                  "INSERT INTO city_buildings(id,city_id,category,district_id,bounds,integrity,status,version,building_type,validation_report,last_validated_at,validation_version) VALUES(?,?,?,?,?::jsonb,100,'PLANNED',0,?,?::jsonb,?,1)")) {
             statement.setObject(1, building);
             statement.setObject(2, city);
             statement.setString(3, validation.type().category().name());
-            statement.setString(4, districtKey);
+            statement.setObject(4, district);
             statement.setString(5, bounds.json());
             statement.setString(6, validation.type().name());
             statement.setString(7, report);
@@ -154,15 +155,10 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
       String districtKey)
       throws SQLException {
     if (districtKey == null || districtKey.isBlank()) return true;
-    UUID district;
-    try {
-      district = UUID.fromString(districtKey);
-    } catch (IllegalArgumentException invalid) {
-      throw new DomainException("district must be a district UUID");
-    }
+    UUID district = districtId(districtKey);
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT district_type FROM city_districts WHERE id=? AND city_id=? AND status='ACTIVE' AND (bounds->>'world')::uuid=? AND (bounds->>'minX')::int<=? AND (bounds->>'maxX')::int>=? AND (bounds->>'minY')::int<=? AND (bounds->>'maxY')::int>=? AND (bounds->>'minZ')::int<=? AND (bounds->>'maxZ')::int>=?")) {
+            "SELECT d.district_type FROM districts d JOIN district_regions r ON r.district_id=d.id WHERE d.id=? AND d.city_id=? AND d.status='ACTIVE' AND r.world_id=? AND r.min_x<=? AND r.max_x>=? AND r.min_y<=? AND r.max_y>=? AND r.min_z<=? AND r.max_z>=?")) {
       statement.setObject(1, district);
       statement.setObject(2, city);
       statement.setObject(3, bounds.world());
@@ -176,7 +172,8 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
         if (!result.next()) return false;
         String districtType = result.getString(1);
         return switch (type) {
-          case WAREHOUSE -> Set.of("INDUSTRIAL", "COMMERCIAL", "HARBOR").contains(districtType);
+          case WAREHOUSE ->
+              Set.of("INDUSTRIAL", "COMMERCIAL", "LOGISTICS", "HARBOR").contains(districtType);
           case HOUSING -> districtType.equals("RESIDENTIAL");
           case FARM -> districtType.equals("AGRICULTURAL");
           case BUILDER_GUILD -> Set.of("INDUSTRIAL", "GOVERNMENT").contains(districtType);
@@ -184,6 +181,15 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
           case BARRACKS -> districtType.equals("MILITARY");
         };
       }
+    }
+  }
+
+  private static UUID districtId(String districtKey) {
+    if (districtKey == null || districtKey.isBlank()) return null;
+    try {
+      return UUID.fromString(districtKey);
+    } catch (IllegalArgumentException invalid) {
+      throw new DomainException("district must be a district UUID");
     }
   }
 

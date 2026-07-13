@@ -249,7 +249,7 @@ public final class PostgresCampaignOutcomeGateway implements CampaignOutcomeGate
     int buildings =
         updateCount(
             connection,
-            "UPDATE city_buildings b SET city_id=?,district_key=NULL,version=b.version+1 WHERE b.city_id=? AND EXISTS(SELECT 1 FROM city_claims cl WHERE cl.city_id=? AND cl.world_id=(b.bounds->>'world')::uuid AND cl.chunk_x=floor((b.bounds->>'minX')::int/16.0)::int AND cl.chunk_z=floor((b.bounds->>'minZ')::int/16.0)::int)",
+            "UPDATE city_buildings b SET city_id=?,district_id=NULL,version=b.version+1 WHERE b.city_id=? AND EXISTS(SELECT 1 FROM city_claims cl WHERE cl.city_id=? AND cl.world_id=(b.bounds->>'world')::uuid AND cl.chunk_x=floor((b.bounds->>'minX')::int/16.0)::int AND cl.chunk_z=floor((b.bounds->>'minZ')::int/16.0)::int)",
             to,
             from,
             to);

@@ -14,6 +14,8 @@ import java.util.Set;
 import java.util.UUID;
 import nl.frontier.api.TransactionalStore;
 import nl.frontier.city.DistrictGateway;
+import nl.frontier.city.DistrictRole;
+import nl.frontier.city.DistrictStatus;
 import nl.frontier.city.DistrictType;
 import nl.frontier.city.SettlementGateway;
 import nl.frontier.domain.DomainException;
@@ -35,6 +37,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
       String name,
       DistrictType type,
       SettlementGateway.Bounds bounds,
+      long maintenanceMinor,
       Instant now) {
     return store.inTransaction(
         connection -> {
@@ -44,16 +47,18 @@ public final class PostgresDistrictGateway implements DistrictGateway {
           UUID id = UUID.randomUUID();
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "INSERT INTO city_districts(id,city_id,name,district_type,bounds,created_at,updated_at) VALUES(?,?,?,?,?::jsonb,?,?)")) {
+                  "INSERT INTO districts(id,city_id,name,district_type,maintenance_minor,created_at,updated_at) VALUES(?,?,?,?,?,?,?)")) {
             statement.setObject(1, id);
             statement.setObject(2, city);
             statement.setString(3, name);
             statement.setString(4, type.name());
-            statement.setString(5, bounds.json());
+            statement.setLong(5, maintenanceMinor);
             statement.setTimestamp(6, Timestamp.from(now));
             statement.setTimestamp(7, Timestamp.from(now));
             statement.executeUpdate();
           }
+          upsertRegion(connection, id, bounds);
+          insertDefaultRoles(connection, id, now);
           history(connection, id, "CREATED", null, name + ":" + type, actor, now);
           return snapshot(connection, id);
         });
@@ -67,7 +72,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
           List<UUID> ids = new ArrayList<>();
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "SELECT id FROM city_districts WHERE city_id=? AND status='ACTIVE' ORDER BY priority DESC,name")) {
+                  "SELECT id FROM districts WHERE city_id=? AND status='ACTIVE' ORDER BY priority DESC,name")) {
             statement.setObject(1, city);
             try (ResultSet result = statement.executeQuery()) {
               while (result.next()) ids.add(result.getObject(1, UUID.class));
@@ -86,11 +91,12 @@ public final class PostgresDistrictGateway implements DistrictGateway {
           DistrictSnapshot snapshot = snapshot(connection, district);
           requireMember(connection, snapshot.city(), actor);
           int workers = count(connection, "district_workers", "district_id", district);
+          int members = count(connection, "district_memberships", "district_id", district);
           int buildings =
               scalarInt(
                   connection,
-                  "SELECT count(*) FROM city_buildings WHERE district_key=? AND status<>'DESTROYED'",
-                  district.toString());
+                  "SELECT count(*) FROM city_buildings WHERE district_id=? AND status<>'DESTROYED'",
+                  district);
           long stored =
               scalarLong(
                   connection,
@@ -99,7 +105,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
           long spent =
               scalarLong(
                   connection,
-                  "SELECT coalesce(sum(-amount_minor),0) FROM district_budget WHERE district_id=? AND amount_minor<0",
+                  "SELECT coalesce(sum(-amount_minor),0) FROM district_budgets WHERE district_id=? AND amount_minor<0",
                   district);
           List<HistoryEntry> history = new ArrayList<>();
           try (PreparedStatement statement =
@@ -117,7 +123,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
             }
           }
           return new DistrictReport(
-              snapshot, workers, buildings, stored, spent, List.copyOf(history));
+              snapshot, members, workers, buildings, stored, spent, List.copyOf(history));
         });
   }
 
@@ -128,7 +134,11 @@ public final class PostgresDistrictGateway implements DistrictGateway {
 
   @Override
   public DistrictSnapshot resize(
-      UUID district, UUID actor, SettlementGateway.Bounds bounds, Instant now) {
+      UUID district,
+      UUID actor,
+      SettlementGateway.Bounds bounds,
+      long maintenanceMinor,
+      Instant now) {
     return store.inTransaction(
         connection -> {
           DistrictSnapshot before = locked(connection, district);
@@ -136,12 +146,13 @@ public final class PostgresDistrictGateway implements DistrictGateway {
           validateBounds(connection, before.city(), district, bounds);
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "UPDATE city_districts SET bounds=?::jsonb,updated_at=?,version=version+1 WHERE id=?")) {
-            statement.setString(1, bounds.json());
+                  "UPDATE districts SET maintenance_minor=?,updated_at=?,version=version+1 WHERE id=?")) {
+            statement.setLong(1, maintenanceMinor);
             statement.setTimestamp(2, Timestamp.from(now));
             statement.setObject(3, district);
             statement.executeUpdate();
           }
+          upsertRegion(connection, district, bounds);
           history(
               connection, district, "RESIZED", before.bounds().json(), bounds.json(), actor, now);
           return snapshot(connection, district);
@@ -162,10 +173,28 @@ public final class PostgresDistrictGateway implements DistrictGateway {
             throw new DomainException("district has no manager to transfer");
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "UPDATE city_districts SET manager_id=?,updated_at=?,version=version+1 WHERE id=?")) {
+                  "UPDATE districts SET manager_id=?,updated_at=?,version=version+1 WHERE id=?")) {
             statement.setObject(1, manager);
             statement.setTimestamp(2, Timestamp.from(now));
             statement.setObject(3, district);
+            statement.executeUpdate();
+          }
+          if (before.manager() != null) {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "DELETE FROM district_memberships WHERE district_id=? AND player_id=? AND role_key='MANAGER'")) {
+              statement.setObject(1, district);
+              statement.setObject(2, before.manager());
+              statement.executeUpdate();
+            }
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "INSERT INTO district_memberships(district_id,player_id,role_key,assigned_by,joined_at) VALUES(?,?,'MANAGER',?,?) ON CONFLICT(district_id,player_id) DO UPDATE SET role_key='MANAGER',assigned_by=excluded.assigned_by,joined_at=excluded.joined_at,version=district_memberships.version+1")) {
+            statement.setObject(1, district);
+            statement.setObject(2, manager);
+            statement.setObject(3, actor);
+            statement.setTimestamp(4, Timestamp.from(now));
             statement.executeUpdate();
           }
           history(
@@ -189,7 +218,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
           long other =
               scalarLong(
                   connection,
-                  "SELECT coalesce(sum(budget_minor),0) FROM city_districts WHERE city_id=? AND id<>? AND status='ACTIVE'",
+                  "SELECT coalesce(sum(budget_minor),0) FROM districts WHERE city_id=? AND id<>? AND status='ACTIVE'",
                   before.city(),
                   district);
           long treasury =
@@ -202,7 +231,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
           updateNumber(connection, district, "budget_minor", budgetMinor, now);
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "INSERT INTO district_budget(id,district_id,amount_minor,category,reason,actor_id,occurred_at) VALUES(?,?,?,'ALLOCATION','district budget changed',?,?)")) {
+                  "INSERT INTO district_budgets(id,district_id,amount_minor,category,reason,actor_id,occurred_at) VALUES(?,?,?,'ALLOCATION','district budget changed',?,?)")) {
             statement.setObject(1, UUID.randomUUID());
             statement.setObject(2, district);
             statement.setLong(3, budgetMinor - before.budgetMinor());
@@ -250,11 +279,19 @@ public final class PostgresDistrictGateway implements DistrictGateway {
           requireRole(connection, before.city(), actor, PLANNERS);
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "UPDATE city_districts SET policies=jsonb_set(policies,ARRAY[?],to_jsonb(?::text),true),updated_at=?,version=version+1 WHERE id=?")) {
-            statement.setString(1, key);
-            statement.setString(2, value);
-            statement.setTimestamp(3, Timestamp.from(now));
-            statement.setObject(4, district);
+                  "UPDATE districts SET updated_at=?,version=version+1 WHERE id=?")) {
+            statement.setTimestamp(1, Timestamp.from(now));
+            statement.setObject(2, district);
+            statement.executeUpdate();
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "INSERT INTO district_policies(district_id,policy_key,policy_value,updated_by,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(district_id,policy_key) DO UPDATE SET policy_value=excluded.policy_value,updated_by=excluded.updated_by,updated_at=excluded.updated_at,version=district_policies.version+1")) {
+            statement.setObject(1, district);
+            statement.setString(2, key);
+            statement.setString(3, value);
+            statement.setObject(4, actor);
+            statement.setTimestamp(5, Timestamp.from(now));
             statement.executeUpdate();
           }
           history(
@@ -278,10 +315,10 @@ public final class PostgresDistrictGateway implements DistrictGateway {
           history(connection, district, "DELETED", before.name(), "DELETED", actor, now);
           try (PreparedStatement buildings =
                   connection.prepareStatement(
-                      "UPDATE city_buildings SET district_key=NULL WHERE district_key=?");
+                      "UPDATE city_buildings SET district_id=NULL WHERE district_id=?");
               PreparedStatement delete =
-                  connection.prepareStatement("DELETE FROM city_districts WHERE id=?")) {
-            buildings.setString(1, district.toString());
+                  connection.prepareStatement("DELETE FROM districts WHERE id=?")) {
+            buildings.setObject(1, district);
             buildings.executeUpdate();
             delete.setObject(1, district);
             delete.executeUpdate();
@@ -336,6 +373,32 @@ public final class PostgresDistrictGateway implements DistrictGateway {
         });
   }
 
+  @Override
+  public List<DistrictMembership> memberships(UUID district, UUID actor) {
+    return store.inTransaction(
+        connection -> {
+          DistrictSnapshot current = snapshot(connection, district);
+          requireMember(connection, current.city(), actor);
+          List<DistrictMembership> values = new ArrayList<>();
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT player_id,role_key,assigned_by,joined_at FROM district_memberships WHERE district_id=? ORDER BY CASE role_key WHEN 'MANAGER' THEN 0 WHEN 'OFFICER' THEN 1 ELSE 2 END,joined_at,player_id")) {
+            statement.setObject(1, district);
+            try (ResultSet result = statement.executeQuery()) {
+              while (result.next())
+                values.add(
+                    new DistrictMembership(
+                        district,
+                        result.getObject(1, UUID.class),
+                        DistrictRole.valueOf(result.getString(2)),
+                        result.getObject(3, UUID.class),
+                        result.getTimestamp(4).toInstant()));
+            }
+          }
+          return List.copyOf(values);
+        });
+  }
+
   private DistrictSnapshot changeText(
       UUID district,
       UUID actor,
@@ -350,7 +413,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
           requireRole(connection, before.city(), actor, roles);
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "UPDATE city_districts SET "
+                  "UPDATE districts SET "
                       + column
                       + "=?,updated_at=?,version=version+1 WHERE id=?")) {
             statement.setString(1, value);
@@ -366,7 +429,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
   private static DistrictSnapshot locked(Connection connection, UUID district) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT id FROM city_districts WHERE id=? AND status='ACTIVE' FOR UPDATE")) {
+            "SELECT id FROM districts WHERE id=? AND status='ACTIVE' FOR UPDATE")) {
       statement.setObject(1, district);
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) throw new DomainException("district not found");
@@ -379,7 +442,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT id,city_id,name,district_type,(bounds->>'world')::uuid,(bounds->>'minX')::int,(bounds->>'minY')::int,(bounds->>'minZ')::int,(bounds->>'maxX')::int,(bounds->>'maxY')::int,(bounds->>'maxZ')::int,manager_id,budget_minor,priority,version FROM city_districts WHERE id=? AND status='ACTIVE'")) {
+            "SELECT d.id,d.city_id,d.name,d.district_type,r.world_id,r.min_x,r.min_y,r.min_z,r.max_x,r.max_y,r.max_z,r.center_x,r.center_y,r.center_z,d.manager_id,d.status,d.tier,d.budget_minor,d.maintenance_minor,d.priority,d.version FROM districts d JOIN district_regions r ON r.district_id=d.id WHERE d.id=? AND d.status='ACTIVE'")) {
       statement.setObject(1, district);
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) throw new DomainException("district not found");
@@ -397,12 +460,20 @@ public final class PostgresDistrictGateway implements DistrictGateway {
                 result.getInt(9),
                 result.getInt(10),
                 result.getInt(11)),
-            result.getObject(12, UUID.class),
-            result.getLong(13),
-            result.getInt(14),
+            new DistrictCenter(
+                result.getObject(5, UUID.class),
+                result.getInt(12),
+                result.getInt(13),
+                result.getInt(14)),
+            result.getObject(15, UUID.class),
+            DistrictStatus.valueOf(result.getString(16)),
+            result.getInt(17),
+            result.getLong(18),
+            result.getLong(19),
+            result.getInt(20),
             policies(connection, district),
             type.bonuses(),
-            result.getLong(15));
+            result.getLong(21));
       }
     }
   }
@@ -412,7 +483,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
     Map<String, String> values = new LinkedHashMap<>();
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT key,value FROM city_districts,jsonb_each_text(policies) WHERE id=? ORDER BY key")) {
+            "SELECT policy_key,policy_value FROM district_policies WHERE district_id=? ORDER BY policy_key")) {
       statement.setObject(1, district);
       try (ResultSet result = statement.executeQuery()) {
         while (result.next()) values.put(result.getString(1), result.getString(2));
@@ -446,7 +517,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
     }
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT 1 FROM city_districts WHERE city_id=? AND id<>coalesce(?,gen_random_uuid()) AND status='ACTIVE' AND (bounds->>'world')::uuid=? AND NOT ((bounds->>'maxX')::int<? OR (bounds->>'minX')::int>? OR (bounds->>'maxZ')::int<? OR (bounds->>'minZ')::int>?) LIMIT 1")) {
+            "SELECT 1 FROM districts d JOIN district_regions r ON r.district_id=d.id WHERE d.city_id=? AND d.id<>coalesce(?,gen_random_uuid()) AND d.status='ACTIVE' AND r.world_id=? AND NOT (r.max_x<? OR r.min_x>? OR r.max_z<? OR r.min_z>?) LIMIT 1")) {
       statement.setObject(1, city);
       statement.setObject(2, district);
       statement.setObject(3, bounds.world());
@@ -500,14 +571,54 @@ public final class PostgresDistrictGateway implements DistrictGateway {
     }
   }
 
+  private static void upsertRegion(
+      Connection connection, UUID district, SettlementGateway.Bounds bounds) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO district_regions(district_id,world_id,min_x,min_y,min_z,max_x,max_y,max_z,center_x,center_y,center_z) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(district_id) DO UPDATE SET world_id=excluded.world_id,min_x=excluded.min_x,min_y=excluded.min_y,min_z=excluded.min_z,max_x=excluded.max_x,max_y=excluded.max_y,max_z=excluded.max_z,center_x=excluded.center_x,center_y=excluded.center_y,center_z=excluded.center_z,version=district_regions.version+1")) {
+      statement.setObject(1, district);
+      statement.setObject(2, bounds.world());
+      statement.setInt(3, bounds.minX());
+      statement.setInt(4, bounds.minY());
+      statement.setInt(5, bounds.minZ());
+      statement.setInt(6, bounds.maxX());
+      statement.setInt(7, bounds.maxY());
+      statement.setInt(8, bounds.maxZ());
+      statement.setInt(9, Math.floorDiv(bounds.minX() + bounds.maxX(), 2));
+      statement.setInt(10, Math.floorDiv(bounds.minY() + bounds.maxY(), 2));
+      statement.setInt(11, Math.floorDiv(bounds.minZ() + bounds.maxZ(), 2));
+      statement.executeUpdate();
+    }
+  }
+
+  private static void insertDefaultRoles(Connection connection, UUID district, Instant now)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO district_roles(district_id,role_key,permissions,created_at) VALUES(?,?::text,?::jsonb,?)")) {
+      for (var role :
+          Map.of(
+                  "MANAGER", "[\"MANAGE\",\"BUDGET\",\"POLICY\",\"ASSIGN\"]",
+                  "OFFICER", "[\"ASSIGN\",\"REPORT\"]",
+                  "RESIDENT", "[\"REPORT\"]",
+                  "WORKER", "[\"WORK\",\"REPORT\"]")
+              .entrySet()) {
+        statement.setObject(1, district);
+        statement.setString(2, role.getKey());
+        statement.setString(3, role.getValue());
+        statement.setTimestamp(4, Timestamp.from(now));
+        statement.addBatch();
+      }
+      statement.executeBatch();
+    }
+  }
+
   private static void updateNumber(
       Connection connection, UUID district, String column, long value, Instant now)
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "UPDATE city_districts SET "
-                + column
-                + "=?,updated_at=?,version=version+1 WHERE id=?")) {
+            "UPDATE districts SET " + column + "=?,updated_at=?,version=version+1 WHERE id=?")) {
       statement.setLong(1, value);
       statement.setTimestamp(2, Timestamp.from(now));
       statement.setObject(3, district);

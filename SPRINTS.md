@@ -11,7 +11,7 @@ The attached 60-sprint roadmap supersedes the legacy implementation sequence bel
 | A | 3 | Fresh-world economy bootstrap | complete |
 | A | 4 | Complete claim protection | complete |
 | A | 5 | Repair engine integrity | complete |
-| B | 6–10 | Founding, membership, districts and specialization | in progress (Sprints 6–7 complete) |
+| B | 6–10 | Founding, membership, districts and specialization | in progress (Sprints 6–8 complete) |
 | C | 11–15 | Building validation/UX, physical roads and infrastructure failure | pending |
 | D | 16–20 | Workers, Builder Guild, population and ambient life | pending |
 | E | 21–25 | Cargo, physical caravans, escorts, raids and criminality | pending |

@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 8 — District Domain and Persistence
+
+- Promoted districts to a complete persisted aggregate with status, tier, center, maintenance requirement, normalized region, policies, roles, memberships, budgets and history.
+- Added the missing Logistics type and kept all twelve type bonuses bounded.
+- Replaced the building `district_key` string with a UUID foreign key consumed by validation, production, defense, repairs, conquest and settlement merge paths.
+- Preserved existing district IDs/data through V37–V41, including normalized policy/manager migration, canonical `districts`/`district_budgets` names and removal of migrated JSON/string columns.
+- Added PostgreSQL coverage for region center/bounds, default roles, manager transfer membership, policy normalization, UUID building linkage and deletion cascades.
+
 ## Master Roadmap Sprint 7 — Settlement Membership and Governance
 
 - Completed player membership commands for invitation revocation, member listing, leave, kick, pre-emptive/member bans and unban, with transactional role/state rechecks and lifecycle audit history.

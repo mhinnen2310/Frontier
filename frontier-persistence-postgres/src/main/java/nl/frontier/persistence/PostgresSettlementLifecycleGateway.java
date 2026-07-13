@@ -896,7 +896,7 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
               source);
           update(
               connection,
-              "UPDATE city_buildings SET city_id=?,district_key=NULL WHERE city_id=?",
+              "UPDATE city_buildings SET city_id=?,district_id=NULL WHERE city_id=?",
               target,
               source);
           update(connection, "UPDATE workers SET city_id=? WHERE city_id=?", target, source);
@@ -927,7 +927,7 @@ public final class PostgresSettlementLifecycleGateway implements SettlementLifec
               target,
               source);
           update(connection, "UPDATE road_nodes SET city_id=? WHERE city_id=?", target, source);
-          update(connection, "UPDATE city_districts SET city_id=? WHERE city_id=?", target, source);
+          update(connection, "UPDATE districts SET city_id=? WHERE city_id=?", target, source);
           update(connection, "DELETE FROM city_members WHERE city_id=?", source);
           for (UUID member : sourceMembers)
             update(

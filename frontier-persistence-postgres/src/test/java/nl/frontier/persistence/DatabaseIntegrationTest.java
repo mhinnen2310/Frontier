@@ -370,7 +370,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(36, result.getInt(1));
+        assertEquals(41, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -799,6 +799,11 @@ class DatabaseIntegrationTest {
           districtService.create(
               city.id(), owner, "Fields", DistrictType.AGRICULTURAL, districtBounds, Instant.now());
       assertEquals(20, district.bonuses().production());
+      assertEquals(1, district.tier());
+      assertEquals("ACTIVE", district.status().name());
+      assertEquals(25, district.maintenanceMinor());
+      assertEquals(167, district.center().x());
+      assertEquals(167, district.center().z());
       assertEquals(1, districtService.list(city.id(), owner).size());
       assertThrows(
           DomainException.class,
@@ -871,6 +876,9 @@ class DatabaseIntegrationTest {
       }
       var districtReport = districtService.report(district.id(), owner);
       assertEquals(1, districtReport.workers());
+      assertEquals(1, districtReport.members());
+      assertEquals(
+          secondManager, districtService.memberships(district.id(), owner).getFirst().player());
       assertEquals(1, districtReport.buildings());
       assertEquals(32, districtReport.storedUnits());
       assertEquals(500, districtReport.district().budgetMinor());
@@ -880,13 +888,20 @@ class DatabaseIntegrationTest {
       try (var connection = database.dataSource().getConnection();
           var statement =
               connection.prepareStatement(
-                  "SELECT status,(SELECT count(*) FROM building_validation_history WHERE building_id=?) FROM city_buildings WHERE id=?")) {
+                  "SELECT status,(SELECT count(*) FROM building_validation_history WHERE building_id=?),district_id,(SELECT count(*) FROM district_regions WHERE district_id=?),(SELECT count(*) FROM district_roles WHERE district_id=?),(SELECT count(*) FROM district_policies WHERE district_id=?) FROM city_buildings WHERE id=?")) {
         statement.setObject(1, registeredFarm.id());
-        statement.setObject(2, registeredFarm.id());
+        statement.setObject(2, district.id());
+        statement.setObject(3, district.id());
+        statement.setObject(4, district.id());
+        statement.setObject(5, registeredFarm.id());
         try (var result = statement.executeQuery()) {
           assertTrue(result.next());
           assertEquals("ACTIVE", result.getString(1));
           assertEquals(4, result.getInt(2));
+          assertEquals(district.id(), result.getObject(3, UUID.class));
+          assertEquals(1, result.getInt(4));
+          assertEquals(4, result.getInt(5));
+          assertEquals(1, result.getInt(6));
         }
       }
       districtService.removeWorker(district.id(), owner, worker, Instant.now());

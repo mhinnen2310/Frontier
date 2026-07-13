@@ -7,6 +7,7 @@ public enum DistrictType {
   COMMERCIAL(new Bonuses(0, 0, 0, 0, 20, 5, 0)),
   MILITARY(new Bonuses(0, 0, 0, 20, 0, 0, 10)),
   GOVERNMENT(new Bonuses(0, 0, 10, 5, 5, 0, 10)),
+  LOGISTICS(new Bonuses(5, 0, 5, 0, 10, 10, 5)),
   HARBOR(new Bonuses(5, 0, 0, 0, 20, 5, 0)),
   MINING(new Bonuses(20, 0, 0, 0, 0, 5, 0)),
   FORESTRY(new Bonuses(15, 0, 5, 0, 0, 5, 0)),

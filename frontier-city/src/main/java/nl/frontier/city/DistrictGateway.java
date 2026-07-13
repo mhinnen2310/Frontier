@@ -13,6 +13,7 @@ public interface DistrictGateway {
       String name,
       DistrictType type,
       SettlementGateway.Bounds bounds,
+      long maintenanceMinor,
       Instant now);
 
   List<DistrictSnapshot> list(UUID city, UUID actor);
@@ -21,7 +22,12 @@ public interface DistrictGateway {
 
   DistrictSnapshot rename(UUID district, UUID actor, String name, Instant now);
 
-  DistrictSnapshot resize(UUID district, UUID actor, SettlementGateway.Bounds bounds, Instant now);
+  DistrictSnapshot resize(
+      UUID district,
+      UUID actor,
+      SettlementGateway.Bounds bounds,
+      long maintenanceMinor,
+      Instant now);
 
   DistrictSnapshot assignManager(
       UUID district, UUID actor, UUID manager, boolean transfer, Instant now);
@@ -38,14 +44,20 @@ public interface DistrictGateway {
 
   void removeWorker(UUID district, UUID actor, UUID worker, Instant now);
 
+  List<DistrictMembership> memberships(UUID district, UUID actor);
+
   record DistrictSnapshot(
       UUID id,
       UUID city,
       String name,
       DistrictType type,
       SettlementGateway.Bounds bounds,
+      DistrictCenter center,
       UUID manager,
+      DistrictStatus status,
+      int tier,
       long budgetMinor,
+      long maintenanceMinor,
       int priority,
       Map<String, String> policies,
       DistrictType.Bonuses bonuses,
@@ -53,10 +65,16 @@ public interface DistrictGateway {
 
   record WorkerAssignment(UUID district, UUID worker, int priority, Instant assignedAt) {}
 
+  record DistrictCenter(UUID world, int x, int y, int z) {}
+
+  record DistrictMembership(
+      UUID district, UUID player, DistrictRole role, UUID assignedBy, Instant joinedAt) {}
+
   record HistoryEntry(String action, String details, UUID actor, Instant occurredAt) {}
 
   record DistrictReport(
       DistrictSnapshot district,
+      int members,
       int workers,
       int buildings,
       long storedUnits,
