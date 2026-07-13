@@ -21,7 +21,7 @@ The open balancing choices from the documents are resolved in `DECISIONS.md` and
 
 ## Remaining
 
-Sprints 22–24 complete maintained documentation, final clean-world QA and the release-candidate gate. Live human multiplayer feel and balance remain feedback for post-release tuning rather than a substitute for automated integrity checks.
+All 24 remediation sprints are complete in `1.1.0-RC1`, including maintained documentation, clean-world QA, repeated scale/security/performance checks and the committed release JAR. Live human multiplayer feel and balance remain feedback for post-release tuning rather than a substitute for automated integrity checks.
 
 ## Unclear requirements
 

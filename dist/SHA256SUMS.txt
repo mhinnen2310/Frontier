@@ -1,2 +1,2 @@
 bf68a0a09210923b660c02ac34c8fc9a688dd9d17e699a5cdde7a1f2fec53120  TheFrontier-1.0.0.jar
-232bc56f70a191cb3ced0c2749f9d75c3ff8501afde18deda6f884c0d1b1f785  TheFrontier-1.1.0-SNAPSHOT.jar
+77124bacfe4668f2b7852ea14b81a3a8e04204c4268ab6069c3178fc445b9e39  TheFrontier-1.1.0-RC1.jar

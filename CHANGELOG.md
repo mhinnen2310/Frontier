@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 24 — Release Candidate
+
+- Set the audited artifact version to `1.1.0-RC1`; the published 1.0.0 remains immutable.
+- Added fail-closed startup validation for every critical positive configuration bound, database identity, campaign multiplier/budget consistency and pool/thread caps.
+- Closed the source-marker audit, repeated the full regression, clean-world, scale, security and performance gates, and recorded the final JAR checksum.
+- Added release-candidate deployment scope and pushed the source plus shaded JAR as the final five-sprint checkpoint.
+
 ## Sprint 23 — Final QA
 
 - Added a dedicated clean-database `finalQaTest` gate for the full normal-player journey, separate from development and scale databases.

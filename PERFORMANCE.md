@@ -27,3 +27,7 @@ The 415.78 ms maximum async task occurred in the startup/recovery window and did
 - `/frontier admin performance` reports current heap, scheduler queue/load/timings, named subsystem timings, database cache/tuple/session statistics and largest/dead-tuple tables.
 
 This baseline is an idle-server engineering gate, not the multiplayer capacity claim. Synthetic 50/100/250/500-player workloads and acceptance thresholds are handled by Sprint 20.
+
+## Release-candidate recheck
+
+`1.1.0-RC1` was rechecked for 45 seconds on Paper 26.2/Java 25 against the retained 500-player scale database under Java Flight Recorder. The live security audit passed; the database was 18,699,967 bytes with a 99.99% cache-hit ratio. The four-thread scheduler had zero queued work at sampling, 14.11 ms average/300.70 ms maximum async execution and 3.11 ms average/59.58 ms maximum queue wait. Paper started, reported performance, wrote the JFR recording and stopped cleanly.

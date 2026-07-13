@@ -13,6 +13,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import nl.frontier.api.HealthStatus;
 import nl.frontier.city.BuildingValidationService;
@@ -120,6 +121,7 @@ public final class FrontierPlugin extends JavaPlugin {
     saveDefaultConfig();
     try {
       validateRuntime();
+      validateConfiguration();
       database =
           new DatabaseManager(
               new DatabaseManager.Configuration(
@@ -469,6 +471,83 @@ public final class FrontierPlugin extends JavaPlugin {
   private void validateRuntime() {
     if (Runtime.version().feature() < 25)
       throw new IllegalStateException("The Frontier requires Java 25+");
+  }
+
+  private void validateConfiguration() {
+    requireText("database.jdbc-url");
+    requireText("database.username");
+    for (String key :
+        List.of(
+            "database.maximum-pool-size",
+            "campaigns.preparation-hours",
+            "campaigns.maximum-duration-days",
+            "campaigns.breach-window-hours",
+            "campaigns.breach-base-points",
+            "campaigns.breach-maximum-points",
+            "campaigns.declaration-cost-minor",
+            "campaigns.lifecycle-cycle-seconds",
+            "campaigns.maximum-transitions-per-cycle",
+            "campaigns.objective-cycle-seconds",
+            "repairs.minimum-city-level",
+            "repairs.blocks-per-tick",
+            "repairs.unsafe-radius",
+            "repairs.post-combat-delay-seconds",
+            "repairs.cycle-seconds",
+            "repairs.task-lease-seconds",
+            "repairs.maximum-tasks-per-cycle",
+            "repairs.archive-after-hours",
+            "economy.market-cycle-seconds",
+            "economy.maximum-trades-per-cycle",
+            "economy.production.cycle-seconds",
+            "economy.production.maximum-orders-per-cycle",
+            "economy.logistics.cycle-seconds",
+            "economy.logistics.maximum-shipments-per-cycle",
+            "performance.async-threads",
+            "performance.maximum-visible-npcs-per-settlement",
+            "npcs.materialization-cycle-seconds",
+            "world-simulation.cycle-seconds",
+            "world-simulation.maximum-cities-per-cycle",
+            "civilization.cycle-seconds",
+            "civilization.maximum-kingdoms-per-cycle",
+            "influence.cycle-seconds",
+            "influence.maximum-settlements-per-cycle",
+            "influence.contested-threshold",
+            "influence.required-lead-cycles",
+            "settlements.simulation-check-seconds",
+            "settlements.maximum-per-cycle",
+            "outbox.cycle-seconds",
+            "outbox.maximum-events-per-cycle",
+            "security.command-rate-limit",
+            "security.command-rate-window-seconds",
+            "harbor.refresh-seconds",
+            "protection.cache-refresh-seconds",
+            "damage-recovery.cycle-seconds",
+            "damage-recovery.maximum-per-cycle")) {
+      if (getConfig().getLong(key) <= 0) {
+        throw new IllegalStateException("configuration must be positive: " + key);
+      }
+    }
+    double offlineMultiplier = getConfig().getDouble("campaigns.offline-structural-multiplier");
+    if (offlineMultiplier < 0.0 || offlineMultiplier > 1.0) {
+      throw new IllegalStateException(
+          "campaigns.offline-structural-multiplier must be between 0 and 1");
+    }
+    if (getConfig().getInt("campaigns.breach-base-points")
+        > getConfig().getInt("campaigns.breach-maximum-points")) {
+      throw new IllegalStateException(
+          "campaigns.breach-base-points cannot exceed breach-maximum-points");
+    }
+    if (getConfig().getInt("database.maximum-pool-size") > 64
+        || getConfig().getInt("performance.async-threads") > 64) {
+      throw new IllegalStateException("database pool and async thread limits cannot exceed 64");
+    }
+  }
+
+  private void requireText(String key) {
+    String value = getConfig().getString(key);
+    if (value == null || value.isBlank()) {
+      throw new IllegalStateException("configuration is required: " + key);
+    }
   }
 
   private String materializeMigrations() {

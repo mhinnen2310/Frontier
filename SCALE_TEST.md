@@ -10,10 +10,12 @@ The concurrent phase uses 16 clients and the real gateway implementations for ca
 
 | Players | Workers | Wars | Repair tasks | Caravans | Operations | Seed | World cycle | Workload | p95 | Maximum |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 50 | 100 | 25 | 100 | 50 | 400 | 66 ms | 188 ms | 218 ms | 24.68 ms | 48.05 ms |
-| 100 | 200 | 50 | 200 | 100 | 800 | 77 ms | 291 ms | 232 ms | 15.79 ms | 38.61 ms |
-| 250 | 500 | 125 | 500 | 250 | 2,000 | 124 ms | 777 ms | 660 ms | 20.11 ms | 48.68 ms |
-| 500 | 1,000 | 250 | 1,000 | 500 | 4,000 | 232 ms | 1,981 ms | 2,066 ms | 40.66 ms | 81.02 ms |
+| 50 | 100 | 25 | 100 | 50 | 400 | 65 ms | 182 ms | 182 ms | 20.97 ms | 37.92 ms |
+| 100 | 200 | 50 | 200 | 100 | 800 | 88 ms | 277 ms | 261 ms | 17.74 ms | 52.78 ms |
+| 250 | 500 | 125 | 500 | 250 | 2,000 | 126 ms | 707 ms | 695 ms | 20.75 ms | 50.35 ms |
+| 500 | 1,000 | 250 | 1,000 | 500 | 4,000 | 203 ms | 1,608 ms | 2,018 ms | 39.93 ms | 56.48 ms |
+
+The table was remeasured for `1.1.0-RC1` on 2026-07-13. Every tier remained below the 1,000 ms p95 and 60-second workload limits and all integrity assertions passed.
 
 ## Paper gate at 500 players
 
