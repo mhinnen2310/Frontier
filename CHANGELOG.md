@@ -141,6 +141,16 @@
 - Hardened concurrent structural-damage registration with a coordinate-scoped transaction advisory lock after the expanded regression run exposed a rare duplicate-insert race.
 - Added policy unit coverage for every required event and PostgreSQL coverage for weather, event activation/impact and winter infrastructure decay.
 
+### Sprint 16 — Dynamic Events
+
+- Added a transactional dynamic-event service and detector for escort requests, convoys, civil unrest, kingdom requests, settlement requests, bridge collapse, mine collapse, refugees and trade festivals.
+- Kept bandit raids in the regional world-event policy and unified all detected events with the existing scheduled-to-archived lifecycle, objectives and rewards.
+- Added player participation and cumulative response contributions; event goals resolve exactly once and expired/resolved events reject further joins.
+- Joining an escort event atomically assigns the authoritative caravan escort rather than creating a cosmetic quest-only link.
+- Added 24-hour per-source cooldowns so supervisors and restarts cannot spam repeated events for one caravan, settlement, project, road, mine or campaign.
+- Added `/frontier events list|join|respond`, Dialog report access and a bounded minute detection supervisor.
+- Added Flyway migration V28 and clean-database coverage detecting seven simultaneous source types, joining/completing an escort and checking cooldown replay protection.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

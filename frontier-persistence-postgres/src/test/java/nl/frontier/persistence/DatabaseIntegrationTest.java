@@ -52,6 +52,7 @@ import nl.frontier.warfare.CampaignGateway;
 import nl.frontier.warfare.WarCampaign;
 import nl.frontier.warfare.WarDamageGateway;
 import nl.frontier.world.CivilizationGateway;
+import nl.frontier.world.DynamicEventService;
 import nl.frontier.world.KingdomIntegrationGateway;
 import nl.frontier.world.KingdomIntegrationService;
 import nl.frontier.world.WorldSimulationGateway;
@@ -172,7 +173,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(27, result.getInt(1));
+        assertEquals(28, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1459,6 +1460,63 @@ class DatabaseIntegrationTest {
               buyer.id(), buyerOwner, "minecraft:wheat", 1, UUID.randomUUID(), Instant.now());
       assertEquals(20, emergency.unitPriceMinor());
       assertTrue(commercial.history(buyer.id(), buyerOwner, 100).size() >= 2);
+
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE caravans SET state='WALKING',escort_player=NULL,updated_at=now() WHERE shipment_id='"
+                + marketCaravan.id()
+                + "'");
+        statement.executeUpdate(
+            "UPDATE city_population_state SET food_security=10,safety=10 WHERE city_id='"
+                + populationCity.id()
+                + "'");
+        statement.executeUpdate(
+            "UPDATE cities SET prosperity=20 WHERE id='" + populationCity.id() + "'");
+        statement.executeUpdate(
+            "UPDATE road_edges SET infrastructure_type='BRIDGE',integrity=5 WHERE id='"
+                + physicalEdge.id()
+                + "'");
+        statement.executeUpdate(
+            "UPDATE city_buildings SET building_type='MINING',integrity=10,status='DAMAGED' WHERE city_id='"
+                + populationCity.id()
+                + "'");
+        statement.executeUpdate(
+            "UPDATE mega_projects SET status='ACTIVE',progress=0 WHERE id='" + mega.id() + "'");
+        statement.executeUpdate(
+            "UPDATE campaigns SET phase='ACTIVE',active_at=now() WHERE id='"
+                + kingdomCampaign.id()
+                + "'");
+      }
+      DynamicEventService dynamicEvents =
+          new DynamicEventService(new PostgresDynamicEventGateway(store));
+      var dynamicCycle = dynamicEvents.cycle(100, Instant.now());
+      assertTrue(dynamicCycle.detected() >= 7);
+      var eventKeys =
+          dynamicEvents.available(populationOwner, Instant.now()).stream()
+              .map(value -> value.key())
+              .collect(java.util.stream.Collectors.toSet());
+      assertTrue(
+          eventKeys.containsAll(
+              java.util.Set.of(
+                  "ESCORT",
+                  "CIVIL_UNREST",
+                  "KINGDOM_REQUEST",
+                  "SETTLEMENT_REQUEST",
+                  "BRIDGE_COLLAPSE",
+                  "MINE_COLLAPSE",
+                  "REFUGEES")));
+      var escortEvent =
+          dynamicEvents.available(populationOwner, Instant.now()).stream()
+              .filter(value -> value.key().equals("ESCORT"))
+              .findFirst()
+              .orElseThrow();
+      assertTrue(
+          dynamicEvents.join(escortEvent.id(), populationOwner, "ESCORT", Instant.now()).joined());
+      assertEquals(
+          "RESOLVED",
+          dynamicEvents.respond(escortEvent.id(), populationOwner, 100, Instant.now()).state());
+      assertTrue(dynamicEvents.cycle(100, Instant.now()).skippedCooldown() > 0);
 
       ArrayList<PostgresOutboxDispatcher.Event> published = new ArrayList<>();
       PostgresOutboxDispatcher outbox = new PostgresOutboxDispatcher(store, published::add);

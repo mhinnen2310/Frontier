@@ -138,6 +138,7 @@ public final class DialogScreenCatalog {
               read("Health", "frontier status"),
               read("World regions", "frontier world regions"),
               read("World events", "frontier world events"),
+              read("Dynamic events", "frontier events list"),
               read("Settlement", "frontier city info"),
               read("Population", "frontier population"),
               back());

@@ -51,6 +51,7 @@ import nl.frontier.persistence.PostgresClaimProtectionGateway;
 import nl.frontier.persistence.PostgresCommercialGateway;
 import nl.frontier.persistence.PostgresContractGateway;
 import nl.frontier.persistence.PostgresDistrictGateway;
+import nl.frontier.persistence.PostgresDynamicEventGateway;
 import nl.frontier.persistence.PostgresEconomyGateway;
 import nl.frontier.persistence.PostgresFinanceGateway;
 import nl.frontier.persistence.PostgresHarborGateway;
@@ -75,6 +76,7 @@ import nl.frontier.warfare.CampaignGateway;
 import nl.frontier.warfare.CampaignOutcomeService;
 import nl.frontier.warfare.WarPolicyCache;
 import nl.frontier.world.CivilizationGateway;
+import nl.frontier.world.DynamicEventService;
 import nl.frontier.world.KingdomIntegrationService;
 import nl.frontier.world.WorldSimulationGateway;
 import org.bukkit.Location;
@@ -108,6 +110,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private CommercialSupervisor commercialSupervisor;
   private CampaignOutcomeSupervisor campaignOutcomeSupervisor;
   private KingdomIntegrationSupervisor kingdomIntegrationSupervisor;
+  private DynamicEventSupervisor dynamicEventSupervisor;
   private volatile boolean acceptingWrites;
 
   @Override
@@ -175,6 +178,8 @@ public final class FrontierPlugin extends JavaPlugin {
       CivilizationGateway civilizationGateway = new PostgresCivilizationGateway(store);
       KingdomIntegrationService kingdomIntegration =
           new KingdomIntegrationService(new PostgresKingdomIntegrationGateway(store));
+      DynamicEventService dynamicEvents =
+          new DynamicEventService(new PostgresDynamicEventGateway(store));
       SettlementApplicationService settlements =
           new SettlementApplicationService(new PostgresSettlementGateway(store));
       SettlementLifecycleService settlementLifecycle =
@@ -220,6 +225,7 @@ public final class FrontierPlugin extends JavaPlugin {
               worldSimulationGateway,
               civilizationGateway,
               kingdomIntegration,
+              dynamicEvents,
               Duration.ofHours(getConfig().getLong("campaigns.preparation-hours", 24)),
               Duration.ofDays(getConfig().getLong("campaigns.maximum-duration-days", 14)),
               getConfig().getLong("campaigns.declaration-cost-minor", 5_000),
@@ -373,6 +379,9 @@ public final class FrontierPlugin extends JavaPlugin {
               getConfig().getInt("world-simulation.maximum-cities-per-cycle", 32),
               getLogger());
       worldSimulationSupervisor.start();
+      dynamicEventSupervisor =
+          new DynamicEventSupervisor(schedulers, dynamicEvents, Duration.ofMinutes(1), getLogger());
+      dynamicEventSupervisor.start();
       civilizationSupervisor =
           new CivilizationSupervisor(
               schedulers,
@@ -433,6 +442,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (objectiveSupervisor != null) objectiveSupervisor.stop();
     if (repairSupervisor != null) repairSupervisor.stop();
     if (worldSimulationSupervisor != null) worldSimulationSupervisor.stop();
+    if (dynamicEventSupervisor != null) dynamicEventSupervisor.stop();
     if (civilizationSupervisor != null) civilizationSupervisor.stop();
     if (kingdomIntegrationSupervisor != null) kingdomIntegrationSupervisor.stop();
     if (outboxSupervisor != null) outboxSupervisor.stop();
