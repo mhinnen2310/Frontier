@@ -30,10 +30,12 @@ import nl.frontier.city.SettlementLifecycleService;
 import nl.frontier.economy.CaravanService;
 import nl.frontier.economy.CommercialService;
 import nl.frontier.economy.ContractGateway;
+import nl.frontier.economy.CriticalPathAnalyzer;
 import nl.frontier.economy.EconomyApplicationService;
 import nl.frontier.economy.FinanceApplicationService;
 import nl.frontier.economy.HarborApplicationService;
 import nl.frontier.economy.HarborGateway;
+import nl.frontier.economy.InfrastructureHealthService;
 import nl.frontier.economy.InfrastructurePathAnalyzer;
 import nl.frontier.economy.InfrastructureService;
 import nl.frontier.economy.InfrastructureValidator;
@@ -120,6 +122,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private KingdomIntegrationSupervisor kingdomIntegrationSupervisor;
   private DynamicEventSupervisor dynamicEventSupervisor;
   private InfrastructureDirtySupervisor infrastructureDirtySupervisor;
+  private InfrastructureHealthSupervisor infrastructureHealthSupervisor;
   private volatile boolean acceptingWrites;
   private ConfigRegistry configRegistry;
 
@@ -240,10 +243,19 @@ public final class FrontierPlugin extends JavaPlugin {
                   Duration.ofHours(config.buildings().transferProposalHours())),
               Duration.ofSeconds(config.buildings().selectionTimeoutSeconds()));
       var infrastructurePolicy = config.infrastructure().validation();
+      PostgresInfrastructureGateway infrastructureGateway =
+          new PostgresInfrastructureGateway(store, infrastructurePolicy.maximumLength());
+      InfrastructureValidator infrastructureValidator =
+          new InfrastructureValidator(infrastructurePolicy);
+      PaperInfrastructureSurveyor infrastructureSurveyor =
+          new PaperInfrastructureSurveyor(infrastructurePolicy);
+      InfrastructurePathAnalyzer infrastructureAnalyzer =
+          new InfrastructurePathAnalyzer(infrastructurePolicy);
       InfrastructureService infrastructure =
-          new InfrastructureService(
-              new PostgresInfrastructureGateway(store, infrastructurePolicy.maximumLength()),
-              new InfrastructureValidator(infrastructurePolicy));
+          new InfrastructureService(infrastructureGateway, infrastructureValidator);
+      InfrastructureHealthService infrastructureHealth =
+          new InfrastructureHealthService(
+              infrastructureGateway, infrastructureValidator, new CriticalPathAnalyzer());
       InfrastructureDirtyTracker infrastructureDirty =
           new InfrastructureDirtyTracker(config.infrastructure().maximumDirtyQueue());
       FrontierCommand handler =
@@ -290,10 +302,8 @@ public final class FrontierPlugin extends JavaPlugin {
               settlementLifecycle,
               foundingCoordinator,
               new InfrastructureRegistrationCoordinator(
-                  schedulers,
-                  new PaperInfrastructureSurveyor(infrastructurePolicy),
-                  new InfrastructurePathAnalyzer(infrastructurePolicy),
-                  infrastructure),
+                  schedulers, infrastructureSurveyor, infrastructureAnalyzer, infrastructure),
+              infrastructureHealth,
               caravans,
               population,
               commerce,
@@ -408,6 +418,17 @@ public final class FrontierPlugin extends JavaPlugin {
               config.infrastructure().maximumDirtyPerCycle(),
               getLogger());
       if (config.enabled("infrastructure")) infrastructureDirtySupervisor.start();
+      infrastructureHealthSupervisor =
+          new InfrastructureHealthSupervisor(
+              schedulers,
+              infrastructureSurveyor,
+              infrastructureAnalyzer,
+              infrastructureHealth,
+              Duration.ofSeconds(config.infrastructure().healthCycleSeconds()),
+              Duration.ofSeconds(config.infrastructure().healthLeaseSeconds()),
+              config.infrastructure().maximumHealthPerCycle(),
+              getLogger());
+      if (config.enabled("infrastructure")) infrastructureHealthSupervisor.start();
       npcMaterializationSupervisor =
           new NpcMaterializationSupervisor(
               this,
@@ -555,6 +576,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (productionSupervisor != null) productionSupervisor.stop();
     if (logisticsSupervisor != null) logisticsSupervisor.stop();
     if (infrastructureDirtySupervisor != null) infrastructureDirtySupervisor.stop();
+    if (infrastructureHealthSupervisor != null) infrastructureHealthSupervisor.stop();
     if (npcMaterializationSupervisor != null) npcMaterializationSupervisor.stop();
     if (campaignSupervisor != null) campaignSupervisor.stop();
     if (objectiveSupervisor != null) objectiveSupervisor.stop();

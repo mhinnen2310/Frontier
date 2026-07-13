@@ -43,6 +43,7 @@ class ConfigRegistryTest {
     assertEquals(256, config.infrastructure().validation().maximumLength());
     assertEquals(100, config.infrastructure().validation().quality("STONE_BRICKS"));
     assertEquals(10_000, config.infrastructure().maximumDirtyQueue());
+    assertEquals(4, config.infrastructure().maximumHealthPerCycle());
     assertEquals(
         1,
         config

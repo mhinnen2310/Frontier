@@ -151,7 +151,14 @@ final class PaperInfrastructureSurveyor {
       gate |= policy.gate(world.getBlockAt(column.x, y, column.z).getType().name());
     cells.add(
         new InfrastructureSnapshot.Cell(
-            column.x, surfaceY, column.z, quality, bridge, tunnel, gate));
+            column.x,
+            surfaceY,
+            column.z,
+            world.getBlockAt(column.x, surfaceY, column.z).getType().name(),
+            quality,
+            bridge,
+            tunnel,
+            gate));
   }
 
   record PlannedColumn(int x, int expectedY, int z) {}

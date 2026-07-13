@@ -71,7 +71,12 @@ public final class InfrastructurePathAnalyzer {
             .mapToObj(
                 index -> {
                   var cell = path.get(index);
-                  return new InfrastructureSurvey.RoutePoint(index, cell.x(), cell.y(), cell.z());
+                  return new InfrastructureSurvey.RoutePoint(
+                      index,
+                      cell.x(),
+                      cell.y(),
+                      cell.z(),
+                      "minecraft:" + cell.material().toLowerCase(java.util.Locale.ROOT));
                 })
             .toList());
   }

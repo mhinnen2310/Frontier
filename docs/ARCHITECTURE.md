@@ -47,6 +47,8 @@ Building corner selections are intentionally ephemeral Paper UI state. The liste
 
 Physical infrastructure uses a two-stage read/analyze pipeline. A corridor plan is bounded before scheduling; each touched chunk is captured on its own Paper region scheduler into immutable surface cells. Pure asynchronous path analysis then derives continuity, endpoint connection, width, slope, bridge/tunnel/gate evidence, quality, health, capacity, bounds and exact path segments. Accepted block-change listeners only enqueue coordinates into a bounded deduplicating tracker; an asynchronous transactional service intersects persisted segments and marks matching routes dirty.
 
+Dirty-route health uses a separate leased supervisor. It repeats the region-safe capture, applies the pure validator and transactionally updates route capacity, warnings, maintenance targets, shipment rerouting and health history. Critical-path scoring is a pure graph pass. Infrastructure repairs enter the existing repair gateway and only queue reinspection after the final idempotent task commit; they never reopen an edge directly.
+
 ## Integrity rules
 
 - Monetary values and quantities are integer units; no floating-point accounting.

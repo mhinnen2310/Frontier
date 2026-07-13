@@ -45,3 +45,4 @@ V44__building_validation_framework.sql
 V45__building_registration_ux.sql
 V46__physical_route_dirty_segments.sql
 V47__physical_route_segments.sql
+V48__infrastructure_health_and_failure.sql

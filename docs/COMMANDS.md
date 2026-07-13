@@ -11,7 +11,7 @@
 | Harbor | `/frontier harbor tutorial`, `jobs`, `work [job]`, `status` |
 | Market | `/frontier market list`, `warehouse`, `deposit <quantity>`, `buy <commodity> <quantity> <unit-price-cents>`, `sell ...`, `cancel <order>` |
 | Production | `/frontier production list`, `queue <building> <recipe> <quantity> [priority]`, `hire <profession> <skill> <daily-salary-cents>` |
-| Logistics | `/frontier logistics list`, `node <type>`, `connect <from> <to> <type> [importance]`, `ship <origin-warehouse> <destination-warehouse> <origin-node> <destination-node> <commodity> <quantity> <carrier> <declared-value>` |
+| Logistics | `/frontier logistics list`, `node <type>`, `connect <from> <to> <type> [importance]`, `ship <origin-warehouse> <destination-warehouse> <origin-node> <destination-node> <commodity> <quantity> <carrier> <declared-value>`, `warnings`, `maintenance`, `maintain <maintenance-order>` |
 | Caravans | `/frontier caravan list`, `escort <shipment>` |
 | Population | `/frontier population`, `/frontier workers` |
 | Economy | `/frontier economy companies`, `company-create <capital-cents> <name>`, `invoice <company> <player> <cents> <due-days>`, `invoice-pay <invoice>`, `loan <company> <cents> <annual-basis-points>`, `loan-repay <loan> <cents>`, `tax <business-basis-points>`, `procure <commodity> <quantity> <max-unit-cents>`, `fulfill <procurement> <company> <quantity>`, `emergency <commodity> <quantity>`, `history` |

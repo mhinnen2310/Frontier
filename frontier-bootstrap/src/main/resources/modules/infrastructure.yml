@@ -36,3 +36,8 @@ dirty:
   cycle-seconds: 5
   maximum-per-cycle: 500
   maximum-queue: 10000
+
+health:
+  cycle-seconds: 10
+  lease-seconds: 120
+  maximum-per-cycle: 4

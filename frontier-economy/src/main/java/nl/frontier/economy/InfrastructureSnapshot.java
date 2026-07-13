@@ -19,10 +19,22 @@ public record InfrastructureSnapshot(
   }
 
   public record Cell(
-      int x, int y, int z, int quality, boolean bridge, boolean tunnel, boolean gate) {
+      int x,
+      int y,
+      int z,
+      String material,
+      int quality,
+      boolean bridge,
+      boolean tunnel,
+      boolean gate) {
     public Cell {
+      material = java.util.Objects.requireNonNull(material);
       if (quality < 1 || quality > 100)
         throw new IllegalArgumentException("cell quality must be 1-100");
+    }
+
+    public Cell(int x, int y, int z, int quality, boolean bridge, boolean tunnel, boolean gate) {
+      this(x, y, z, "STONE_BRICKS", quality, bridge, tunnel, gate);
     }
   }
 

@@ -114,9 +114,14 @@ public record InfrastructureSurvey(
     return samples == 0 ? 0 : (double) connectedSamples / samples;
   }
 
-  public record RoutePoint(int sequence, int x, int y, int z) {
+  public record RoutePoint(int sequence, int x, int y, int z, String targetData) {
     public RoutePoint {
       if (sequence < 0) throw new IllegalArgumentException("route sequence cannot be negative");
+      targetData = java.util.Objects.requireNonNull(targetData);
+    }
+
+    public RoutePoint(int sequence, int x, int y, int z) {
+      this(sequence, x, y, z, "minecraft:stone_bricks");
     }
   }
 }

@@ -91,7 +91,10 @@ public record FrontierConfiguration(
       InfrastructureValidationPolicy validation,
       long dirtyCycleSeconds,
       int maximumDirtyPerCycle,
-      int maximumDirtyQueue) {}
+      int maximumDirtyQueue,
+      long healthCycleSeconds,
+      long healthLeaseSeconds,
+      int maximumHealthPerCycle) {}
 
   public record Warfare(
       Control control,

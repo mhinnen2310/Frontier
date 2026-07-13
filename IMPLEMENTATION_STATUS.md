@@ -1,6 +1,6 @@
 # Frontier implementation status
 
-This is the truthful baseline for the 60-sprint Master Remediation & Expansion Roadmap, initially audited on 2026-07-13 against commit `f04db67` and maintained through Sprint 14 with real Paper 26.2/PostgreSQL gates. A class, table or command name alone does not count as a complete feature.
+This is the truthful baseline for the 60-sprint Master Remediation & Expansion Roadmap, initially audited on 2026-07-13 against commit `f04db67` and maintained through Sprint 15 with real Paper 26.2/PostgreSQL gates. A class, table or command name alone does not count as a complete feature.
 
 ## Inventory
 
@@ -11,8 +11,8 @@ This is the truthful baseline for the 60-sprint Master Remediation & Expansion R
 | Command roots | 25 |
 | Paper Dialog screens | 15 |
 | Paper listener adapters | 8 |
-| Flyway migrations | 47 (V1–V47) |
-| PostgreSQL public gameplay tables | 158 |
+| Flyway migrations | 48 (V1–V48) |
+| PostgreSQL public gameplay tables | 164 |
 | Bukkit permissions | 3 |
 
 The runtime modules are domain, API, city, influence, economy, warfare, repair, NPC, world, Paper UI, PostgreSQL persistence, observability and bootstrap. Testkit is build-only. `/frontier admin build` reports the packaged version, Git source revision/time, Java runtime, Paper target, live schema version and these module states.
@@ -27,7 +27,7 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 | Settlement founding/lifecycle | complete for Sprints 6–7 | Physical expedition founding, charter/founders, configurable fee/material/location rules, invitations/revocation, leave/kick/ban, role-safe transfer/succession, delayed disband, abandonment, asset-frozen ruins/recovery, merge and complete audit history have transactional integration coverage |
 | Districts | complete for Sprint 10 | Name-based management and complete Dialog reports feed a config-driven effective specialization projection requiring valid buildings plus connected infrastructure, with diminishing returns, adjacency, over-specialization and real cost/capacity trade-offs |
 | Buildings | complete for Sprint 13 | All ten types have safe config-driven physical rules; the Architect Dialog and tagged selection tool provide timeout, particles, overlap preview, reports and confirm/cancel; transactional revalidation/unregister/history and two-mayor parcel ownership transfer have PostgreSQL coverage |
-| Roads/infrastructure | complete for Sprint 14 | Configured material profiles, bounded curved path detection, endpoint/width/continuity/slope/gap/bridge/tunnel/gate checks, derived health/capacity, ownership and per-region immutable snapshots have pure/PostgreSQL coverage; block changes feed a bounded transactional dirty workset. Failure orders and critical-path gameplay remain Sprint 15. |
+| Roads/infrastructure | complete for Sprint 15 | Configured bounded physical validation feeds exact dirty coordinates and leased reinspection; physical/bridge health, critical-path priority, blocked/destroyed capacity loss, shipment rerouting, daily/event decay, warnings, funded maintenance and repair-engine reinspection have pure/PostgreSQL coverage. |
 | Workers/population | partial | Profession, skill, morale, wage, experience, housing, employment, migration and retirement exist; full task states, visible schedules and Builder Guild player contribution are incomplete |
 | Ambient settlement life | partial | Harbor/worker/caravan presentation and announcements exist; citizen/guard/market/day-night activity is incomplete |
 | Cargo/caravans/contracts | partial | Database cargo, shipment reservation, abstract/physical caravan handoff, escort and delivery exist; capture, always-attackable cargo, raid locks and multi-escort contribution are missing |

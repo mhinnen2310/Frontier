@@ -1,5 +1,15 @@
 # Changelog
 
+## Master Roadmap Sprint 15 — Infrastructure Health and Failure
+
+- Added leased route-health processing that re-surveys dirty physical routes on Paper region schedulers, analyzes immutable snapshots asynchronously and commits one transactional health resolution.
+- Added durable physical health, bridge integrity, designed capacity, blocked/destroyed states, exact dirty coordinates, health history, settlement warnings and maintenance orders through Flyway V48.
+- Added critical-path scoring from graph bridges, planning importance and active shipments; critical routes receive higher repair priority.
+- Removed blocked, dirty and destroyed edges from route planning and forced affected traveling shipments into retry-safe rerouting while database cargo remains authoritative.
+- Integrated daily/weather/event degradation with bridge failure, capacity loss, maintenance targets and settlement warnings.
+- Added settlement-funded infrastructure repairs to the existing material reservation, builder lease, idempotent commit and post-repair physical reinspection pipeline.
+- Added `/frontier logistics maintenance`, `warnings` and `maintain <order>`, bounded health configuration, critical-path unit tests and complete PostgreSQL failure/funding regression coverage.
+
 ## Master Roadmap Sprint 14 — Physical Roads and Route Validation
 
 - Replaced straight-line-only road checks with bounded corridor snapshots and pure asynchronous path detection, including connected endpoints, width, continuity, slope, gaps, surface quality, bridge spans, tunnel enclosure and physical gates.

@@ -374,7 +374,7 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
             : baseDecay;
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT id,infrastructure_type,integrity,traffic FROM road_edges WHERE owner_city=? AND integrity>0 FOR UPDATE")) {
+            "SELECT id,infrastructure_type,integrity,traffic,criticality FROM road_edges WHERE owner_city=? AND integrity>0 FOR UPDATE")) {
       statement.setObject(1, city);
       try (ResultSet result = statement.executeQuery()) {
         while (result.next()) {
@@ -388,31 +388,13 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
                   result.getObject(1, UUID.class),
                   result.getString(2),
                   before,
-                  Math.max(0, before - amount)));
+                  Math.max(0, before - amount),
+                  result.getInt(5)));
         }
       }
     }
     for (Decay edge : edges) {
-      try (PreparedStatement statement =
-          connection.prepareStatement(
-              "UPDATE road_edges SET integrity=?,version=version+1 WHERE id=?")) {
-        statement.setInt(1, edge.after);
-        statement.setObject(2, edge.id);
-        statement.executeUpdate();
-      }
-      try (PreparedStatement statement =
-          connection.prepareStatement(
-              "INSERT INTO infrastructure_decay_history(id,edge_id,city_id,infrastructure_type,integrity_before,integrity_after,cause,occurred_at) VALUES(?,?,?,?,?,?,?,?)")) {
-        statement.setObject(1, UUID.randomUUID());
-        statement.setObject(2, edge.id);
-        statement.setObject(3, city);
-        statement.setString(4, edge.type);
-        statement.setInt(5, edge.before);
-        statement.setInt(6, edge.after);
-        statement.setString(7, season.name() + "_" + weather.key);
-        statement.setTimestamp(8, Timestamp.from(now));
-        statement.executeUpdate();
-      }
+      applyInfrastructureDamage(connection, city, edge, season.name() + "_" + weather.key, now);
     }
     return edges.size();
   }
@@ -595,10 +577,10 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
       switch (event.key) {
         case "BANDIT_RAID" -> {
           updateCity(connection, city, -2, 0);
-          damageRoads(connection, city, "ROAD", Math.max(1, amount / 2));
+          damageRoads(connection, city, "ROAD", Math.max(1, amount / 2), event.key, now);
         }
         case "DISASTER" -> {
-          damageRoads(connection, city, null, amount);
+          damageRoads(connection, city, null, amount, event.key, now);
           try (PreparedStatement statement =
               connection.prepareStatement(
                   "UPDATE city_buildings SET integrity=greatest(0,integrity-?),status=CASE WHEN integrity-?<=0 THEN 'DESTROYED' WHEN integrity-?<15 THEN 'DISABLED' ELSE 'DAMAGED' END,version=version+1 WHERE city_id=? AND status<>'DESTROYED'")) {
@@ -610,7 +592,7 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
           }
         }
         case "FLOOD" -> {
-          damageRoads(connection, city, "BRIDGE", amount);
+          damageRoads(connection, city, "BRIDGE", amount, event.key, now);
           reduceFood(connection, city, 90);
         }
         case "PLAGUE" -> {
@@ -659,16 +641,139 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
     }
   }
 
-  private static void damageRoads(Connection connection, UUID city, String type, int amount)
+  private static void damageRoads(
+      Connection connection, UUID city, String type, int amount, String cause, Instant now)
       throws SQLException {
     String filter = type == null ? "" : " AND infrastructure_type=?";
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "UPDATE road_edges SET integrity=greatest(0,integrity-?),version=version+1 WHERE owner_city=?"
-                + filter)) {
-      statement.setInt(1, amount);
+            "SELECT id,infrastructure_type,integrity,criticality FROM road_edges WHERE owner_city=? AND integrity>0"
+                + filter
+                + " FOR UPDATE")) {
+      statement.setObject(1, city);
+      if (type != null) statement.setString(2, type);
+      List<Decay> edges = new ArrayList<>();
+      try (ResultSet result = statement.executeQuery()) {
+        while (result.next()) {
+          int before = result.getInt(3);
+          edges.add(
+              new Decay(
+                  result.getObject(1, UUID.class),
+                  result.getString(2),
+                  before,
+                  Math.max(0, before - amount),
+                  result.getInt(4)));
+        }
+      }
+      for (Decay edge : edges) applyInfrastructureDamage(connection, city, edge, cause, now);
+    }
+  }
+
+  private static void applyInfrastructureDamage(
+      Connection connection, UUID city, Decay edge, String cause, Instant now) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE road_edges SET integrity=?,bridge_integrity=CASE WHEN infrastructure_type='BRIDGE' THEN least(bridge_integrity,?) ELSE bridge_integrity END,route_state=CASE WHEN route_state='DIRTY' THEN route_state WHEN ?=0 THEN 'DESTROYED' WHEN ?<10 THEN 'BLOCKED' ELSE route_state END,capacity=CASE WHEN ?<10 THEN 0 ELSE capacity END,blocked_at=CASE WHEN ?<10 THEN coalesce(blocked_at,?) ELSE blocked_at END,version=version+1 WHERE id=?")) {
+      statement.setInt(1, edge.after);
+      statement.setInt(2, edge.after);
+      statement.setInt(3, edge.after);
+      statement.setInt(4, edge.after);
+      statement.setInt(5, edge.after);
+      statement.setInt(6, edge.after);
+      statement.setTimestamp(7, Timestamp.from(now));
+      statement.setObject(8, edge.id);
+      statement.executeUpdate();
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO infrastructure_decay_history(id,edge_id,city_id,infrastructure_type,integrity_before,integrity_after,cause,occurred_at) VALUES(?,?,?,?,?,?,?,?)")) {
+      statement.setObject(1, UUID.randomUUID());
+      statement.setObject(2, edge.id);
+      statement.setObject(3, city);
+      statement.setString(4, edge.type);
+      statement.setInt(5, edge.before);
+      statement.setInt(6, edge.after);
+      statement.setString(7, cause);
+      statement.setTimestamp(8, Timestamp.from(now));
+      statement.executeUpdate();
+    }
+    if (edge.after < 70) {
+      UUID maintenance = upsertDegradedMaintenance(connection, city, edge, now);
+      addMaintenanceTarget(connection, maintenance, edge.id);
+      updateDegradationWarning(connection, city, edge, now);
+    }
+    if (edge.after < 10) rerouteShipments(connection, edge.id);
+  }
+
+  private static UUID upsertDegradedMaintenance(
+      Connection connection, UUID city, Decay edge, Instant now) throws SQLException {
+    String priority =
+        edge.after < 10 || edge.criticality >= 70
+            ? "CRITICAL"
+            : edge.type.equals("BRIDGE") ? "HIGH" : "NORMAL";
+    String reason = edge.after == 0 ? "DESTROYED" : edge.after < 10 ? "BLOCKED" : "DEGRADED";
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO infrastructure_maintenance_orders(id,edge_id,city_id,status,priority,reason,estimate_minor,created_at,updated_at) VALUES(?,?,?,'OPEN',?,?,?,?,?) ON CONFLICT(edge_id) WHERE status IN ('OPEN','FUNDED','REPAIRING') DO UPDATE SET priority=excluded.priority,reason=excluded.reason,estimate_minor=greatest(infrastructure_maintenance_orders.estimate_minor,excluded.estimate_minor),updated_at=excluded.updated_at RETURNING id")) {
+      statement.setObject(1, UUID.randomUUID());
+      statement.setObject(2, edge.id);
+      statement.setObject(3, city);
+      statement.setString(4, priority);
+      statement.setString(5, reason);
+      statement.setLong(6, Math.max(75, (100L - edge.after) * 10L));
+      statement.setTimestamp(7, Timestamp.from(now));
+      statement.setTimestamp(8, Timestamp.from(now));
+      try (ResultSet result = statement.executeQuery()) {
+        result.next();
+        return result.getObject(1, UUID.class);
+      }
+    }
+  }
+
+  private static void addMaintenanceTarget(Connection connection, UUID maintenance, UUID edge)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO infrastructure_maintenance_targets(maintenance_order_id,world_id,x,y,z,expected_data,target_data) SELECT ?,s.world_id,s.x,s.y,s.z,s.target_data,s.target_data FROM road_edge_segments s WHERE s.edge_id=? AND NOT EXISTS(SELECT 1 FROM infrastructure_maintenance_targets t WHERE t.maintenance_order_id=?) ORDER BY s.sequence LIMIT 1 ON CONFLICT DO NOTHING")) {
+      statement.setObject(1, maintenance);
+      statement.setObject(2, edge);
+      statement.setObject(3, maintenance);
+      statement.executeUpdate();
+    }
+  }
+
+  private static void updateDegradationWarning(
+      Connection connection, UUID city, Decay edge, Instant now) throws SQLException {
+    String key =
+        edge.after == 0 ? "ROUTE_DESTROYED" : edge.after < 10 ? "ROUTE_BLOCKED" : "ROUTE_DEGRADED";
+    String severity = edge.after < 10 ? "CRITICAL" : "WARNING";
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE infrastructure_warnings SET status='RESOLVED',resolved_at=? WHERE edge_id=? AND status='ACTIVE' AND warning_key<>?")) {
+      statement.setTimestamp(1, Timestamp.from(now));
+      statement.setObject(2, edge.id);
+      statement.setString(3, key);
+      statement.executeUpdate();
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO infrastructure_warnings(id,city_id,edge_id,warning_key,severity,message,status,created_at) VALUES(?,?,?,?,?,?,'ACTIVE',?) ON CONFLICT(edge_id,warning_key) WHERE status='ACTIVE' DO UPDATE SET severity=excluded.severity,message=excluded.message")) {
+      statement.setObject(1, UUID.randomUUID());
       statement.setObject(2, city);
-      if (type != null) statement.setString(3, type);
+      statement.setObject(3, edge.id);
+      statement.setString(4, key);
+      statement.setString(5, severity);
+      statement.setString(6, "Infrastructure route " + edge.id + " health is " + edge.after + "%");
+      statement.setTimestamp(7, Timestamp.from(now));
+      statement.executeUpdate();
+    }
+  }
+
+  private static void rerouteShipments(Connection connection, UUID edge) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE shipments SET status='REROUTING',expected_arrival_at=NULL,version=version+1 WHERE id IN (SELECT shipment_id FROM shipment_route_edges WHERE edge_id=?) AND status='TRAVELING'")) {
+      statement.setObject(1, edge);
       statement.executeUpdate();
     }
   }
@@ -807,7 +912,7 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
 
   private record Weather(String key, int severity) {}
 
-  private record Decay(UUID id, String type, int before, int after) {}
+  private record Decay(UUID id, String type, int before, int after, int criticality) {}
 
   private record EventRow(
       UUID id, UUID region, String state, Instant stateAt, String key, int severity) {}

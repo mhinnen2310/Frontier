@@ -141,6 +141,107 @@ public final class PostgresRepairGateway implements RepairGateway {
   }
 
   @Override
+  public RepairSnapshot purchaseInfrastructure(
+      UUID city, UUID actor, UUID maintenanceOrder, UUID idempotency, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          advisoryLock(connection, "infrastructure-repair:" + idempotency);
+          RepairSnapshot existing = byIdempotency(connection, idempotency);
+          if (existing != null) return existing;
+          InfrastructureMaintenance maintenance =
+              requireInfrastructureAccess(connection, city, actor, maintenanceOrder);
+          if (maintenance.repairOrder != null) return load(connection, maintenance.repairOrder);
+          List<MaintenanceTarget> targets = maintenanceTargets(connection, maintenanceOrder);
+          if (targets.isEmpty())
+            throw new DomainException("maintenance order has no repair targets");
+          RepairOrder.Priority priority = RepairOrder.Priority.valueOf(maintenance.priority);
+          Quote quote = infrastructureQuote(connection, city, targets, priority);
+          UUID depot = ensureDepot(connection, city);
+          UUID account = cityAccount(connection, city);
+          long balance = balance(connection, account);
+          if (balance < quote.totalCostMinor())
+            throw new DomainException("insufficient treasury for infrastructure maintenance");
+          UUID order = UUID.randomUUID();
+          setBalance(connection, account, balance - quote.totalCostMinor());
+          ledger(
+              connection,
+              account,
+              actor,
+              -quote.totalCostMinor(),
+              balance - quote.totalCostMinor(),
+              order,
+              idempotency,
+              now);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "INSERT INTO repair_orders(id,city_id,campaign_id,priority,status,estimate_minor,total_tasks,completed_tasks,version,created_by,created_at,paid_minor,idempotency_key,source_type,source_id) VALUES(?,?,NULL,?,'REGISTERED',?,?,0,0,?,?,?,?, 'INFRASTRUCTURE',?)")) {
+            statement.setObject(1, order);
+            statement.setObject(2, city);
+            statement.setString(3, priority.name());
+            statement.setLong(4, quote.totalCostMinor());
+            statement.setInt(5, targets.size());
+            statement.setObject(6, actor);
+            statement.setTimestamp(7, Timestamp.from(now));
+            statement.setLong(8, quote.totalCostMinor());
+            statement.setObject(9, idempotency);
+            statement.setObject(10, maintenance.edge);
+            statement.executeUpdate();
+          }
+          for (MaintenanceTarget target : targets) {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "INSERT INTO repair_tasks(id,repair_order_id,world_id,x,y,z,expected_current,target_data,commodity_key,layer,status,version,priority_score,attempts,updated_at,infrastructure_edge_id,maintenance_order_id) VALUES(?,?,?,?,?,?,?,?,?,'FLOOR','READY',0,?,0,?,?,?)")) {
+              statement.setObject(1, UUID.randomUUID());
+              statement.setObject(2, order);
+              statement.setObject(3, target.world);
+              statement.setInt(4, target.x);
+              statement.setInt(5, target.y);
+              statement.setInt(6, target.z);
+              statement.setString(7, target.expected);
+              statement.setString(8, target.target);
+              statement.setString(9, target.commodity());
+              statement.setInt(
+                  10, priorityScore(priority, ReconstructionPlanner.Layer.FLOOR, target.target));
+              statement.setTimestamp(11, Timestamp.from(now));
+              statement.setObject(12, maintenance.edge);
+              statement.setObject(13, maintenanceOrder);
+              statement.executeUpdate();
+            }
+          }
+          boolean completeReservation = reserveRequirements(connection, order, city, quote, now);
+          if (completeReservation) updateOrderStatus(connection, order, "RESERVED");
+          else {
+            updateOrderStatus(connection, order, "PAUSED_MATERIAL");
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "UPDATE repair_tasks SET status='WAITING_MATERIAL',updated_at=? WHERE repair_order_id=?")) {
+              statement.setTimestamp(1, Timestamp.from(now));
+              statement.setObject(2, order);
+              statement.executeUpdate();
+            }
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE infrastructure_maintenance_orders SET status='FUNDED',repair_order_id=?,estimate_minor=?,updated_at=? WHERE id=?")) {
+            statement.setObject(1, order);
+            statement.setLong(2, quote.totalCostMinor());
+            statement.setTimestamp(3, Timestamp.from(now));
+            statement.setObject(4, maintenanceOrder);
+            statement.executeUpdate();
+          }
+          history(
+              connection,
+              order,
+              null,
+              "INFRASTRUCTURE_MAINTENANCE_FUNDED",
+              "{\"maintenance\":\"" + maintenanceOrder + "\",\"depot\":\"" + depot + "\"}",
+              now);
+          audit(connection, actor, "INFRASTRUCTURE_REPAIR_PURCHASED", order, now);
+          return load(connection, order);
+        });
+  }
+
+  @Override
   public List<RepairSnapshot> orders(UUID city) {
     return store.inTransaction(
         connection -> {
@@ -246,8 +347,10 @@ public final class PostgresRepairGateway implements RepairGateway {
             statement.executeUpdate();
           }
           history(connection, row.order, task, "TASK_COMMITTED", "{}", now);
-          if (completed == total)
+          if (completed == total) {
             history(connection, row.order, null, "REPAIR_COMPLETED", "{}", now);
+            queueInfrastructureReinspection(connection, row.order, now);
+          }
           return null;
         });
   }
@@ -405,6 +508,83 @@ public final class PostgresRepairGateway implements RepairGateway {
         };
     return new Quote(
         city, campaign, damage.size(), labor, materialCost, total, List.copyOf(requirements));
+  }
+
+  private static InfrastructureMaintenance requireInfrastructureAccess(
+      Connection connection, UUID city, UUID actor, UUID maintenance) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT o.edge_id,o.priority,o.repair_order_id,c.level,m.role FROM infrastructure_maintenance_orders o JOIN cities c ON c.id=o.city_id JOIN city_members m ON m.city_id=c.id AND m.player_id=? WHERE o.id=? AND o.city_id=? AND o.status='OPEN' FOR UPDATE OF o,c,m")) {
+      statement.setObject(1, actor);
+      statement.setObject(2, maintenance);
+      statement.setObject(3, city);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("open infrastructure maintenance not found");
+        if (result.getInt(4) < 3)
+          throw new DomainException("Builder Guild unlocks at city level 3");
+        if (!ROLES.contains(result.getString(5)))
+          throw new DomainException("settlement role cannot purchase infrastructure repairs");
+        return new InfrastructureMaintenance(
+            result.getObject(1, UUID.class), result.getString(2), result.getObject(3, UUID.class));
+      }
+    }
+  }
+
+  private static List<MaintenanceTarget> maintenanceTargets(Connection connection, UUID maintenance)
+      throws SQLException {
+    List<MaintenanceTarget> targets = new ArrayList<>();
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT world_id,x,y,z,expected_data,target_data FROM infrastructure_maintenance_targets WHERE maintenance_order_id=? ORDER BY y,x,z")) {
+      statement.setObject(1, maintenance);
+      try (ResultSet result = statement.executeQuery()) {
+        while (result.next())
+          targets.add(
+              new MaintenanceTarget(
+                  result.getObject(1, UUID.class),
+                  result.getInt(2),
+                  result.getInt(3),
+                  result.getInt(4),
+                  result.getString(5),
+                  result.getString(6)));
+      }
+    }
+    return List.copyOf(targets);
+  }
+
+  private static Quote infrastructureQuote(
+      Connection connection,
+      UUID city,
+      List<MaintenanceTarget> targets,
+      RepairOrder.Priority priority)
+      throws SQLException {
+    Map<String, Long> required = new LinkedHashMap<>();
+    for (MaintenanceTarget target : targets) required.merge(target.commodity(), 1L, Long::sum);
+    List<Requirement> requirements = new ArrayList<>();
+    long materials = 0;
+    for (Map.Entry<String, Long> entry : required.entrySet()) {
+      long present = available(connection, city, entry.getKey());
+      materials =
+          Math.addExact(
+              materials,
+              Math.multiplyExact(
+                  entry.getValue(), referencePrice(connection, city, entry.getKey())));
+      requirements.add(
+          new Requirement(
+              entry.getKey(), entry.getValue(), present, Math.max(0, entry.getValue() - present)));
+    }
+    long labor = Math.multiplyExact(targets.size(), 25L);
+    long base = Math.addExact(labor, materials);
+    long total =
+        switch (priority) {
+          case CRITICAL -> Math.multiplyExact(base, 150) / 100;
+          case HIGH -> Math.multiplyExact(base, 125) / 100;
+          case NORMAL -> base;
+          case LOW -> Math.multiplyExact(base, 90) / 100;
+          case COSMETIC -> Math.multiplyExact(base, 80) / 100;
+        };
+    return new Quote(
+        city, null, targets.size(), labor, materials, total, List.copyOf(requirements));
   }
 
   private static List<DamageRow> damage(Connection connection, UUID city, UUID campaign)
@@ -1226,6 +1406,52 @@ public final class PostgresRepairGateway implements RepairGateway {
 
   private record DamageRow(
       UUID journal, UUID world, int x, int y, int z, String current, String target) {
+    String commodity() {
+      int properties = target.indexOf('[');
+      return properties < 0 ? target : target.substring(0, properties);
+    }
+  }
+
+  private static void queueInfrastructureReinspection(
+      Connection connection, UUID order, Instant now) throws SQLException {
+    UUID edge;
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT source_id FROM repair_orders WHERE id=? AND source_type='INFRASTRUCTURE'")) {
+      statement.setObject(1, order);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) return;
+        edge = result.getObject(1, UUID.class);
+      }
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE road_edges SET route_state='DIRTY',integrity=100,bridge_integrity=100,capacity=0,blocked_at=coalesce(blocked_at,?),version=version+1 WHERE id=?")) {
+      statement.setTimestamp(1, Timestamp.from(now));
+      statement.setObject(2, edge);
+      statement.executeUpdate();
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO dirty_road_edges(edge_id,reason,first_marked_at,last_marked_at,change_count) VALUES(?,'REPAIR_COMPLETED',?,?,1) ON CONFLICT(edge_id) DO UPDATE SET reason='REPAIR_COMPLETED',last_marked_at=excluded.last_marked_at,change_count=dirty_road_edges.change_count+1,lease_owner=NULL,lease_expires_at=NULL")) {
+      statement.setObject(1, edge);
+      statement.setTimestamp(2, Timestamp.from(now));
+      statement.setTimestamp(3, Timestamp.from(now));
+      statement.executeUpdate();
+    }
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE infrastructure_maintenance_orders SET status='REPAIRING',updated_at=? WHERE repair_order_id=? AND status='FUNDED'")) {
+      statement.setTimestamp(1, Timestamp.from(now));
+      statement.setObject(2, order);
+      statement.executeUpdate();
+    }
+  }
+
+  private record InfrastructureMaintenance(UUID edge, String priority, UUID repairOrder) {}
+
+  private record MaintenanceTarget(
+      UUID world, int x, int y, int z, String expected, String target) {
     String commodity() {
       int properties = target.indexOf('[');
       return properties < 0 ? target : target.substring(0, properties);

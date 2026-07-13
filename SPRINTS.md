@@ -15,7 +15,7 @@ The attached 60-sprint roadmap supersedes the legacy implementation sequence bel
 | C | 11 | Building validation framework | complete |
 | C | 12 | Core building validators | complete |
 | C | 13 | Building registration UX | complete |
-| C | 14–15 | Physical roads and infrastructure failure | pending |
+| C | 14–15 | Physical roads and infrastructure failure | complete |
 | D | 16–20 | Workers, Builder Guild, population and ambient life | pending |
 | E | 21–25 | Cargo, physical caravans, escorts, raids and criminality | pending |
 | F | 26–30 | Diplomacy, campaign outcomes, occupation/conquest and civil conflict | pending |

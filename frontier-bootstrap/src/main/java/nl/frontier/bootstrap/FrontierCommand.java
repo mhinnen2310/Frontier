@@ -39,6 +39,7 @@ import nl.frontier.economy.EconomyGateway;
 import nl.frontier.economy.FinanceApplicationService;
 import nl.frontier.economy.FinanceGateway;
 import nl.frontier.economy.HarborApplicationService;
+import nl.frontier.economy.InfrastructureHealthService;
 import nl.frontier.economy.InfrastructureType;
 import nl.frontier.economy.LogisticsGateway;
 import nl.frontier.economy.MarketEngine;
@@ -104,6 +105,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final SettlementLifecycleService settlementLifecycle;
   private final SettlementFoundingCoordinator founding;
   private final InfrastructureRegistrationCoordinator infrastructureRegistrations;
+  private final InfrastructureHealthService infrastructureHealth;
   private final CaravanService caravans;
   private final PopulationService population;
   private final CommercialService commerce;
@@ -142,6 +144,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       SettlementLifecycleService settlementLifecycle,
       SettlementFoundingCoordinator founding,
       InfrastructureRegistrationCoordinator infrastructureRegistrations,
+      InfrastructureHealthService infrastructureHealth,
       CaravanService caravans,
       PopulationService population,
       CommercialService commerce,
@@ -178,6 +181,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.settlementLifecycle = Objects.requireNonNull(settlementLifecycle);
     this.founding = Objects.requireNonNull(founding);
     this.infrastructureRegistrations = Objects.requireNonNull(infrastructureRegistrations);
+    this.infrastructureHealth = Objects.requireNonNull(infrastructureHealth);
     this.caravans = Objects.requireNonNull(caravans);
     this.population = Objects.requireNonNull(population);
     this.commerce = Objects.requireNonNull(commerce);
@@ -1780,8 +1784,62 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                       Instant.now()),
               shipment -> "Shipment created: " + shipment.id() + " (" + shipment.status() + ")");
         }
+        case "maintenance" ->
+            withCity(
+                player,
+                city -> infrastructureHealth.maintenance(city.id()),
+                orders ->
+                    orders.isEmpty()
+                        ? "No infrastructure maintenance orders."
+                        : orders.stream()
+                            .map(
+                                order ->
+                                    order.id()
+                                        + " "
+                                        + order.priority()
+                                        + " "
+                                        + order.status()
+                                        + " edge="
+                                        + order.edge()
+                                        + " estimate="
+                                        + order.estimateMinor())
+                            .collect(java.util.stream.Collectors.joining("\n")));
+        case "warnings" ->
+            withCity(
+                player,
+                city -> infrastructureHealth.warnings(city.id()),
+                warnings ->
+                    warnings.isEmpty()
+                        ? "No active infrastructure warnings."
+                        : warnings.stream()
+                            .map(
+                                warning ->
+                                    warning.severity()
+                                        + " edge="
+                                        + warning.edge()
+                                        + " "
+                                        + warning.message())
+                            .collect(java.util.stream.Collectors.joining("\n")));
+        case "maintain" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException(
+                "usage: /frontier logistics maintain <maintenance-order>");
+          UUID maintenance = UUID.fromString(args[1]);
+          withCity(
+              player,
+              city ->
+                  repairs.purchaseInfrastructure(
+                      city.id(),
+                      player.getUniqueId(),
+                      maintenance,
+                      UUID.randomUUID(),
+                      Instant.now()),
+              repair ->
+                  "Infrastructure repair funded: " + repair.id() + " (" + repair.status() + ")");
+        }
         default ->
-            throw new IllegalArgumentException("logistics actions: list, node, connect, ship");
+            throw new IllegalArgumentException(
+                "logistics actions: list, node, connect, ship, maintenance, warnings, maintain");
       }
     } catch (IllegalArgumentException failure) {
       player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));

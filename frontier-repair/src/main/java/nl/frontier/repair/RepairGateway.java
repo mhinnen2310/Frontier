@@ -16,6 +16,9 @@ public interface RepairGateway {
       UUID idempotency,
       Instant now);
 
+  RepairSnapshot purchaseInfrastructure(
+      UUID city, UUID actor, UUID maintenanceOrder, UUID idempotency, Instant now);
+
   List<RepairSnapshot> orders(UUID city);
 
   List<PreparedTask> leaseReady(UUID worker, int maximum, Instant now, Instant leaseUntil);

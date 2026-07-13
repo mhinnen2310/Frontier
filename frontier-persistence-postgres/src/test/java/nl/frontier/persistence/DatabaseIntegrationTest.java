@@ -374,7 +374,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(47, result.getInt(1));
+        assertEquals(48, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1374,6 +1374,66 @@ class DatabaseIntegrationTest {
           assertEquals(2, result.getLong(3));
         }
       }
+      Instant healthNow = Instant.now();
+      UUID healthWorker = UUID.randomUUID();
+      var dirtyRoutes =
+          infrastructure.leaseDirty(
+              healthWorker, 4, healthNow, healthNow.plus(Duration.ofMinutes(2)));
+      assertEquals(1, dirtyRoutes.size());
+      assertEquals(physicalEdge.id(), dirtyRoutes.getFirst().edge());
+      var healthResolution =
+          infrastructure.applyInspection(
+              physicalEdge.id(),
+              healthWorker,
+              new InfrastructureValidator()
+                  .validate(
+                      InfrastructureType.ROAD,
+                      new InfrastructureSurvey(
+                          161, 140, 3, 0, 0, 50, 1, 21, 0, true, 0, 328, 64, 328, 488, 64, 488,
+                          List.of())),
+              healthNow.plusSeconds(1));
+      assertEquals("BLOCKED", healthResolution.state());
+      assertTrue(healthResolution.maintenanceOrder() != null);
+      assertEquals(1, infrastructure.maintenance(seller.id()).size());
+      assertEquals("ROUTE_BLOCKED", infrastructure.warnings(seller.id()).getFirst().key());
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate("UPDATE cities SET level=3 WHERE id='" + seller.id() + "'");
+      }
+      SettlementGateway.BuildingSnapshot repairDepotBuilding =
+          settlements.registerBuilding(
+              seller.id(),
+              sellerOwner,
+              nl.frontier.city.Building.Category.INFRASTRUCTURE,
+              new SettlementGateway.Bounds(sellerWorld, 480, 50, 480, 495, 80, 495),
+              EnumSet.of(GovernmentRole.MAYOR),
+              healthNow.plusSeconds(2));
+      economy.deposit(
+          seller.id(), sellerOwner, "minecraft:stone_bricks", 4, healthNow.plusSeconds(3));
+      PostgresRepairGateway infrastructureRepairs = new PostgresRepairGateway(store);
+      var infrastructureRepair =
+          infrastructureRepairs.purchaseInfrastructure(
+              seller.id(),
+              sellerOwner,
+              healthResolution.maintenanceOrder(),
+              UUID.randomUUID(),
+              healthNow.plusSeconds(4));
+      assertEquals(RepairOrder.Status.RESERVED, infrastructureRepair.status());
+      assertEquals(
+          infrastructureRepair.id(),
+          infrastructure.maintenance(seller.id()).getFirst().repairOrder());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "UPDATE road_edges SET route_state='VALID',integrity=90,physical_health=90,capacity=designed_capacity WHERE id=?")) {
+        statement.setObject(1, physicalEdge.id());
+        statement.executeUpdate();
+      }
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.prepareStatement("UPDATE cities SET level=1 WHERE id=?")) {
+        statement.setObject(1, seller.id());
+        statement.executeUpdate();
+      }
       assertEquals(
           6,
           economy.warehouse(buyer.id(), buyerOwner, Instant.now()).stock().stream()
@@ -1390,16 +1450,17 @@ class DatabaseIntegrationTest {
       assertEquals(0, sellerStock.reserved());
       economy.cancel(buyer.id(), buyerOwner, buy.id(), Instant.now());
       assertEquals(910, settlements.treasuryBalance(buyer.id()));
-      assertEquals(10_090, settlements.treasuryBalance(seller.id()));
+      assertEquals(
+          10_090 - infrastructureRepair.estimateMinor(), settlements.treasuryBalance(seller.id()));
 
-      SettlementGateway.BuildingSnapshot industry =
-          settlements.registerBuilding(
-              seller.id(),
-              sellerOwner,
-              nl.frontier.city.Building.Category.INDUSTRY,
-              new SettlementGateway.Bounds(sellerWorld, 480, 50, 480, 495, 80, 495),
-              EnumSet.of(GovernmentRole.MAYOR),
-              Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "UPDATE city_buildings SET category='INDUSTRY' WHERE id=?")) {
+        statement.setObject(1, repairDepotBuilding.id());
+        statement.executeUpdate();
+      }
+      SettlementGateway.BuildingSnapshot industry = repairDepotBuilding;
       economy.deposit(seller.id(), sellerOwner, "minecraft:oak_log", 2, Instant.now());
       PostgresProductionGateway production = new PostgresProductionGateway(store);
       production.hire(seller.id(), sellerOwner, "LUMBERJACK", 100, 20, Instant.now());
@@ -1448,7 +1509,34 @@ class DatabaseIntegrationTest {
               UUID.randomUUID(),
               Instant.now());
       assertEquals("TRAVELING", shipment.status());
-      assertEquals(1, logistics.cycle(1, Instant.now().plusSeconds(1_000)).delivered());
+      assertEquals(
+          1,
+          infrastructure.markDirty(
+              List.of(
+                  new InfrastructureGateway.ChangedBlock(
+                      sellerWorld, 400, 64, 400, "ROUTE_FAILURE_TEST")),
+              Instant.now()));
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.prepareStatement("SELECT status FROM shipments WHERE id=?")) {
+        statement.setObject(1, shipment.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("REROUTING", result.getString(1));
+        }
+      }
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "DELETE FROM infrastructure_dirty_changes WHERE edge_id='" + physicalEdge.id() + "'");
+        statement.executeUpdate(
+            "DELETE FROM dirty_road_edges WHERE edge_id='" + physicalEdge.id() + "'");
+        statement.executeUpdate(
+            "UPDATE road_edges SET route_state='VALID',capacity=designed_capacity WHERE id='"
+                + physicalEdge.id()
+                + "'");
+      }
+      assertEquals(0, logistics.cycle(1, Instant.now().plusSeconds(1_000)).delivered());
+      assertEquals(1, logistics.cycle(1, Instant.now().plusSeconds(100_000)).delivered());
       assertEquals(
           3,
           economy.warehouse(buyer.id(), buyerOwner, Instant.now()).stock().stream()

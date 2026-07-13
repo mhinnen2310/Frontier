@@ -202,7 +202,10 @@ public final class ConfigRegistry {
             infrastructurePolicy(infrastructure),
             positiveLong(infrastructure, "dirty.cycle-seconds"),
             positive(infrastructure, "dirty.maximum-per-cycle", 100_000),
-            positive(infrastructure, "dirty.maximum-queue", 1_000_000));
+            positive(infrastructure, "dirty.maximum-queue", 1_000_000),
+            positiveLong(infrastructure, "health.cycle-seconds"),
+            positiveLong(infrastructure, "health.lease-seconds"),
+            positive(infrastructure, "health.maximum-per-cycle", 1_000));
     YamlConfiguration warfare = modules.get("warfare");
     int breachBase = positive(warfare, "breach.base-points", Integer.MAX_VALUE);
     int breachMaximum = positive(warfare, "breach.maximum-points", Integer.MAX_VALUE);
@@ -901,7 +904,10 @@ public final class ConfigRegistry {
             "validation.gate-materials",
             "dirty.cycle-seconds",
             "dirty.maximum-per-cycle",
-            "dirty.maximum-queue"));
+            "dirty.maximum-queue",
+            "health.cycle-seconds",
+            "health.lease-seconds",
+            "health.maximum-per-cycle"));
     keys.put(
         "warfare",
         leaves(

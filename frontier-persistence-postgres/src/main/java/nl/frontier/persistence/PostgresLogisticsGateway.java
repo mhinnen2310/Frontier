@@ -295,7 +295,7 @@ public final class PostgresLogisticsGateway implements LogisticsGateway {
     List<RoutePlanner.Edge> values = new ArrayList<>();
     try (PreparedStatement statement =
             connection.prepareStatement(
-                "SELECT from_node,to_node,distance,capacity,integrity FROM road_edges WHERE integrity>=10 AND capacity>0");
+                "SELECT from_node,to_node,distance,capacity,integrity FROM road_edges WHERE integrity>=10 AND capacity>0 AND route_state IN ('VALID','LEGACY')");
         ResultSet result = statement.executeQuery()) {
       while (result.next())
         values.add(
@@ -312,6 +312,11 @@ public final class PostgresLogisticsGateway implements LogisticsGateway {
   private static void insertRoute(
       Connection connection, UUID routeId, UUID shipment, RoutePlanner.Route route, Instant now)
       throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement("DELETE FROM shipment_route_edges WHERE shipment_id=?")) {
+      statement.setObject(1, shipment);
+      statement.executeUpdate();
+    }
     String nodes =
         route.nodes().stream()
             .map(id -> "\"" + id + "\"")
@@ -327,16 +332,38 @@ public final class PostgresLogisticsGateway implements LogisticsGateway {
       statement.executeUpdate();
     }
     for (int index = 1; index < route.nodes().size(); index++) {
+      UUID from = route.nodes().get(index - 1);
+      UUID to = route.nodes().get(index);
+      UUID edge = routeEdge(connection, from, to);
       try (PreparedStatement statement =
           connection.prepareStatement(
-              "UPDATE road_edges SET traffic=traffic+1,version=version+1 WHERE (from_node=? AND to_node=?) OR (from_node=? AND to_node=?)")) {
-        UUID from = route.nodes().get(index - 1);
-        UUID to = route.nodes().get(index);
-        statement.setObject(1, from);
-        statement.setObject(2, to);
-        statement.setObject(3, to);
-        statement.setObject(4, from);
+              "UPDATE road_edges SET traffic=traffic+1,version=version+1 WHERE id=?")) {
+        statement.setObject(1, edge);
         statement.executeUpdate();
+      }
+      try (PreparedStatement statement =
+          connection.prepareStatement(
+              "INSERT INTO shipment_route_edges(shipment_id,route_id,edge_id,sequence) VALUES(?,?,?,?)")) {
+        statement.setObject(1, shipment);
+        statement.setObject(2, routeId);
+        statement.setObject(3, edge);
+        statement.setInt(4, index - 1);
+        statement.executeUpdate();
+      }
+    }
+  }
+
+  private static UUID routeEdge(Connection connection, UUID from, UUID to) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT id FROM road_edges WHERE ((from_node=? AND to_node=?) OR (from_node=? AND to_node=?)) AND route_state IN ('VALID','LEGACY') AND integrity>=10 AND capacity>0 ORDER BY distance,id LIMIT 1")) {
+      statement.setObject(1, from);
+      statement.setObject(2, to);
+      statement.setObject(3, to);
+      statement.setObject(4, from);
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next()) throw new DomainException("planned route edge became unavailable");
+        return result.getObject(1, UUID.class);
       }
     }
   }
