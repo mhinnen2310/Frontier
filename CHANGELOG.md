@@ -121,6 +121,15 @@
 - Retained player-bound single-use callbacks for contextual claim and upgrade actions and made general dialogs close after every submitted action to prevent repeated mutation clicks.
 - Added catalog tests proving all fourteen screens are reachable, have back navigation, use Frontier actions and expose required parameterized flows.
 
+### Sprint 14 — Admin & Debug
+
+- Added read-only settlement, influence, road, repair, campaign, worker and economy viewers with joined authoritative state instead of isolated table rows.
+- Added bounded in-world claim heatmaps showing capital, controlled, contested, influenced and wilderness chunks plus owning settlement IDs.
+- Added exact chunk ownership inspection with influence, lead-cycle, owner and active-campaign context.
+- Added combined live metrics for campaigns, repair backlog, caravans, market orders, workers, claims, outbox, database sessions and in-process counters.
+- Exposed `/frontier admin settlement|influence|road|repair|campaign|worker|economy`, `heatmap`, `chunk` and `live` with permission checks and asynchronous database execution.
+- Added PostgreSQL integration coverage executing every viewer, heatmap, chunk lookup and live-metric query against the complete schema.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

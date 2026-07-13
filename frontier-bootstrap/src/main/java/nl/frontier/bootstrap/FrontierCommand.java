@@ -2489,6 +2489,67 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
             .async(() -> diagnostics.inspect(args[1], UUID.fromString(args[2])))
             .whenComplete((rows, failure) -> adminRows(sender, rows, failure));
       }
+      case "settlement", "influence", "road", "repair", "campaign", "worker", "economy" -> {
+        if (args.length != 2) {
+          sender.sendMessage(
+              Component.text("usage: /frontier admin " + args[0] + " <uuid>", NamedTextColor.RED));
+          return;
+        }
+        String viewer = args[0].toLowerCase(Locale.ROOT);
+        schedulers
+            .async(() -> diagnostics.viewer(viewer, UUID.fromString(args[1])))
+            .whenComplete((rows, failure) -> adminRows(sender, rows, failure));
+      }
+      case "heatmap" -> {
+        if (!(sender instanceof Player player)) {
+          sender.sendMessage(
+              Component.text("heatmap requires an in-world player", NamedTextColor.RED));
+          return;
+        }
+        int radius = args.length > 1 ? Integer.parseInt(args[1]) : 6;
+        UUID world = player.getWorld().getUID();
+        int chunkX = player.getLocation().getBlockX() >> 4;
+        int chunkZ = player.getLocation().getBlockZ() >> 4;
+        schedulers
+            .async(() -> diagnostics.heatmap(world, chunkX, chunkZ, radius))
+            .whenComplete((rows, failure) -> adminRows(sender, rows, failure));
+      }
+      case "chunk" -> {
+        UUID world;
+        int chunkX;
+        int chunkZ;
+        if (args.length == 1 && sender instanceof Player player) {
+          world = player.getWorld().getUID();
+          chunkX = player.getLocation().getBlockX() >> 4;
+          chunkZ = player.getLocation().getBlockZ() >> 4;
+        } else if (args.length == 4) {
+          world = UUID.fromString(args[1]);
+          chunkX = Integer.parseInt(args[2]);
+          chunkZ = Integer.parseInt(args[3]);
+        } else {
+          sender.sendMessage(
+              Component.text(
+                  "usage: /frontier admin chunk [world-uuid chunk-x chunk-z]", NamedTextColor.RED));
+          return;
+        }
+        UUID selectedWorld = world;
+        int selectedX = chunkX;
+        int selectedZ = chunkZ;
+        schedulers
+            .async(() -> diagnostics.chunkOwnership(selectedWorld, selectedX, selectedZ))
+            .whenComplete((rows, failure) -> adminRows(sender, rows, failure));
+      }
+      case "live" ->
+          schedulers
+              .async(diagnostics::liveMetrics)
+              .whenComplete(
+                  (databaseMetrics, failure) -> {
+                    List<String> rows = new java.util.ArrayList<>();
+                    metrics.snapshot().forEach((key, value) -> rows.add(key + "=" + value));
+                    if (databaseMetrics != null)
+                      databaseMetrics.forEach((key, value) -> rows.add(key + "=" + value));
+                    adminRows(sender, rows, failure);
+                  });
       case "audit" -> {
         int limit = args.length > 1 ? Integer.parseInt(args[1]) : 10;
         schedulers
@@ -2511,7 +2572,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       default ->
           sender.sendMessage(
               Component.text(
-                  "admin actions: health, recover, metrics, snapshot, inspect, audit",
+                  "admin actions: health, recover, metrics, live, snapshot, inspect, audit, settlement, influence, road, repair, campaign, worker, economy, heatmap, chunk",
                   NamedTextColor.RED));
     }
   }
@@ -2660,6 +2721,26 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       return matching(List.of("status", "deposit", "withdraw", "pay", "audit"), args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("harbor"))
       return matching(List.of("tutorial", "jobs", "work", "status"), args[1]);
+    if (args.length == 2 && args[0].equalsIgnoreCase("admin"))
+      return matching(
+          List.of(
+              "health",
+              "recover",
+              "metrics",
+              "live",
+              "snapshot",
+              "inspect",
+              "audit",
+              "settlement",
+              "influence",
+              "road",
+              "repair",
+              "campaign",
+              "worker",
+              "economy",
+              "heatmap",
+              "chunk"),
+          args[1]);
     if (args.length == 2 && args[0].equalsIgnoreCase("city"))
       return matching(
           List.of(

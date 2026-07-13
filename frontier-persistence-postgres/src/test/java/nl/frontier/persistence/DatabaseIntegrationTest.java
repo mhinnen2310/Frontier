@@ -1,6 +1,7 @@
 package nl.frontier.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -1439,6 +1440,16 @@ class DatabaseIntegrationTest {
       PostgresAdminDiagnostics diagnostics = new PostgresAdminDiagnostics(store);
       assertTrue(diagnostics.snapshot().counts().get("city") >= 4);
       assertEquals(1, diagnostics.inspect("wonder", wonder.id()).size());
+      assertEquals(1, diagnostics.viewer("settlement", populationCity.id()).size());
+      assertEquals(1, diagnostics.viewer("influence", attacker.id()).size());
+      assertTrue(diagnostics.viewer("road", physicalEdge.id()).size() >= 1);
+      assertEquals(1, diagnostics.viewer("repair", repair.id()).size());
+      assertEquals(1, diagnostics.viewer("campaign", campaign.id()).size());
+      assertEquals(1, diagnostics.viewer("worker", agingWorker.id()).size());
+      assertEquals(1, diagnostics.viewer("economy", populationCity.id()).size());
+      assertTrue(diagnostics.heatmap(warWorld, 50, 50, 2).getFirst().contains("heatmap"));
+      assertFalse(diagnostics.chunkOwnership(warWorld, 50, 50).isEmpty());
+      assertTrue(diagnostics.liveMetrics().containsKey("activeCampaigns"));
     }
   }
 

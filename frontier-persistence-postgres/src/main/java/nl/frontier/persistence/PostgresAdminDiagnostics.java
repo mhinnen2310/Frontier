@@ -3,6 +3,7 @@ package nl.frontier.persistence;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -23,6 +24,22 @@ public final class PostgresAdminDiagnostics implements AdminDiagnostics {
           "kingdom", "kingdoms",
           "wonder", "world_wonders");
   private final TransactionalStore store;
+  private static final Map<String, String> VIEWERS =
+      Map.of(
+          "settlement",
+              "SELECT jsonb_build_object('city',to_jsonb(c),'treasury',(SELECT balance_minor FROM accounts WHERE owner_type='CITY' AND owner_id=c.id),'members',(SELECT count(*) FROM city_members WHERE city_id=c.id),'claims',(SELECT count(*) FROM city_claims WHERE city_id=c.id),'buildings',(SELECT count(*) FROM city_buildings WHERE city_id=c.id),'districts',(SELECT count(*) FROM city_districts WHERE city_id=c.id),'populationState',(SELECT to_jsonb(p) FROM city_population_state p WHERE p.city_id=c.id))::text FROM cities c WHERE c.id=?",
+          "influence",
+              "SELECT jsonb_build_object('city',c.id,'name',c.name,'states',(SELECT jsonb_object_agg(state,total) FROM (SELECT state,count(*) total FROM city_claims WHERE city_id=c.id GROUP BY state) s),'strongest',(SELECT jsonb_agg(to_jsonb(q)) FROM (SELECT world_id,chunk_x,chunk_z,state,influence,lead_cycles FROM city_claims WHERE city_id=c.id ORDER BY influence DESC LIMIT 25) q))::text FROM cities c WHERE c.id=?",
+          "road",
+              "SELECT jsonb_build_object('edge',to_jsonb(e),'from',to_jsonb(f),'to',to_jsonb(t))::text FROM road_edges e JOIN road_nodes f ON f.id=e.from_node JOIN road_nodes t ON t.id=e.to_node WHERE e.id=? UNION ALL SELECT jsonb_build_object('node',to_jsonb(n),'edges',(SELECT count(*) FROM road_edges WHERE from_node=n.id OR to_node=n.id))::text FROM road_nodes n WHERE n.id=?",
+          "repair",
+              "SELECT jsonb_build_object('order',to_jsonb(o),'taskStates',(SELECT jsonb_object_agg(status,total) FROM (SELECT status,count(*) total FROM repair_tasks WHERE repair_order_id=o.id GROUP BY status) s),'reservations',(SELECT count(*) FROM material_reservations WHERE repair_order_id=o.id),'packages',(SELECT count(*) FROM work_packages WHERE repair_order_id=o.id))::text FROM repair_orders o WHERE o.id=?",
+          "campaign",
+              "SELECT jsonb_build_object('campaign',to_jsonb(c),'objectives',(SELECT jsonb_agg(to_jsonb(o)) FROM campaign_objectives o WHERE o.campaign_id=c.id),'result',(SELECT to_jsonb(r) FROM campaign_results r WHERE r.campaign_id=c.id),'damage',(SELECT count(*) FROM damage_journal WHERE campaign_id=c.id))::text FROM campaigns c WHERE c.id=?",
+          "worker",
+              "SELECT jsonb_build_object('worker',to_jsonb(w),'city',c.name,'district',(SELECT d.name FROM district_workers dw JOIN city_districts d ON d.id=dw.district_id WHERE dw.worker_id=w.id),'housing',(SELECT b.id FROM city_buildings b WHERE b.id=w.housing_building))::text FROM workers w JOIN cities c ON c.id=w.city_id WHERE w.id=?",
+          "economy",
+              "SELECT jsonb_build_object('city',c.id,'name',c.name,'treasury',(SELECT balance_minor FROM accounts WHERE owner_type='CITY' AND owner_id=c.id),'warehouse',(SELECT to_jsonb(w) FROM warehouses w WHERE w.city_id=c.id AND w.status='ACTIVE' LIMIT 1),'stock',(SELECT jsonb_object_agg(s.commodity_key,s.available_quantity) FROM warehouses w JOIN warehouse_stock s ON s.warehouse_id=w.id WHERE w.city_id=c.id AND w.status='ACTIVE'),'openOrders',(SELECT count(*) FROM market_orders WHERE settlement_id=c.id AND status='OPEN'),'trades',(SELECT count(*) FROM trades t JOIN market_orders o ON o.id=t.buy_order_id WHERE o.settlement_id=c.id),'companies',(SELECT count(*) FROM companies WHERE city_id=c.id))::text FROM cities c WHERE c.id=?");
 
   public PostgresAdminDiagnostics(TransactionalStore store) {
     this.store = store;
@@ -88,4 +105,163 @@ public final class PostgresAdminDiagnostics implements AdminDiagnostics {
           return List.copyOf(values);
         });
   }
+
+  @Override
+  public List<String> viewer(String viewType, UUID aggregateId) {
+    String sql = VIEWERS.get(viewType.toLowerCase(Locale.ROOT));
+    if (sql == null)
+      throw new IllegalArgumentException(
+          "viewer type must be settlement, influence, road, repair, campaign, worker or economy");
+    return store.inTransaction(
+        connection -> {
+          List<String> rows = new ArrayList<>();
+          try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            for (int index = 1; index <= countParameters(sql); index++)
+              statement.setObject(index, aggregateId);
+            try (ResultSet result = statement.executeQuery()) {
+              while (result.next()) rows.add(result.getString(1));
+            }
+          }
+          return List.copyOf(rows);
+        });
+  }
+
+  @Override
+  public List<String> heatmap(UUID world, int centerChunkX, int centerChunkZ, int radius) {
+    int bounded = Math.max(1, Math.min(radius, 12));
+    return store.inTransaction(
+        connection -> {
+          Map<String, ClaimCell> cells = new HashMap<>();
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT chunk_x,chunk_z,state,influence,city_id FROM city_claims WHERE world_id=? AND chunk_x BETWEEN ? AND ? AND chunk_z BETWEEN ? AND ?")) {
+            statement.setObject(1, world);
+            statement.setInt(2, centerChunkX - bounded);
+            statement.setInt(3, centerChunkX + bounded);
+            statement.setInt(4, centerChunkZ - bounded);
+            statement.setInt(5, centerChunkZ + bounded);
+            try (ResultSet result = statement.executeQuery()) {
+              while (result.next())
+                cells.put(
+                    result.getInt(1) + ":" + result.getInt(2),
+                    new ClaimCell(
+                        result.getString(3), result.getInt(4), result.getObject(5, UUID.class)));
+            }
+          }
+          List<String> rows = new ArrayList<>();
+          rows.add("Claim heatmap A=capital C=controlled X=contested i=influenced .=wilderness");
+          for (int z = centerChunkZ - bounded; z <= centerChunkZ + bounded; z++) {
+            StringBuilder row = new StringBuilder(String.format(Locale.ROOT, "%6d ", z));
+            for (int x = centerChunkX - bounded; x <= centerChunkX + bounded; x++)
+              row.append(symbol(cells.get(x + ":" + z)));
+            rows.add(row.toString());
+          }
+          cells.values().stream()
+              .filter(cell -> cell.owner != null)
+              .map(cell -> cell.owner)
+              .distinct()
+              .sorted()
+              .forEach(owner -> rows.add("owner " + owner));
+          return List.copyOf(rows);
+        });
+  }
+
+  @Override
+  public List<String> chunkOwnership(UUID world, int chunkX, int chunkZ) {
+    return store.inTransaction(
+        connection -> {
+          List<String> rows = new ArrayList<>();
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT jsonb_build_object('world',world_id,'chunkX',chunk_x,'chunkZ',chunk_z,'city',city_id,'cityName',(SELECT name FROM cities WHERE id=city_id),'state',state,'influence',influence,'leadCycles',lead_cycles,'version',version)::text FROM city_claims WHERE world_id=? AND chunk_x=? AND chunk_z=?")) {
+            statement.setObject(1, world);
+            statement.setInt(2, chunkX);
+            statement.setInt(3, chunkZ);
+            try (ResultSet result = statement.executeQuery()) {
+              if (result.next()) rows.add(result.getString(1));
+              else rows.add("{\"state\":\"WILDERNESS\"}");
+            }
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT 'activeCampaign='||id||' phase='||phase FROM campaigns WHERE phase IN ('PREPARATION','ACTIVE','CEASEFIRE','RESOLUTION') AND (attacker_city_id=(SELECT city_id FROM city_claims WHERE world_id=? AND chunk_x=? AND chunk_z=?) OR defender_city_id=(SELECT city_id FROM city_claims WHERE world_id=? AND chunk_x=? AND chunk_z=?)) ORDER BY declared_at")) {
+            statement.setObject(1, world);
+            statement.setInt(2, chunkX);
+            statement.setInt(3, chunkZ);
+            statement.setObject(4, world);
+            statement.setInt(5, chunkX);
+            statement.setInt(6, chunkZ);
+            try (ResultSet result = statement.executeQuery()) {
+              while (result.next()) rows.add(result.getString(1));
+            }
+          }
+          return List.copyOf(rows);
+        });
+  }
+
+  @Override
+  public Map<String, Long> liveMetrics() {
+    return store.inTransaction(
+        connection -> {
+          Map<String, Long> values = new LinkedHashMap<>();
+          values.put(
+              "activeCampaigns",
+              scalar(
+                  connection,
+                  "SELECT count(*) FROM campaigns WHERE phase IN ('PREPARATION','ACTIVE','CEASEFIRE','RESOLUTION')"));
+          values.put(
+              "pendingRepairs",
+              scalar(
+                  connection,
+                  "SELECT count(*) FROM repair_tasks WHERE status IN ('PENDING','LEASED','READY','PLACING')"));
+          values.put(
+              "activeCaravans",
+              scalar(connection, "SELECT count(*) FROM caravans WHERE state<>'DESPAWNED'"));
+          values.put(
+              "openOrders",
+              scalar(connection, "SELECT count(*) FROM market_orders WHERE status='OPEN'"));
+          values.put(
+              "activeWorkers",
+              scalar(
+                  connection,
+                  "SELECT count(*) FROM workers WHERE state='AVAILABLE' OR employment_status='EMPLOYED'"));
+          values.put(
+              "loadedClaims",
+              scalar(connection, "SELECT count(*) FROM city_claims WHERE state<>'WILDERNESS'"));
+          values.put(
+              "pendingOutbox",
+              scalar(connection, "SELECT count(*) FROM outbox_events WHERE published_at IS NULL"));
+          values.put(
+              "databaseSessions",
+              scalar(
+                  connection,
+                  "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()"));
+          return Map.copyOf(values);
+        });
+  }
+
+  private static long scalar(java.sql.Connection connection, String sql)
+      throws java.sql.SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(sql);
+        ResultSet result = statement.executeQuery()) {
+      result.next();
+      return result.getLong(1);
+    }
+  }
+
+  private static int countParameters(String sql) {
+    return (int) sql.chars().filter(value -> value == '?').count();
+  }
+
+  private static char symbol(ClaimCell cell) {
+    if (cell == null) return '.';
+    return switch (cell.state) {
+      case "CAPITAL" -> 'A';
+      case "CONTROLLED" -> 'C';
+      case "CONTESTED" -> 'X';
+      default -> cell.influence > 0 ? 'i' : '.';
+    };
+  }
+
+  private record ClaimCell(String state, int influence, UUID owner) {}
 }
