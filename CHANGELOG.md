@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0-RC3 — Release Train B
+
+- Completed Master Roadmap Sprints 6–10: recoverable physical settlement founding, complete membership/governance lifecycle, normalized district persistence, complete district management and physically activated specialization balance.
+- Advanced the database from V32 to V43 with upgrade-safe founding, governance, district normalization, priorities and balance settings/projection.
+- Passed the complete suite, an empty-database player journey, the published RC2 V32-to-V43 upgrade and Paper 26.2 startup on Java 26.
+- Published source and the shaded plugin JAR as the immutable Train B checkpoint.
+
 ## Master Roadmap Sprint 10 — District Specialization and Balancing Foundation
 
 - Replaced unconditional district type bonuses with an effective specialization projection that requires compatible validated buildings and connected, healthy infrastructure.
