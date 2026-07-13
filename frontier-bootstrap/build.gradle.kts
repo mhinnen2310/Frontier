@@ -19,6 +19,26 @@ dependencies {
     implementation("io.micrometer:micrometer-core:1.15.2")
 }
 
+fun gitOutput(vararg arguments: String): String =
+    runCatching {
+        providers.exec {
+            commandLine("git", *arguments)
+        }.standardOutput.asText.get().trim()
+    }.getOrDefault("unknown")
+
+val frontierBuildValues = mapOf(
+    "version" to project.version.toString(),
+    "gitCommit" to gitOutput("rev-parse", "--short=12", "HEAD"),
+    "buildTime" to gitOutput("show", "-s", "--format=%cI", "HEAD"),
+)
+
+tasks.processResources {
+    inputs.properties(frontierBuildValues)
+    filesMatching("frontier-build.properties") {
+        expand(frontierBuildValues)
+    }
+}
+
 tasks.shadowJar {
     archiveBaseName.set("TheFrontier")
     archiveClassifier.set("")

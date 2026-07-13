@@ -28,6 +28,7 @@ class DocumentationCoverageTest {
   void maintainedManualCoversScreensPermissionsConfigurationAndSchema() throws IOException {
     Path root = repositoryRoot();
     Path docs = root.resolve("docs");
+    assertTrue(Files.isRegularFile(root.resolve("IMPLEMENTATION_STATUS.md")));
     String index = Files.readString(docs.resolve("README.md"));
     for (String required : REQUIRED) {
       assertTrue(Files.isRegularFile(docs.resolve(required)), "missing docs/" + required);

@@ -43,6 +43,7 @@ import nl.frontier.economy.InfrastructureType;
 import nl.frontier.economy.LogisticsGateway;
 import nl.frontier.economy.MarketEngine;
 import nl.frontier.economy.ProductionApplicationService;
+import nl.frontier.observability.BuildInformationService;
 import nl.frontier.observability.FrontierMetrics;
 import nl.frontier.repair.RepairGateway;
 import nl.frontier.repair.RepairOrder;
@@ -93,6 +94,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final Supplier<HealthStatus> health;
   private final RecoveryCoordinator recovery;
   private final AdminDiagnostics diagnostics;
+  private final BuildInformationService buildInformation;
   private final FrontierMetrics metrics;
   private final CommandRateLimiter rateLimiter;
   private final SettlementApplicationService settlements;
@@ -129,6 +131,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       Supplier<HealthStatus> health,
       RecoveryCoordinator recovery,
       AdminDiagnostics diagnostics,
+      BuildInformationService buildInformation,
       FrontierMetrics metrics,
       CommandRateLimiter rateLimiter,
       SettlementApplicationService settlements,
@@ -163,6 +166,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.health = Objects.requireNonNull(health);
     this.recovery = Objects.requireNonNull(recovery);
     this.diagnostics = Objects.requireNonNull(diagnostics);
+    this.buildInformation = Objects.requireNonNull(buildInformation);
     this.metrics = Objects.requireNonNull(metrics);
     this.rateLimiter = Objects.requireNonNull(rateLimiter);
     this.settlements = Objects.requireNonNull(settlements);
@@ -2644,6 +2648,10 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       return;
     }
     switch (args[0].toLowerCase(Locale.ROOT)) {
+      case "build" ->
+          schedulers
+              .async(buildInformation::report)
+              .whenComplete((rows, failure) -> adminRows(sender, rows, failure));
       case "metrics" -> {
         Map<String, Number> values = metrics.snapshot();
         sender.sendMessage(Component.text("Frontier metrics", NamedTextColor.GOLD));
@@ -2792,7 +2800,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       default ->
           sender.sendMessage(
               Component.text(
-                  "admin actions: health, recover, metrics, live, security, performance, snapshot, inspect, audit, settlement, influence, road, repair, campaign, worker, economy, heatmap, chunk",
+                  "admin actions: build, health, recover, metrics, live, security, performance, snapshot, inspect, audit, settlement, influence, road, repair, campaign, worker, economy, heatmap, chunk",
                   NamedTextColor.RED));
     }
   }
@@ -3124,6 +3132,29 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           Arrays.stream(FrontierUi.Screen.values())
               .map(value -> value.name().toLowerCase(Locale.ROOT))
               .toList(),
+          args[1]);
+    if (args.length == 2 && args[0].equalsIgnoreCase("admin"))
+      return matching(
+          List.of(
+              "build",
+              "health",
+              "recover",
+              "metrics",
+              "live",
+              "security",
+              "performance",
+              "snapshot",
+              "inspect",
+              "audit",
+              "settlement",
+              "influence",
+              "road",
+              "repair",
+              "campaign",
+              "worker",
+              "economy",
+              "heatmap",
+              "chunk"),
           args[1]);
     return List.of();
   }

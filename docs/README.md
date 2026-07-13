@@ -21,4 +21,4 @@ This directory is the maintained operator, player and developer manual for Front
 - [Architecture](ARCHITECTURE.md): modules, transaction boundaries and runtime flow.
 - [Developer API](DEVELOPER_API.md): supported interfaces and extension rules.
 - [Database schema](DATABASE.md): ownership, table families and all migrations.
-- [Implementation status](IMPLEMENTATION_STATUS.md), [decisions](../DECISIONS.md), [changelog](../CHANGELOG.md) and [security audit](../SECURITY_AUDIT.md).
+- [Implementation status](../IMPLEMENTATION_STATUS.md), [decisions](../DECISIONS.md), [changelog](../CHANGELOG.md) and [security audit](../SECURITY_AUDIT.md).

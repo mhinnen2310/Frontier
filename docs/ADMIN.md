@@ -8,6 +8,7 @@ All commands below require `frontier.admin`.
 
 | Command | Result |
 |---|---|
+| `/frontier admin build` | Packaged version, Git revision/time, Java, Paper target, live schema and module states |
 | `/frontier admin health` | Database, outbox, scheduler and simulation health |
 | `/frontier admin recover` | Reconcile expired leases, transfers, prepared consumption and outbox work |
 | `/frontier admin inspect <settlement\|influence\|road\|repair\|campaign\|worker\|economy> <uuid>` | Read-only aggregate inspector |
@@ -24,6 +25,13 @@ All commands below require `frontier.admin`.
 | `/frontier admin security` | Runtime security constraints and configuration audit; must report `PASS` |
 
 Inspectors are read-only. Recovery is idempotent and should be preferred to database edits. Never repair gameplay by changing SQL manually; preserve the audit trail and domain invariants.
+
+## Startup troubleshooting
+
+- `Ambiguous plugin name` means multiple Frontier JARs are present. Stop Paper and retain exactly one current JAR.
+- `Connection ... refused` means PostgreSQL is stopped, listening elsewhere or blocked. Start PostgreSQL and verify the configured host/port/database before restarting Paper.
+- `plugin is disabled` after either failure is a consequence, not a separate command bug. Correct startup and restart Paper; do not use `/reload`.
+- `Failed to read console input` on Windows comes from launching Paper without a valid stdin stream. Use a normal terminal or a process manager that keeps stdin attached; it is independent from Frontier persistence.
 
 ## Routine gates
 

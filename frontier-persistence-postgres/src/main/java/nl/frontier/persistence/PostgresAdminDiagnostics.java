@@ -46,6 +46,20 @@ public final class PostgresAdminDiagnostics implements AdminDiagnostics {
   }
 
   @Override
+  public int schemaVersion() {
+    return store.inTransaction(
+        connection -> {
+          try (PreparedStatement statement =
+                  connection.prepareStatement(
+                      "SELECT coalesce(max(installed_rank),0) FROM flyway_schema_history WHERE success");
+              ResultSet result = statement.executeQuery()) {
+            result.next();
+            return result.getInt(1);
+          }
+        });
+  }
+
+  @Override
   public Snapshot snapshot() {
     return store.inTransaction(
         connection -> {

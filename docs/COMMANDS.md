@@ -23,3 +23,5 @@
 | Kingdom | `/frontier kingdom list`, `create <name>`, `invite <kingdom> <city>`, `accept <invitation>`, `overview <kingdom>`, `treaty <kingdom> <counterpart> <type> [days]`, `treaty-accept <treaty>`, `treaties <kingdom>`, `role <kingdom> <player-uuid> <king\|council\|marshal\|diplomat>`, `vote <kingdom> <kind> [hours]`, `vote-cast <vote> <yes\|no>`, `war-approve <kingdom> <target-city> [type]`, `deposit <kingdom> <city> <cents>`, `withdraw ...`, `tax <kingdom> <basis-points>`, `tax-collect <kingdom>`, `policy <kingdom> <key> <value>`, `secede <kingdom> <city>`, `research <kingdom> <branch> <project> <points>`, `wonder <kingdom> <key> <commodity> <units>`, `contribute <wonder> <units>`, `mega <kingdom> <key> <commodity> <units>`, `mega-contribute <project> <units>`, `objectives` |
 
 Administrative commands are deliberately separated in [ADMIN.md](ADMIN.md).
+
+`/frontier admin build` reports the exact packaged version, Git source revision/time, Java runtime, Paper target, live Flyway schema version and runtime/build-only module status.

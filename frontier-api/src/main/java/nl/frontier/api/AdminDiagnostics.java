@@ -5,6 +5,8 @@ import java.util.Map;
 import java.util.UUID;
 
 public interface AdminDiagnostics {
+  int schemaVersion();
+
   Snapshot snapshot();
 
   List<String> inspect(String aggregateType, UUID aggregateId);

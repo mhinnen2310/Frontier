@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 1 — Repository Baseline and Truthful Status
+
+- Replaced the broad RC-complete claim with an evidence-backed inventory and feature truth table covering all 60 expansion sprints.
+- Added `/frontier admin build` with packaged version, Git revision/time, Java runtime, Paper target, live Flyway schema and module statuses.
+- Audited source markers, dispersed/unused configuration, unreferenced schema foundations, commands, Dialogs, listeners, modules and migrations.
+- Documented and repaired the observed Paper launch blockers: duplicate plugin JARs and an unavailable PostgreSQL listener; the RC1 plugin now starts cleanly on Java 26/Paper 26.2.
+- Added startup troubleshooting and corrected README installation/status claims.
+
 ## Sprint 24 — Release Candidate
 
 - Set the audited artifact version to `1.1.0-RC1`; the published 1.0.0 remains immutable.

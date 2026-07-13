@@ -39,6 +39,7 @@ import nl.frontier.economy.LogisticsGateway;
 import nl.frontier.economy.ProductionApplicationService;
 import nl.frontier.influence.ChunkOwnershipCache;
 import nl.frontier.influence.InfluenceSimulationService;
+import nl.frontier.observability.BuildInformationService;
 import nl.frontier.observability.FrontierMetrics;
 import nl.frontier.persistence.DatabaseManager;
 import nl.frontier.persistence.JdbcTransactionalStore;
@@ -201,6 +202,24 @@ public final class FrontierPlugin extends JavaPlugin {
               this::health,
               recovery,
               diagnostics,
+              new BuildInformationService(
+                  BuildInformationService.load(getClassLoader()),
+                  diagnostics::schemaVersion,
+                  Map.ofEntries(
+                      Map.entry("domain", "ACTIVE"),
+                      Map.entry("api", "ACTIVE"),
+                      Map.entry("city", "ACTIVE"),
+                      Map.entry("influence", "ACTIVE"),
+                      Map.entry("economy", "ACTIVE"),
+                      Map.entry("warfare", "ACTIVE"),
+                      Map.entry("repair", "ACTIVE"),
+                      Map.entry("npc", "ACTIVE"),
+                      Map.entry("world", "ACTIVE"),
+                      Map.entry("ui-paper", "ACTIVE"),
+                      Map.entry("persistence-postgres", "ACTIVE"),
+                      Map.entry("observability", "ACTIVE"),
+                      Map.entry("bootstrap", "ACTIVE"),
+                      Map.entry("testkit", "BUILD_ONLY"))),
               metrics,
               new CommandRateLimiter(
                   getConfig().getInt("security.command-rate-limit", 12),
