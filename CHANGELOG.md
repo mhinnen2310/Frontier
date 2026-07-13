@@ -130,6 +130,17 @@
 - Exposed `/frontier admin settlement|influence|road|repair|campaign|worker|economy`, `heatmap`, `chunk` and `live` with permission checks and asynchronous database execution.
 - Added PostgreSQL integration coverage executing every viewer, heatmap, chunk lookup and live-metric query against the complete schema.
 
+### Sprint 15 — World Simulation
+
+- Added deterministic daily regional weather with clear, rain, storm, heatwave and frost states, severity and season-aware selection.
+- Applied weather and season to population migration and changed infrastructure aging to a safe daily cadence.
+- Added audited road and bridge decay driven by maintenance, winter, storms, infrastructure type and accumulated traffic.
+- Added deterministic policy and lifecycle impacts for bandit raids, disasters, migration waves, trade fairs, plagues, floods and harvest failures.
+- World-event impacts now transactionally affect prosperity, population, safety, food stock, roads, bridges or buildings and are replay-safe per event/city/impact.
+- Region reports now expose season, weather and severity; Flyway migration V27 adds weather, decay history and event-impact history.
+- Hardened concurrent structural-damage registration with a coordinate-scoped transaction advisory lock after the expanded regression run exposed a rare duplicate-insert race.
+- Added policy unit coverage for every required event and PostgreSQL coverage for weather, event activation/impact and winter infrastructure decay.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

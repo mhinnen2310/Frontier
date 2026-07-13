@@ -1959,7 +1959,14 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                                         + " stability="
                                         + Math.round(region.stability())
                                         + " roads="
-                                        + Math.round(region.roadIntegrity()))
+                                        + Math.round(region.roadIntegrity())
+                                        + " season="
+                                        + region.season()
+                                        + " weather="
+                                        + region.weather()
+                                        + "("
+                                        + region.weatherSeverity()
+                                        + ")")
                             .collect(java.util.stream.Collectors.joining("\n"));
                   }
                   default ->

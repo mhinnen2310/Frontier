@@ -172,7 +172,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(26, result.getInt(1));
+        assertEquals(27, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1074,12 +1074,41 @@ class DatabaseIntegrationTest {
             "UPDATE cities SET prosperity=100,version=version+1 WHERE id='" + buyer.id() + "'");
       }
       PostgresWorldSimulationGateway worldSimulation = new PostgresWorldSimulationGateway(store);
-      WorldSimulationGateway.CycleReport worldCycle = worldSimulation.cycle(1_000, Instant.now());
+      Instant worldNow = Instant.now();
+      WorldSimulationGateway.CycleReport worldCycle = worldSimulation.cycle(1_000, worldNow);
       assertTrue(worldCycle.cities() > 0);
       assertTrue(worldSimulation.regions().stream().anyMatch(region -> region.population() >= 0));
       assertTrue(
+          worldSimulation.regions().stream()
+              .allMatch(region -> !region.weather().isBlank() && region.weatherSeverity() >= 0));
+      assertTrue(
           worldSimulation.events(false).stream()
               .anyMatch(event -> event.key().equals("TRADE_FAIR")));
+      worldSimulation.cycle(0, worldNow.plusSeconds(120));
+      worldSimulation.cycle(0, worldNow.plusSeconds(240));
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        try (var impacts =
+            statement.executeQuery(
+                "SELECT count(*) FROM world_event_impacts WHERE impact_key='TRADE_FAIR'")) {
+          assertTrue(impacts.next());
+          assertTrue(impacts.getInt(1) > 0);
+        }
+        statement.executeUpdate(
+            "UPDATE season_state SET season='WINTER',ends_at=now()+interval '30 days'");
+      }
+      assertTrue(
+          worldSimulation.cycle(1_000, worldNow.plusSeconds(86_401)).infrastructureAged() > 0);
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT integrity_before,integrity_after FROM infrastructure_decay_history WHERE edge_id=? ORDER BY occurred_at DESC LIMIT 1")) {
+        statement.setObject(1, physicalEdge.id());
+        try (var decay = statement.executeQuery()) {
+          assertTrue(decay.next());
+          assertTrue(decay.getInt(2) < decay.getInt(1));
+        }
+      }
 
       PostgresCivilizationGateway civilization = new PostgresCivilizationGateway(store);
       CivilizationGateway.KingdomSnapshot firstKingdom =

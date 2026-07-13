@@ -7,18 +7,21 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import nl.frontier.api.TransactionalStore;
 import nl.frontier.domain.DomainException;
 import nl.frontier.world.WorldEvent;
+import nl.frontier.world.WorldEventPolicy;
 import nl.frontier.world.WorldSimulation;
 import nl.frontier.world.WorldSimulationGateway;
 
 public final class PostgresWorldSimulationGateway implements WorldSimulationGateway {
   private static final Duration CITY_INTERVAL = Duration.ofMinutes(15);
-  private static final Duration INFRASTRUCTURE_INTERVAL = Duration.ofMinutes(30);
+  private static final Duration INFRASTRUCTURE_INTERVAL = Duration.ofDays(1);
   private static final Duration NATURE_INTERVAL = Duration.ofHours(1);
   private static final Duration SEASON_LENGTH = Duration.ofDays(21);
   private final TransactionalStore store;
@@ -60,7 +63,7 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
           List<RegionSnapshot> values = new ArrayList<>();
           try (PreparedStatement statement =
                   connection.prepareStatement(
-                      "SELECT id,region_key,population,prosperity,stability,trade_activity,road_integrity,season,version FROM world_regions ORDER BY region_key");
+                      "SELECT r.id,r.region_key,r.population,r.prosperity,r.stability,r.trade_activity,r.road_integrity,r.season,coalesce(w.weather_key,'CLEAR'),coalesce(w.severity,0),r.version FROM world_regions r LEFT JOIN world_weather w ON w.region_id=r.id ORDER BY r.region_key");
               ResultSet result = statement.executeQuery()) {
             while (result.next())
               values.add(
@@ -73,7 +76,9 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
                       result.getDouble(6),
                       result.getDouble(7),
                       result.getString(8),
-                      result.getLong(9)));
+                      result.getString(9),
+                      result.getInt(10),
+                      result.getLong(11)));
           }
           return List.copyOf(values);
         });
@@ -90,7 +95,7 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
                   : "";
           try (PreparedStatement statement =
                   connection.prepareStatement(
-                      "SELECT e.id,e.region_id,e.category,e.event_key,e.state,coalesce(o.progress,0),coalesce(o.target,1),e.state_at FROM world_events e LEFT JOIN event_objectives o ON o.event_id=e.id"
+                      "SELECT e.id,e.region_id,e.category,e.event_key,e.state,coalesce(o.progress,0),coalesce(o.target,1),e.severity,e.state_at FROM world_events e LEFT JOIN event_objectives o ON o.event_id=e.id"
                           + filter
                           + " ORDER BY e.state_at DESC LIMIT 200");
               ResultSet result = statement.executeQuery()) {
@@ -104,7 +109,8 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
                       WorldEvent.State.valueOf(result.getString(5)),
                       result.getLong(6),
                       result.getLong(7),
-                      result.getTimestamp(8).toInstant()));
+                      result.getInt(8),
+                      result.getTimestamp(9).toInstant()));
           }
           return List.copyOf(values);
         });
@@ -129,10 +135,19 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
       }
     }
     CityStats city = cityStats(connection, state.city);
+    RegionRow region = refreshRegion(connection, state.region, city.world, season, now);
+    Weather weather = ensureWeather(connection, region, season, now);
     int before = city.population;
     int delta = 0;
     if (city.foodUnits < Math.max(1, city.population / 4L) || city.activeWars > 0) delta = -1;
-    else if (city.prosperity >= 70 && city.happiness >= 60 && city.treasury > 0) delta = 1;
+    else if (city.prosperity >= 70
+        && city.happiness >= 60
+        && city.treasury > 0
+        && season != WorldSimulation.Season.WINTER
+        && !weather.key.equals("HEATWAVE")
+        && !weather.key.equals("FROST")) delta = 1;
+    if (activeEvent(connection, region.id, "MIGRATION_WAVE")) delta = Math.max(delta, 2);
+    if (activeEvent(connection, region.id, "PLAGUE")) delta = Math.min(delta, -2);
     int after = Math.max(0, before + delta);
     if (delta != 0) {
       try (PreparedStatement statement =
@@ -161,13 +176,15 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
     boolean age =
         state.lastInfrastructure == null
             || state.lastInfrastructure.plus(INFRASTRUCTURE_INTERVAL).compareTo(now) <= 0;
+    int decay =
+        (city.overdueMaintenance ? 1 : 0)
+            + (season == WorldSimulation.Season.WINTER ? 1 : 0)
+            + (weather.key.equals("STORM") ? Math.max(1, weather.severity / 40) : 0);
+    int decayed =
+        age && decay > 0
+            ? decayInfrastructure(connection, state.city, decay, season, weather, now)
+            : 0;
     if (age && city.overdueMaintenance) {
-      try (PreparedStatement statement =
-          connection.prepareStatement(
-              "UPDATE road_edges SET integrity=greatest(0,integrity-1),version=version+1 WHERE from_node IN (SELECT id FROM road_nodes WHERE city_id=?)")) {
-        statement.setObject(1, state.city);
-        statement.executeUpdate();
-      }
       try (PreparedStatement statement =
           connection.prepareStatement(
               "UPDATE city_buildings SET integrity=greatest(0,integrity-1),status=CASE WHEN integrity-1<=0 THEN 'DESTROYED' WHEN integrity-1<15 THEN 'DISABLED' WHEN integrity-1<90 THEN 'DAMAGED' ELSE 'ACTIVE' END,version=version+1 WHERE city_id=?")) {
@@ -175,11 +192,11 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
         statement.executeUpdate();
       }
     }
-    RegionRow region = refreshRegion(connection, state.region, city.world, season, now);
+    region = refreshRegion(connection, state.region, city.world, season, now);
     boolean nature =
         state.lastNature == null || state.lastNature.plus(NATURE_INTERVAL).compareTo(now) <= 0;
     if (nature) updateNature(connection, region, now);
-    boolean event = maybeCreateEvent(connection, region, season, now);
+    boolean event = maybeCreateEvent(connection, region, season, weather, now);
     try (PreparedStatement statement =
         connection.prepareStatement(
             "UPDATE city_world_simulation_state SET observed_city_version=(SELECT version FROM cities WHERE id=?),next_cycle_at=?,lease_owner=NULL,lease_expires_at=NULL,last_infrastructure_at=CASE WHEN ? THEN ? ELSE last_infrastructure_at END,last_nature_at=CASE WHEN ? THEN ? ELSE last_nature_at END,version=version+1 WHERE city_id=?")) {
@@ -192,7 +209,7 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
       statement.setObject(7, state.city);
       statement.executeUpdate();
     }
-    return new CityCycle(delta != 0, age && city.overdueMaintenance, event);
+    return new CityCycle(delta != 0, decayed > 0 || age && city.overdueMaintenance, event);
   }
 
   private static CityStats cityStats(Connection connection, UUID city) throws SQLException {
@@ -306,8 +323,115 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
     }
   }
 
-  private static boolean maybeCreateEvent(
+  private static Weather ensureWeather(
       Connection connection, RegionRow region, WorldSimulation.Season season, Instant now)
+      throws SQLException {
+    LocalDate date = LocalDate.ofInstant(now, ZoneOffset.UTC);
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT weather_key,severity,observed_on FROM world_weather WHERE region_id=? FOR UPDATE")) {
+      statement.setObject(1, region.id);
+      try (ResultSet result = statement.executeQuery()) {
+        if (result.next() && result.getDate(3).toLocalDate().equals(date))
+          return new Weather(result.getString(1), result.getInt(2));
+      }
+    }
+    int roll = Math.floorMod((region.key + ":" + date).hashCode(), 100);
+    String key;
+    if (season == WorldSimulation.Season.WINTER && roll >= 60) key = "FROST";
+    else if (season == WorldSimulation.Season.SUMMER && roll >= 85) key = "HEATWAVE";
+    else if (roll >= 75) key = "STORM";
+    else if (roll >= 50) key = "RAIN";
+    else key = "CLEAR";
+    int severity =
+        key.equals("CLEAR") ? roll / 2 : Math.min(100, 30 + Math.floorMod(roll * 17, 71));
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "INSERT INTO world_weather(region_id,weather_key,severity,observed_on,changed_at,next_change_at,version) VALUES(?,?,?,?,?,?,0) ON CONFLICT(region_id) DO UPDATE SET weather_key=excluded.weather_key,severity=excluded.severity,observed_on=excluded.observed_on,changed_at=excluded.changed_at,next_change_at=excluded.next_change_at,version=world_weather.version+1")) {
+      statement.setObject(1, region.id);
+      statement.setString(2, key);
+      statement.setInt(3, severity);
+      statement.setDate(4, java.sql.Date.valueOf(date));
+      statement.setTimestamp(5, Timestamp.from(now));
+      statement.setTimestamp(6, Timestamp.from(now.plus(Duration.ofDays(1))));
+      statement.executeUpdate();
+    }
+    return new Weather(key, severity);
+  }
+
+  private static int decayInfrastructure(
+      Connection connection,
+      UUID city,
+      int baseDecay,
+      WorldSimulation.Season season,
+      Weather weather,
+      Instant now)
+      throws SQLException {
+    List<Decay> edges = new ArrayList<>();
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT id,infrastructure_type,integrity,traffic FROM road_edges WHERE owner_city=? AND integrity>0 FOR UPDATE")) {
+      statement.setObject(1, city);
+      try (ResultSet result = statement.executeQuery()) {
+        while (result.next()) {
+          int before = result.getInt(3);
+          int amount =
+              baseDecay
+                  + (result.getString(2).equals("BRIDGE") ? 1 : 0)
+                  + (int) Math.min(2, result.getLong(4) / 1_000);
+          edges.add(
+              new Decay(
+                  result.getObject(1, UUID.class),
+                  result.getString(2),
+                  before,
+                  Math.max(0, before - amount)));
+        }
+      }
+    }
+    for (Decay edge : edges) {
+      try (PreparedStatement statement =
+          connection.prepareStatement(
+              "UPDATE road_edges SET integrity=?,version=version+1 WHERE id=?")) {
+        statement.setInt(1, edge.after);
+        statement.setObject(2, edge.id);
+        statement.executeUpdate();
+      }
+      try (PreparedStatement statement =
+          connection.prepareStatement(
+              "INSERT INTO infrastructure_decay_history(id,edge_id,city_id,infrastructure_type,integrity_before,integrity_after,cause,occurred_at) VALUES(?,?,?,?,?,?,?,?)")) {
+        statement.setObject(1, UUID.randomUUID());
+        statement.setObject(2, edge.id);
+        statement.setObject(3, city);
+        statement.setString(4, edge.type);
+        statement.setInt(5, edge.before);
+        statement.setInt(6, edge.after);
+        statement.setString(7, season.name() + "_" + weather.key);
+        statement.setTimestamp(8, Timestamp.from(now));
+        statement.executeUpdate();
+      }
+    }
+    return edges.size();
+  }
+
+  private static boolean activeEvent(Connection connection, UUID region, String key)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT 1 FROM world_events WHERE region_id=? AND event_key=? AND state='ACTIVE'")) {
+      statement.setObject(1, region);
+      statement.setString(2, key);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next();
+      }
+    }
+  }
+
+  private static boolean maybeCreateEvent(
+      Connection connection,
+      RegionRow region,
+      WorldSimulation.Season season,
+      Weather weather,
+      Instant now)
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
@@ -318,28 +442,34 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
         if (result.next()) return false;
       }
     }
-    String key = null;
-    WorldEvent.Category category = null;
-    if (region.prosperity >= 70 && region.trade > 0) {
-      key = "TRADE_FAIR";
-      category = WorldEvent.Category.ECONOMIC;
-    } else if (region.stability < 40) {
-      key = "BANDIT_RAID";
-      category = WorldEvent.Category.MILITARY;
-    } else if (season == WorldSimulation.Season.AUTUMN && region.population > 0) {
-      key = "HARVEST_FESTIVAL";
-      category = WorldEvent.Category.SOCIAL;
-    }
-    if (key == null) return false;
+    var choice =
+        new WorldEventPolicy()
+            .select(
+                new WorldEventPolicy.Conditions(
+                    region.population,
+                    region.prosperity,
+                    region.stability,
+                    region.trade,
+                    region.roads,
+                    season,
+                    weather.key,
+                    weather.severity));
+    if (choice.isEmpty()) return false;
+    String key = choice.orElseThrow().key();
+    WorldEvent.Category category = choice.orElseThrow().category();
+    int severity = Math.max(25, weather.severity);
     UUID event = UUID.randomUUID();
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "INSERT INTO world_events(id,region_id,category,event_key,state,state_at,payload,version) VALUES(?,?,?,?,'SCHEDULED',?,'{}'::jsonb,0)")) {
+            "INSERT INTO world_events(id,region_id,category,event_key,state,state_at,payload,version,severity) VALUES(?,?,?,?,'SCHEDULED',?,jsonb_build_object('weather',?,'season',?),0,?)")) {
       statement.setObject(1, event);
       statement.setObject(2, region.id);
       statement.setString(3, category.name());
       statement.setString(4, key);
       statement.setTimestamp(5, Timestamp.from(now));
+      statement.setString(6, weather.key);
+      statement.setString(7, season.name());
+      statement.setInt(8, severity);
       statement.executeUpdate();
     }
     try (PreparedStatement statement =
@@ -347,7 +477,7 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
             "INSERT INTO event_objectives(id,event_id,objective_key,progress,target,state,version) VALUES(?,?,?,0,100,'ACTIVE',0)")) {
       statement.setObject(1, UUID.randomUUID());
       statement.setObject(2, event);
-      statement.setString(3, key + "_REGIONAL_RESPONSE");
+      statement.setString(3, key + "_" + choice.orElseThrow().response());
       statement.executeUpdate();
     }
     try (PreparedStatement statement =
@@ -355,7 +485,14 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
             "INSERT INTO event_rewards(id,event_id,reward_key,amount,status) VALUES(?,?,?,100,'PENDING')")) {
       statement.setObject(1, UUID.randomUUID());
       statement.setObject(2, event);
-      statement.setString(3, key.equals("BANDIT_RAID") ? "STABILITY" : "PROSPERITY");
+      statement.setString(
+          3,
+          switch (key) {
+            case "BANDIT_RAID", "PLAGUE" -> "STABILITY";
+            case "FLOOD", "DISASTER" -> "INFRASTRUCTURE";
+            case "HARVEST_FAILURE" -> "FOOD";
+            default -> "PROSPERITY";
+          });
       statement.executeUpdate();
     }
     eventHistory(connection, event, null, "SCHEDULED", now);
@@ -366,7 +503,7 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
     List<EventRow> events = new ArrayList<>();
     try (PreparedStatement statement =
             connection.prepareStatement(
-                "SELECT id,region_id,state,state_at FROM world_events WHERE state<>'ARCHIVED' ORDER BY state_at LIMIT 100 FOR UPDATE SKIP LOCKED");
+                "SELECT id,region_id,state,state_at,event_key,severity FROM world_events WHERE state<>'ARCHIVED' ORDER BY state_at LIMIT 100 FOR UPDATE SKIP LOCKED");
         ResultSet result = statement.executeQuery()) {
       while (result.next())
         events.add(
@@ -374,7 +511,9 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
                 result.getObject(1, UUID.class),
                 result.getObject(2, UUID.class),
                 result.getString(3),
-                result.getTimestamp(4).toInstant()));
+                result.getTimestamp(4).toInstant(),
+                result.getString(5),
+                result.getInt(6)));
     }
     int advanced = 0;
     for (EventRow event : events) {
@@ -403,10 +542,128 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
           statement.executeUpdate();
         }
         eventHistory(connection, event.id, event.state, next, now);
+        if (next.equals("ACTIVE")) applyEventImpacts(connection, event, now);
         advanced++;
       }
     }
     return advanced;
+  }
+
+  private static void applyEventImpacts(Connection connection, EventRow event, Instant now)
+      throws SQLException {
+    List<UUID> cities = new ArrayList<>();
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT s.city_id FROM city_world_simulation_state s JOIN world_regions r ON r.region_key=s.region_key WHERE r.id=? ORDER BY s.city_id")) {
+      statement.setObject(1, event.region);
+      try (ResultSet result = statement.executeQuery()) {
+        while (result.next()) cities.add(result.getObject(1, UUID.class));
+      }
+    }
+    for (UUID city : cities) {
+      int amount = Math.max(1, event.severity / 10);
+      String impact = event.key;
+      try (PreparedStatement statement =
+          connection.prepareStatement(
+              "INSERT INTO world_event_impacts(id,event_id,city_id,impact_key,amount,applied_at) VALUES(?,?,?,?,?,?) ON CONFLICT(event_id,city_id,impact_key) DO NOTHING")) {
+        statement.setObject(1, UUID.randomUUID());
+        statement.setObject(2, event.id);
+        statement.setObject(3, city);
+        statement.setString(4, impact);
+        statement.setLong(5, amount);
+        statement.setTimestamp(6, Timestamp.from(now));
+        if (statement.executeUpdate() == 0) continue;
+      }
+      switch (event.key) {
+        case "BANDIT_RAID" -> {
+          updateCity(connection, city, -2, 0);
+          damageRoads(connection, city, "ROAD", Math.max(1, amount / 2));
+        }
+        case "DISASTER" -> {
+          damageRoads(connection, city, null, amount);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE city_buildings SET integrity=greatest(0,integrity-?),status=CASE WHEN integrity-?<=0 THEN 'DESTROYED' WHEN integrity-?<15 THEN 'DISABLED' ELSE 'DAMAGED' END,version=version+1 WHERE city_id=? AND status<>'DESTROYED'")) {
+            statement.setInt(1, amount);
+            statement.setInt(2, amount);
+            statement.setInt(3, amount);
+            statement.setObject(4, city);
+            statement.executeUpdate();
+          }
+        }
+        case "FLOOD" -> {
+          damageRoads(connection, city, "BRIDGE", amount);
+          reduceFood(connection, city, 90);
+        }
+        case "PLAGUE" -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE cities SET population=greatest(0,population-greatest(1,population*?/100)),prosperity=greatest(0,prosperity-3),version=version+1 WHERE id=?")) {
+            statement.setInt(1, Math.max(1, event.severity / 20));
+            statement.setObject(2, city);
+            statement.executeUpdate();
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE city_population_state SET safety=greatest(0,safety-10),version=version+1 WHERE city_id=?")) {
+            statement.setObject(1, city);
+            statement.executeUpdate();
+          }
+        }
+        case "HARVEST_FAILURE" -> reduceFood(connection, city, 75);
+        case "MIGRATION_WAVE" -> {
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE cities SET population=population+?,version=version+1 WHERE id=?")) {
+            statement.setInt(1, Math.max(1, event.severity / 25));
+            statement.setObject(2, city);
+            statement.executeUpdate();
+          }
+        }
+        case "TRADE_FAIR" -> updateCity(connection, city, 5, 0);
+        case "HARVEST_FESTIVAL" -> updateCity(connection, city, 2, 0);
+        default -> {
+          // Unknown extension events retain lifecycle/reward behavior without an implicit effect.
+        }
+      }
+    }
+  }
+
+  private static void updateCity(Connection connection, UUID city, int prosperity, int population)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE cities SET prosperity=greatest(0,least(100,prosperity+?)),population=greatest(0,population+?),version=version+1 WHERE id=?")) {
+      statement.setInt(1, prosperity);
+      statement.setInt(2, population);
+      statement.setObject(3, city);
+      statement.executeUpdate();
+    }
+  }
+
+  private static void damageRoads(Connection connection, UUID city, String type, int amount)
+      throws SQLException {
+    String filter = type == null ? "" : " AND infrastructure_type=?";
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE road_edges SET integrity=greatest(0,integrity-?),version=version+1 WHERE owner_city=?"
+                + filter)) {
+      statement.setInt(1, amount);
+      statement.setObject(2, city);
+      if (type != null) statement.setString(3, type);
+      statement.executeUpdate();
+    }
+  }
+
+  private static void reduceFood(Connection connection, UUID city, int percent)
+      throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "UPDATE warehouse_stock SET available_quantity=available_quantity*?/100,version=version+1 WHERE warehouse_id IN (SELECT id FROM warehouses WHERE city_id=?) AND (commodity_key LIKE '%wheat%' OR commodity_key LIKE '%bread%' OR commodity_key LIKE '%carrot%' OR commodity_key LIKE '%potato%')")) {
+      statement.setInt(1, percent);
+      statement.setObject(2, city);
+      statement.executeUpdate();
+    }
   }
 
   private static void progressEvent(Connection connection, UUID event) throws SQLException {
@@ -530,7 +787,12 @@ public final class PostgresWorldSimulationGateway implements WorldSimulationGate
       double trade,
       double roads) {}
 
-  private record EventRow(UUID id, UUID region, String state, Instant stateAt) {}
+  private record Weather(String key, int severity) {}
+
+  private record Decay(UUID id, String type, int before, int after) {}
+
+  private record EventRow(
+      UUID id, UUID region, String state, Instant stateAt, String key, int severity) {}
 
   private static final class CityCycle {
     static final CityCycle NONE = new CityCycle(false, false, false);

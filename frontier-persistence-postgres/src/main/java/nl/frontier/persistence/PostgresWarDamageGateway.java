@@ -28,6 +28,21 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
         connection -> {
           if (!activeCampaign(connection, attempt))
             return new Decision(false, "campaign is not active here", 0, 0, null, false);
+          try (PreparedStatement statement =
+              connection.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?,0))")) {
+            statement.setString(
+                1,
+                attempt.campaign()
+                    + ":"
+                    + attempt.world()
+                    + ":"
+                    + attempt.x()
+                    + ":"
+                    + attempt.y()
+                    + ":"
+                    + attempt.z());
+            statement.executeQuery().close();
+          }
           ExistingDamage existing = existingDamage(connection, attempt);
           if (existing != null && !reusable(existing))
             return new Decision(

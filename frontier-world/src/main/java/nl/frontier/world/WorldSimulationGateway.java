@@ -22,6 +22,8 @@ public interface WorldSimulationGateway {
       double tradeActivity,
       double roadIntegrity,
       String season,
+      String weather,
+      int weatherSeverity,
       long version) {}
 
   record EventSnapshot(
@@ -32,6 +34,7 @@ public interface WorldSimulationGateway {
       WorldEvent.State state,
       long progress,
       long target,
+      int severity,
       Instant stateAt) {}
 
   record CycleReport(
