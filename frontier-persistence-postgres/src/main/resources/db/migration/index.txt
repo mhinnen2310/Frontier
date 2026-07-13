@@ -47,3 +47,4 @@ V46__physical_route_dirty_segments.sql
 V47__physical_route_segments.sql
 V48__infrastructure_health_and_failure.sql
 V49__worker_model_completion.sql
+V50__worker_activity_scheduler.sql

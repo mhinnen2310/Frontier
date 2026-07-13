@@ -3,3 +3,8 @@ enabled: true
 presentation:
   materialization-cycle-seconds: 5
   maximum-visible-per-settlement: 20
+activities:
+  maximum-per-cycle: 100
+  lease-seconds: 60
+  maximum-path-steps: 256
+  path-step-millis: 250

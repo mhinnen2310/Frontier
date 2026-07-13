@@ -43,7 +43,7 @@ Every file has `config-version: 1`; every module has `enabled`. Values are loade
 | `caravans.yml` | Caravan subsystem control | enabled |
 | `warfare.yml` | Campaign timing/cost, breach budget and objective lifecycle | enabled |
 | `repairs.yml` | Task cycle/lease/archive/bound, unsafe radius and damage recovery | enabled |
-| `population.yml` | NPC materialization cadence and visible-per-settlement cap | enabled |
+| `population.yml` | NPC materialization cadence/cap plus activity cycle bound, lease, maximum path steps and movement cadence | enabled; 20 visible workers, 100 activities/cycle, 60-second lease, 256 steps at 250 ms |
 | `kingdoms.yml` | Civilization cadence and kingdom bound | enabled |
 | `waypoints.yml` | Reserved typed control for Train G | disabled until implemented |
 | `cartography.yml` | Reserved typed control for Train G | disabled until implemented |

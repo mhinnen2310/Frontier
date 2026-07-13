@@ -77,6 +77,7 @@ import nl.frontier.persistence.PostgresSettlementGateway;
 import nl.frontier.persistence.PostgresSettlementLifecycleGateway;
 import nl.frontier.persistence.PostgresSettlementSimulationGateway;
 import nl.frontier.persistence.PostgresWarDamageGateway;
+import nl.frontier.persistence.PostgresWorkerActivityGateway;
 import nl.frontier.persistence.PostgresWorldSimulationGateway;
 import nl.frontier.repair.RepairGateway;
 import nl.frontier.ui.PaperFrontierUi;
@@ -434,7 +435,15 @@ public final class FrontierPlugin extends JavaPlugin {
               this,
               schedulers,
               new PostgresNpcMaterializationGateway(store),
+              new PostgresWorkerActivityGateway(store),
+              new PaperWorkerNavigator(
+                  this,
+                  schedulers,
+                  Duration.ofMillis(config.population().pathStepMillis()),
+                  config.population().maximumPathSteps()),
               Duration.ofSeconds(config.population().materializationCycleSeconds()),
+              Duration.ofSeconds(config.population().activityLeaseSeconds()),
+              config.population().maximumActivitiesPerCycle(),
               config.population().maximumVisibleNpcsPerSettlement(),
               getLogger());
       if (config.enabled("population")) npcMaterializationSupervisor.start();

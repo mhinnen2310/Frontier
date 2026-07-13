@@ -119,7 +119,13 @@ public record FrontierConfiguration(
       int maximumDamageRecoveryPerCycle) {}
 
   public record Population(
-      Control control, long materializationCycleSeconds, int maximumVisibleNpcsPerSettlement) {}
+      Control control,
+      long materializationCycleSeconds,
+      int maximumVisibleNpcsPerSettlement,
+      int maximumActivitiesPerCycle,
+      long activityLeaseSeconds,
+      int maximumPathSteps,
+      long pathStepMillis) {}
 
   public record Kingdoms(
       Control control, long civilizationCycleSeconds, int maximumKingdomsPerCycle) {}

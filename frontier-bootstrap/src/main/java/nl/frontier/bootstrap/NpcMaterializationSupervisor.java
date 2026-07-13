@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -14,7 +15,10 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import nl.frontier.api.SchedulerFacade;
 import nl.frontier.domain.Ids.WorldId;
 import nl.frontier.domain.Position.BlockPos;
+import nl.frontier.npc.Navigator;
 import nl.frontier.npc.NpcMaterializationGateway;
+import nl.frontier.npc.PlayerObservation;
+import nl.frontier.npc.WorkerActivityGateway;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Server;
@@ -28,25 +32,39 @@ final class NpcMaterializationSupervisor {
   private final Server server;
   private final SchedulerFacade schedulers;
   private final NpcMaterializationGateway gateway;
+  private final WorkerActivityGateway activities;
+  private final Navigator navigator;
   private final Duration interval;
+  private final Duration activityLease;
+  private final int maximumActivities;
   private final int maximumPerSettlement;
   private final Logger logger;
   private final NamespacedKey workerKey;
   private final NamespacedKey cityKey;
   private final AtomicBoolean active = new AtomicBoolean();
+  private final Set<UUID> navigating = ConcurrentHashMap.newKeySet();
+  private final UUID scheduler = UUID.randomUUID();
 
   NpcMaterializationSupervisor(
       Plugin plugin,
       SchedulerFacade schedulers,
       NpcMaterializationGateway gateway,
+      WorkerActivityGateway activities,
+      Navigator navigator,
       Duration interval,
+      Duration activityLease,
+      int maximumActivities,
       int maximumPerSettlement,
       Logger logger) {
     this.plugin = plugin;
     this.server = plugin.getServer();
     this.schedulers = schedulers;
     this.gateway = gateway;
+    this.activities = activities;
+    this.navigator = navigator;
     this.interval = interval;
+    this.activityLease = activityLease;
+    this.maximumActivities = maximumActivities;
     this.maximumPerSettlement = maximumPerSettlement;
     this.logger = logger;
     workerKey = new NamespacedKey(plugin, "worker_id");
@@ -59,20 +77,40 @@ final class NpcMaterializationSupervisor {
 
   void stop() {
     active.set(false);
+    if (navigator instanceof PaperWorkerNavigator paper) paper.stop();
   }
 
   private void cycle() {
     if (!active.get()) return;
     schedulers.global(
         () -> {
-          Set<UUID> online = new HashSet<>();
-          server.getOnlinePlayers().forEach(player -> online.add(player.getUniqueId()));
+          Set<PlayerObservation> observers = new HashSet<>();
+          server
+              .getOnlinePlayers()
+              .forEach(
+                  player -> {
+                    Location location = player.getLocation();
+                    observers.add(
+                        new PlayerObservation(
+                            player.getUniqueId(),
+                            location.getWorld().getUID(),
+                            location.getBlockX(),
+                            location.getBlockY(),
+                            location.getBlockZ()));
+                  });
+          Instant now = Instant.now();
           schedulers
               .async(
                   () ->
                       new ProjectionBatch(
-                          gateway.candidates(online, maximumPerSettlement),
-                          gateway.retirements(online)))
+                          gateway.candidates(observers, maximumPerSettlement),
+                          gateway.retirements(observers),
+                          activities.cycle(
+                              observers,
+                              scheduler,
+                              maximumActivities,
+                              now,
+                              now.plus(activityLease))))
               .whenComplete(
                   (batch, failure) -> {
                     if (failure != null)
@@ -98,6 +136,41 @@ final class NpcMaterializationSupervisor {
       }
       spawn(candidate);
     }
+    for (WorkerActivityGateway.Activity activity : batch.activities().visible()) navigate(activity);
+  }
+
+  private void navigate(WorkerActivityGateway.Activity activity) {
+    if (!"TRAVELLING".equals(activity.status()) || activity.entity() == null) return;
+    if (!navigating.add(activity.id())) return;
+    BlockPos destination =
+        new BlockPos(new WorldId(activity.world()), activity.x(), activity.y(), activity.z());
+    navigator
+        .navigate(activity.entity(), destination)
+        .whenComplete(
+            (result, failure) -> {
+              navigating.remove(activity.id());
+              if (!active.get()) return;
+              Instant now = Instant.now();
+              schedulers
+                  .async(
+                      () -> {
+                        if (failure == null && result == Navigator.Result.ARRIVED)
+                          activities.arrived(activity.id(), activity.worker(), scheduler, now);
+                        else
+                          activities.failed(
+                              activity.id(),
+                              activity.worker(),
+                              scheduler,
+                              failure == null ? result.name() : failure.getClass().getSimpleName(),
+                              now);
+                        return null;
+                      })
+                  .exceptionally(
+                      error -> {
+                        logger.log(Level.WARNING, "Worker activity handoff failed", error);
+                        return null;
+                      });
+            });
   }
 
   private void spawn(NpcMaterializationGateway.Candidate candidate) {
@@ -165,5 +238,6 @@ final class NpcMaterializationSupervisor {
 
   private record ProjectionBatch(
       List<NpcMaterializationGateway.Candidate> candidates,
-      List<NpcMaterializationGateway.Binding> retirements) {}
+      List<NpcMaterializationGateway.Binding> retirements,
+      WorkerActivityGateway.CycleReport activities) {}
 }

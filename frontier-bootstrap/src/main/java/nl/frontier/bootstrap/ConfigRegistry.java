@@ -242,7 +242,11 @@ public final class ConfigRegistry {
         new FrontierConfiguration.Population(
             control(population),
             positiveLong(population, "presentation.materialization-cycle-seconds"),
-            positive(population, "presentation.maximum-visible-per-settlement", 500));
+            positive(population, "presentation.maximum-visible-per-settlement", 500),
+            positive(population, "activities.maximum-per-cycle", 10_000),
+            positiveLong(population, "activities.lease-seconds"),
+            positive(population, "activities.maximum-path-steps", 2_048),
+            positive(population, "activities.path-step-millis", 5_000));
     YamlConfiguration districts = modules.get("districts");
     var districtConfig =
         new FrontierConfiguration.Districts(
@@ -940,7 +944,11 @@ public final class ConfigRegistry {
             "config-version",
             "enabled",
             "presentation.materialization-cycle-seconds",
-            "presentation.maximum-visible-per-settlement"));
+            "presentation.maximum-visible-per-settlement",
+            "activities.maximum-per-cycle",
+            "activities.lease-seconds",
+            "activities.maximum-path-steps",
+            "activities.path-step-millis"));
     keys.put(
         "kingdoms",
         leaves(

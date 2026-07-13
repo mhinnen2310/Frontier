@@ -7,9 +7,9 @@ import java.util.UUID;
 
 /** Persistent worker identity is authoritative; the entity UUID is a replaceable projection. */
 public interface NpcMaterializationGateway {
-  List<Candidate> candidates(Set<UUID> onlinePlayers, int maximumPerSettlement);
+  List<Candidate> candidates(Set<PlayerObservation> observers, int maximumPerSettlement);
 
-  List<Binding> retirements(Set<UUID> onlinePlayers);
+  List<Binding> retirements(Set<PlayerObservation> observers);
 
   void bind(UUID worker, UUID entity, Instant now);
 

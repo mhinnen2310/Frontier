@@ -55,6 +55,8 @@ import nl.frontier.influence.ChunkOwnershipCache;
 import nl.frontier.influence.InfluenceSimulationService;
 import nl.frontier.influence.TerritoryState;
 import nl.frontier.npc.NpcMaterializationGateway;
+import nl.frontier.npc.PlayerObservation;
+import nl.frontier.npc.WorkerActivityGateway;
 import nl.frontier.repair.RepairGateway;
 import nl.frontier.repair.RepairOrder;
 import nl.frontier.warfare.CampaignGateway;
@@ -374,7 +376,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(49, result.getInt(1));
+        assertEquals(50, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1490,6 +1492,124 @@ class DatabaseIntegrationTest {
           assertEquals(3, result.getInt(1));
         }
       }
+      Instant activityNow = Instant.now();
+      UUID activityScheduler = UUID.randomUUID();
+      PlayerObservation sellerObserver =
+          new PlayerObservation(sellerOwner, sellerWorld, 488, 65, 488);
+      PostgresWorkerActivityGateway workerActivities = new PostgresWorkerActivityGateway(store);
+      WorkerActivityGateway.CycleReport visibleActivities =
+          workerActivities.cycle(
+              Set.of(sellerObserver),
+              activityScheduler,
+              100,
+              activityNow,
+              activityNow.plusSeconds(60));
+      WorkerActivityGateway.Activity engineerActivity =
+          visibleActivities.visible().stream()
+              .filter(activity -> activity.worker().equals(engineer.id()))
+              .findFirst()
+              .orElseThrow();
+      assertEquals("WORK_SHIFT", engineerActivity.type());
+      assertEquals("TRAVELLING", engineerActivity.status());
+      assertEquals(
+          engineerActivity.id(),
+          workerModel.workers(seller.id(), sellerOwner).stream()
+              .filter(workerProfile -> workerProfile.id().equals(engineer.id()))
+              .findFirst()
+              .orElseThrow()
+              .currentTask());
+      workerActivities.arrived(
+          engineerActivity.id(), engineer.id(), activityScheduler, activityNow.plusSeconds(1));
+      workerActivities.cycle(
+          Set.of(sellerObserver),
+          activityScheduler,
+          100,
+          activityNow.plusSeconds(4),
+          activityNow.plusSeconds(64));
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT status,simulation_mode FROM worker_activity_tasks WHERE id=?")) {
+        statement.setObject(1, engineerActivity.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("COMPLETED", result.getString(1));
+          assertEquals("PHYSICAL", result.getString(2));
+        }
+      }
+
+      var farEngineer =
+          production.hire(seller.id(), sellerOwner, "ENGINEER", 80, 20, activityNow.plusSeconds(5));
+      workerModel.assignBuilding(
+          seller.id(), sellerOwner, farEngineer.id(), industry.id(), activityNow.plusSeconds(5));
+      WorkerActivityGateway.CycleReport abstractActivities =
+          workerActivities.cycle(
+              Set.of(),
+              activityScheduler,
+              1,
+              activityNow.plusSeconds(6),
+              activityNow.plusSeconds(66));
+      assertEquals(1, abstractActivities.simulated());
+      assertTrue(abstractActivities.visible().isEmpty());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT status,simulation_mode FROM worker_activity_tasks WHERE worker_id=? ORDER BY created_at DESC LIMIT 1")) {
+        statement.setObject(1, farEngineer.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("COMPLETED", result.getString(1));
+          assertEquals("SIMULATED", result.getString(2));
+        }
+      }
+
+      var recoveringEngineer =
+          production.hire(seller.id(), sellerOwner, "ENGINEER", 80, 20, activityNow.plusSeconds(7));
+      workerModel.assignBuilding(
+          seller.id(),
+          sellerOwner,
+          recoveringEngineer.id(),
+          industry.id(),
+          activityNow.plusSeconds(7));
+      WorkerActivityGateway.Activity recoveringActivity =
+          workerActivities
+              .cycle(
+                  Set.of(sellerObserver),
+                  activityScheduler,
+                  100,
+                  activityNow.plusSeconds(8),
+                  activityNow.plusSeconds(9))
+              .visible()
+              .stream()
+              .filter(activity -> activity.worker().equals(recoveringEngineer.id()))
+              .findFirst()
+              .orElseThrow();
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "UPDATE worker_activity_tasks SET lease_expires_at=now()-interval '1 second' WHERE id=?")) {
+        statement.setObject(1, recoveringActivity.id());
+        statement.executeUpdate();
+      }
+      assertTrue(new PostgresRecoveryCoordinator(store).recover().leases() >= 1);
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT a.status,a.last_error,w.current_activity_id FROM worker_activity_tasks a JOIN workers w ON w.id=a.worker_id WHERE a.id=?")) {
+        statement.setObject(1, recoveringActivity.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("QUEUED", result.getString(1));
+          assertEquals("STARTUP_RECOVERY", result.getString(2));
+          assertTrue(result.getObject(3) == null);
+        }
+      }
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.prepareStatement("DELETE FROM workers WHERE id IN (?,?)")) {
+        statement.setObject(1, farEngineer.id());
+        statement.setObject(2, recoveringEngineer.id());
+        statement.executeUpdate();
+      }
       ProductionGateway.ProductionOrder productionOrder =
           production.queue(
               seller.id(),
@@ -1607,7 +1727,7 @@ class DatabaseIntegrationTest {
 
       PostgresNpcMaterializationGateway npcs = new PostgresNpcMaterializationGateway(store);
       NpcMaterializationGateway.Candidate candidate =
-          npcs.candidates(java.util.Set.of(sellerOwner), 20).stream()
+          npcs.candidates(java.util.Set.of(sellerObserver), 20).stream()
               .filter(value -> value.city().equals(seller.id()))
               .findFirst()
               .orElseThrow();
@@ -1615,13 +1735,16 @@ class DatabaseIntegrationTest {
       npcs.bind(candidate.worker(), presentation, Instant.now());
       assertEquals(
           presentation,
-          npcs.candidates(java.util.Set.of(sellerOwner), 20).stream()
+          npcs.candidates(java.util.Set.of(sellerObserver), 20).stream()
               .filter(value -> value.worker().equals(candidate.worker()))
               .findFirst()
               .orElseThrow()
               .entity());
+      PlayerObservation farObserver =
+          new PlayerObservation(sellerOwner, sellerWorld, 10_000, 65, 10_000);
+      assertTrue(npcs.candidates(java.util.Set.of(farObserver), 20).isEmpty());
       assertTrue(
-          npcs.retirements(java.util.Set.of()).stream()
+          npcs.retirements(java.util.Set.of(farObserver)).stream()
               .anyMatch(binding -> binding.worker().equals(candidate.worker())));
       npcs.unbind(candidate.worker(), presentation, Instant.now());
 

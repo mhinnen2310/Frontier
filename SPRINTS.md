@@ -17,7 +17,8 @@ The attached 60-sprint roadmap supersedes the legacy implementation sequence bel
 | C | 13 | Building registration UX | complete |
 | C | 14–15 | Physical roads and infrastructure failure | complete |
 | D | 16 | Complete worker model | complete |
-| D | 17–20 | Worker scheduling, Builder Guild, population and ambient life | pending |
+| D | 17 | Worker scheduling and visible activity | complete |
+| D | 18–20 | Builder Guild, population and ambient life | pending |
 | E | 21–25 | Cargo, physical caravans, escorts, raids and criminality | pending |
 | F | 26–30 | Diplomacy, campaign outcomes, occupation/conquest and civil conflict | pending |
 | G | 31–35 | Locator Bar waypoints, cartography, Atlas and intelligence | pending |

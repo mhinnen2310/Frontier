@@ -24,7 +24,7 @@ public final class PostgresRecoveryCoordinator implements RecoveryCoordinator {
           int leases =
               count(
                   connection.prepareStatement(
-                      "SELECT count(*) FROM work_packages WHERE status IN ('ISSUED','ACTIVE') AND expires_at < now()"));
+                      "SELECT (SELECT count(*) FROM work_packages WHERE status IN ('ISSUED','ACTIVE') AND expires_at < now()) + (SELECT count(*) FROM worker_activity_tasks WHERE status IN ('TRAVELLING','WORKING') AND lease_expires_at < now())"));
           int consumptions =
               count(
                   connection.prepareStatement(
@@ -33,6 +33,16 @@ public final class PostgresRecoveryCoordinator implements RecoveryCoordinator {
               count(
                   connection.prepareStatement(
                       "SELECT count(*) FROM construction_transfers WHERE status IN ('LOADING','IN_TRANSIT')"));
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE workers w SET current_activity_id=NULL,state=CASE WHEN w.state IN ('TRAVELLING','WORKING') THEN 'IDLE' ELSE w.state END,version=w.version+1 FROM worker_activity_tasks a WHERE a.id=w.current_activity_id AND a.status IN ('TRAVELLING','WORKING') AND a.lease_expires_at<now()")) {
+            statement.executeUpdate();
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE worker_activity_tasks SET status='QUEUED',simulation_mode='PENDING',path_state='PENDING',lease_owner=NULL,lease_expires_at=NULL,available_at=now(),attempts=attempts+1,last_error='STARTUP_RECOVERY',updated_at=now(),version=version+1 WHERE status IN ('TRAVELLING','WORKING') AND lease_expires_at<now()")) {
+            statement.executeUpdate();
+          }
           try (PreparedStatement statement =
               connection.prepareStatement(
                   "UPDATE workers w SET state='IDLE',task_id=NULL,lease_expires_at=NULL,version=w.version+1 FROM work_packages p WHERE p.worker_id=w.id AND p.status IN ('ISSUED','ACTIVE') AND p.expires_at<now()")) {

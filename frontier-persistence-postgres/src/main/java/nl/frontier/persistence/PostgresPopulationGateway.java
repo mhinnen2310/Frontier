@@ -150,7 +150,7 @@ public final class PostgresPopulationGateway implements PopulationGateway {
           List<WorkerProfile> values = new ArrayList<>();
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "SELECT w.id,w.profession,w.skill,w.morale,w.efficiency,w.salary_minor,w.experience,w.employment_status,w.assigned_building,dw.district_id,w.state,w.task_id,w.housing_building,w.age_days,w.retirement_age_days FROM workers w LEFT JOIN district_workers dw ON dw.worker_id=w.id WHERE w.city_id=? ORDER BY w.employment_status,w.efficiency DESC,w.id")) {
+                  "SELECT w.id,w.profession,w.skill,w.morale,w.efficiency,w.salary_minor,w.experience,w.employment_status,w.assigned_building,dw.district_id,w.state,coalesce(w.task_id,w.current_activity_id),w.housing_building,w.age_days,w.retirement_age_days FROM workers w LEFT JOIN district_workers dw ON dw.worker_id=w.id WHERE w.city_id=? ORDER BY w.employment_status,w.efficiency DESC,w.id")) {
             statement.setObject(1, city);
             try (ResultSet result = statement.executeQuery()) {
               while (result.next()) values.add(profile(result));
@@ -365,7 +365,7 @@ public final class PostgresPopulationGateway implements PopulationGateway {
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT w.id,w.profession,w.skill,w.morale,w.efficiency,w.salary_minor,w.experience,w.employment_status,w.assigned_building,dw.district_id,w.state,w.task_id,w.housing_building,w.age_days,w.retirement_age_days FROM workers w LEFT JOIN district_workers dw ON dw.worker_id=w.id WHERE w.id=? AND w.city_id=?")) {
+            "SELECT w.id,w.profession,w.skill,w.morale,w.efficiency,w.salary_minor,w.experience,w.employment_status,w.assigned_building,dw.district_id,w.state,coalesce(w.task_id,w.current_activity_id),w.housing_building,w.age_days,w.retirement_age_days FROM workers w LEFT JOIN district_workers dw ON dw.worker_id=w.id WHERE w.id=? AND w.city_id=?")) {
       statement.setObject(1, worker);
       statement.setObject(2, city);
       try (ResultSet result = statement.executeQuery()) {

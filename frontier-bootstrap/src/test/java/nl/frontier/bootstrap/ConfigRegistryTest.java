@@ -44,6 +44,10 @@ class ConfigRegistryTest {
     assertEquals(100, config.infrastructure().validation().quality("STONE_BRICKS"));
     assertEquals(10_000, config.infrastructure().maximumDirtyQueue());
     assertEquals(4, config.infrastructure().maximumHealthPerCycle());
+    assertEquals(100, config.population().maximumActivitiesPerCycle());
+    assertEquals(60, config.population().activityLeaseSeconds());
+    assertEquals(256, config.population().maximumPathSteps());
+    assertEquals(250, config.population().pathStepMillis());
     assertEquals(
         1,
         config

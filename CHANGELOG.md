@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 17 — Worker Scheduling and Visible Activity
+
+- Added one durable priority activity queue per worker with explicit queued, travelling, working, completed and cancelled states, path state, simulation mode, leases, attempts and cooldowns through Flyway V50.
+- Added bounded activity derivation for work shifts, warehouse waits, Builder Guild exits, repairs, farm visits and guard posts without moving gameplay authority into entities.
+- Materialized workers only within 128 blocks of actual online player observations; distant work completes abstractly and presentation entities retire without losing activity state.
+- Added a bounded Paper navigator with asynchronous teleports, terrain following, maximum steps and arrival/failure handoff into transactional activity services.
+- Added expired-lease startup recovery, current-activity worker reports, configuration bounds and PostgreSQL coverage for physical completion, abstract simulation, proximity retirement and restart recovery.
+
 ## Master Roadmap Sprint 16 — Complete Worker Model
 
 - Replaced overlapping legacy professions with Builder, Farmer, Miner, Courier, Guard, Clerk, Merchant and Engineer, including deterministic upgrade mappings for existing Harbor workers and production recipes.
