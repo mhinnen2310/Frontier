@@ -45,7 +45,7 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
           insertMember(connection, kingdom, city, now);
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "INSERT INTO kingdom_roles(kingdom_id,player_id,role,granted_at) VALUES(?,?,'SOVEREIGN',?)")) {
+                  "INSERT INTO kingdom_roles(kingdom_id,player_id,role,granted_at) VALUES(?,?,'KING',?)")) {
             statement.setObject(1, kingdom);
             statement.setObject(2, actor);
             statement.setTimestamp(3, Timestamp.from(now));
@@ -55,6 +55,14 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
               connection.prepareStatement(
                   "INSERT INTO research_points(kingdom_id,available_points,lifetime_points,version) VALUES(?,0,0,0)")) {
             statement.setObject(1, kingdom);
+            statement.executeUpdate();
+          }
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "INSERT INTO kingdom_tax_policy(kingdom_id,rate_basis_points,updated_by,updated_at,version) VALUES(?,0,?,?,0)")) {
+            statement.setObject(1, kingdom);
+            statement.setObject(2, actor);
+            statement.setTimestamp(3, Timestamp.from(now));
             statement.executeUpdate();
           }
           try (PreparedStatement statement =
@@ -874,7 +882,7 @@ public final class PostgresCivilizationGateway implements CivilizationGateway {
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT 1 FROM kingdom_roles WHERE kingdom_id=? AND player_id=? AND role IN ('SOVEREIGN','CHANCELLOR')")) {
+            "SELECT 1 FROM kingdom_roles WHERE kingdom_id=? AND player_id=? AND role IN ('KING','COUNCIL','DIPLOMAT')")) {
       statement.setObject(1, kingdom);
       statement.setObject(2, actor);
       try (ResultSet result = statement.executeQuery()) {

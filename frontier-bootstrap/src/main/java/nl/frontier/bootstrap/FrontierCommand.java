@@ -3,6 +3,7 @@ package nl.frontier.bootstrap;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -50,6 +51,8 @@ import nl.frontier.warfare.CampaignOutcomeGateway;
 import nl.frontier.warfare.CampaignOutcomeService;
 import nl.frontier.warfare.WarCampaign;
 import nl.frontier.world.CivilizationGateway;
+import nl.frontier.world.KingdomIntegrationGateway;
+import nl.frontier.world.KingdomIntegrationService;
 import nl.frontier.world.WorldSimulationGateway;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -106,6 +109,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   private final RepairGateway repairs;
   private final WorldSimulationGateway worldSimulation;
   private final CivilizationGateway civilization;
+  private final KingdomIntegrationService kingdomIntegration;
   private final Duration campaignPreparation;
   private final Duration campaignMaximumDuration;
   private final long campaignDeclarationCost;
@@ -138,6 +142,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       RepairGateway repairs,
       WorldSimulationGateway worldSimulation,
       CivilizationGateway civilization,
+      KingdomIntegrationService kingdomIntegration,
       Duration campaignPreparation,
       Duration campaignMaximumDuration,
       long campaignDeclarationCost,
@@ -168,6 +173,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     this.repairs = Objects.requireNonNull(repairs);
     this.worldSimulation = Objects.requireNonNull(worldSimulation);
     this.civilization = Objects.requireNonNull(civilization);
+    this.kingdomIntegration = Objects.requireNonNull(kingdomIntegration);
     this.campaignPreparation = Objects.requireNonNull(campaignPreparation);
     this.campaignMaximumDuration = Objects.requireNonNull(campaignMaximumDuration);
     this.campaignDeclarationCost = campaignDeclarationCost;
@@ -2057,6 +2063,190 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                           .map(value -> value.id() + " " + value.type() + " " + value.status())
                           .collect(java.util.stream.Collectors.joining("\n")));
         }
+        case "overview" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException("usage: /frontier kingdom overview <kingdom-uuid>");
+          execute(
+              player,
+              () -> kingdomIntegration.report(UUID.fromString(args[1])),
+              value ->
+                  "Kingdom treasury="
+                      + value.treasuryMinor()
+                      + " tax="
+                      + value.taxBasisPoints()
+                      + "bp\nRoles: "
+                      + String.join(", ", value.roles())
+                      + "\nPolicies: "
+                      + String.join(", ", value.policies())
+                      + "\nProjects: "
+                      + String.join(", ", value.projects()));
+        }
+        case "role" -> {
+          if (args.length != 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier kingdom role <kingdom-uuid> <player-uuid> <king|council|marshal|diplomat>");
+          execute(
+              player,
+              () -> {
+                kingdomIntegration.assignRole(
+                    UUID.fromString(args[1]),
+                    player.getUniqueId(),
+                    UUID.fromString(args[2]),
+                    KingdomIntegrationGateway.Role.valueOf(args[3].toUpperCase(Locale.ROOT)),
+                    Instant.now());
+                return "Kingdom role assigned.";
+              },
+              value -> value);
+        }
+        case "vote" -> {
+          if (args.length < 3 || args.length > 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier kingdom vote <kingdom-uuid> <kind> [hours]");
+          long hours = args.length == 4 ? Long.parseLong(args[3]) : 24;
+          execute(
+              player,
+              () ->
+                  kingdomIntegration.createVote(
+                      UUID.fromString(args[1]),
+                      player.getUniqueId(),
+                      args[2],
+                      "{}",
+                      Instant.now().plusSeconds(Math.multiplyExact(hours, 3_600)),
+                      Instant.now()),
+              value -> "Vote opened: " + value.id() + " requiredYes=" + value.requiredYes());
+        }
+        case "vote-cast" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier kingdom vote-cast <vote-uuid> <yes|no>");
+          boolean yes =
+              switch (args[2].toLowerCase(Locale.ROOT)) {
+                case "yes" -> true;
+                case "no" -> false;
+                default -> throw new IllegalArgumentException("vote must be yes or no");
+              };
+          withCity(
+              player,
+              city ->
+                  kingdomIntegration.castVote(
+                      UUID.fromString(args[1]),
+                      city.id(),
+                      player.getUniqueId(),
+                      yes,
+                      Instant.now()),
+              value -> "Vote " + value.status() + " yes=" + value.yes() + " no=" + value.no());
+        }
+        case "war-approve" -> {
+          if (args.length < 3 || args.length > 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier kingdom war-approve <kingdom-uuid> <target-city-uuid> [type]");
+          execute(
+              player,
+              () ->
+                  kingdomIntegration.approveWar(
+                      UUID.fromString(args[1]),
+                      player.getUniqueId(),
+                      UUID.fromString(args[2]),
+                      args.length == 4 ? args[3] : "CAMPAIGN",
+                      Instant.now().plusSeconds(86_400),
+                      Instant.now()),
+              value -> "War approval: " + value.id());
+        }
+        case "deposit", "withdraw" -> {
+          if (args.length != 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier kingdom " + action + " <kingdom-uuid> <city-uuid> <cents>");
+          UUID kingdom = UUID.fromString(args[1]);
+          UUID city = UUID.fromString(args[2]);
+          long amount = Long.parseLong(args[3]);
+          execute(
+              player,
+              () ->
+                  action.equals("deposit")
+                      ? kingdomIntegration.deposit(
+                          kingdom,
+                          city,
+                          player.getUniqueId(),
+                          amount,
+                          UUID.randomUUID(),
+                          Instant.now())
+                      : kingdomIntegration.withdraw(
+                          kingdom,
+                          city,
+                          player.getUniqueId(),
+                          amount,
+                          UUID.randomUUID(),
+                          Instant.now()),
+              value ->
+                  "Kingdom treasury="
+                      + value.kingdomBalanceMinor()
+                      + " city treasury="
+                      + value.cityBalanceMinor());
+        }
+        case "tax" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier kingdom tax <kingdom-uuid> <basis-points>");
+          execute(
+              player,
+              () -> {
+                kingdomIntegration.setTaxRate(
+                    UUID.fromString(args[1]),
+                    player.getUniqueId(),
+                    Integer.parseInt(args[2]),
+                    Instant.now());
+                return "Kingdom tax updated.";
+              },
+              value -> value);
+        }
+        case "tax-collect" -> {
+          if (args.length != 2)
+            throw new IllegalArgumentException(
+                "usage: /frontier kingdom tax-collect <kingdom-uuid>");
+          execute(
+              player,
+              () ->
+                  kingdomIntegration.collectTaxes(
+                      UUID.fromString(args[1]), LocalDate.now(), Instant.now()),
+              value ->
+                  "Taxes assessed="
+                      + value.assessed()
+                      + " paid="
+                      + value.paid()
+                      + " collected="
+                      + value.collectedMinor());
+        }
+        case "policy" -> {
+          if (args.length != 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier kingdom policy <kingdom-uuid> <key> <value>");
+          execute(
+              player,
+              () -> {
+                kingdomIntegration.setPolicy(
+                    UUID.fromString(args[1]),
+                    player.getUniqueId(),
+                    args[2],
+                    args[3],
+                    Instant.now());
+                return "Kingdom policy updated.";
+              },
+              value -> value);
+        }
+        case "secede" -> {
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier kingdom secede <kingdom-uuid> <city-uuid>");
+          execute(
+              player,
+              () ->
+                  kingdomIntegration.requestSecession(
+                      UUID.fromString(args[1]),
+                      UUID.fromString(args[2]),
+                      player.getUniqueId(),
+                      Instant.now()),
+              value -> "Secession is " + value.status() + " (" + value.id() + ")");
+        }
         case "research" -> {
           if (args.length != 5)
             throw new IllegalArgumentException(
@@ -2205,7 +2395,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                         .collect(java.util.stream.Collectors.joining("\n")));
         default ->
             throw new IllegalArgumentException(
-                "kingdom actions: list, create, invite, accept, treaty, treaty-accept, treaties, research, wonder, contribute, wonders, mega, mega-contribute, projects, objectives");
+                "kingdom actions: list, create, invite, accept, overview, role, vote, vote-cast, war-approve, deposit, withdraw, tax, tax-collect, policy, secede, treaty, treaty-accept, treaties, research, wonder, contribute, wonders, mega, mega-contribute, projects, objectives");
       }
     } catch (IllegalArgumentException failure) {
       player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
@@ -2577,7 +2767,18 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               "mega",
               "mega-contribute",
               "projects",
-              "objectives"),
+              "objectives",
+              "overview",
+              "role",
+              "vote",
+              "vote-cast",
+              "war-approve",
+              "deposit",
+              "withdraw",
+              "tax",
+              "tax-collect",
+              "policy",
+              "secede"),
           args[1]);
     return List.of();
   }

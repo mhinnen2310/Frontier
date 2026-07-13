@@ -23,3 +23,4 @@ V22__caravan_simulation.sql
 V23__population_simulation.sql
 V24__complete_economy.sql
 V25__campaign_result_engine.sql
+V26__kingdom_integration.sql

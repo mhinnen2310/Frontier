@@ -102,6 +102,16 @@
 - Added `/frontier war outcome` as the administrative fallback while keeping all outcome logic in `CampaignOutcomeService` and its PostgreSQL gateway.
 - Added Flyway migration V25 and clean-database integration coverage for conquest transfers, recurring tribute and outcome replay safety.
 
+### Sprint 12 — Kingdom Integration
+
+- Added transactional KING, COUNCIL, MARSHAL and DIPLOMAT roles with explicit authority boundaries and transferable leadership.
+- Added city-based majority votes, durable ballots, policy management and automatic vote/treaty expiry.
+- Activated the existing kingdom account as a shared treasury with audited member deposits, authorized withdrawals and idempotent daily member taxes.
+- Added mandatory, consumable kingdom war approvals with non-aggression/alliance enforcement before campaign declaration.
+- Added peaceful and contested secession; contested secession authorizes a civil-war campaign and an independence outcome removes kingdom membership atomically.
+- Kept wonders, research and mega projects as shared kingdom projects and exposed them with treasury, roles and policies in the integrated report.
+- Added Flyway migration V26, fallback commands, an hourly governance/tax supervisor and clean-database coverage for roles, voting, treasury, tax, policy, secession and war approval.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

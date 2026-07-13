@@ -44,6 +44,7 @@ public final class PostgresCampaignGateway implements CampaignGateway {
           if (existing != null) return existing;
           if (attacker.equals(defender)) throw new DomainException("a city cannot attack itself");
           requireCity(connection, defender);
+          UUID warApproval = lockKingdomWarApproval(connection, attacker, defender, now);
           if (activePair(connection, attacker, defender))
             throw new DomainException("these cities already have an unresolved campaign");
           UUID account = cityAccount(connection, attacker);
@@ -77,6 +78,23 @@ public final class PostgresCampaignGateway implements CampaignGateway {
             statement.setObject(9, idempotency);
             statement.executeUpdate();
           }
+          if (warApproval != null) {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "UPDATE kingdom_war_approvals SET consumed_by=? WHERE id=?")) {
+              statement.setObject(1, campaign);
+              statement.setObject(2, warApproval);
+              statement.executeUpdate();
+            }
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "UPDATE kingdom_secessions SET campaign_id=? WHERE city_id=? AND kingdom_id=(SELECT kingdom_id FROM kingdom_members WHERE city_id=?) AND status='CONTESTED'")) {
+              statement.setObject(1, campaign);
+              statement.setObject(2, defender);
+              statement.setObject(3, attacker);
+              statement.executeUpdate();
+            }
+          }
           UUID objectiveId = UUID.randomUUID();
           try (PreparedStatement statement =
               connection.prepareStatement(
@@ -95,6 +113,34 @@ public final class PostgresCampaignGateway implements CampaignGateway {
           outbox(connection, campaign, "CampaignDeclared", now);
           return load(connection, campaign);
         });
+  }
+
+  private static UUID lockKingdomWarApproval(
+      Connection connection, UUID attacker, UUID defender, Instant now) throws SQLException {
+    UUID kingdom = cityKingdom(connection, attacker);
+    if (kingdom == null) return null;
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT id FROM kingdom_war_approvals WHERE kingdom_id=? AND target_city_id=? AND consumed_by IS NULL AND expires_at>? ORDER BY approved_at LIMIT 1 FOR UPDATE")) {
+      statement.setObject(1, kingdom);
+      statement.setObject(2, defender);
+      statement.setTimestamp(3, Timestamp.from(now));
+      try (ResultSet result = statement.executeQuery()) {
+        if (!result.next())
+          throw new DomainException("the attacking kingdom has not approved this war");
+        return result.getObject(1, UUID.class);
+      }
+    }
+  }
+
+  private static UUID cityKingdom(Connection connection, UUID city) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement("SELECT kingdom_id FROM kingdom_members WHERE city_id=?")) {
+      statement.setObject(1, city);
+      try (ResultSet result = statement.executeQuery()) {
+        return result.next() ? result.getObject(1, UUID.class) : null;
+      }
+    }
   }
 
   @Override

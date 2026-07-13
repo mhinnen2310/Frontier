@@ -69,16 +69,16 @@ public final class PostgresCampaignOutcomeGateway implements CampaignOutcomeGate
                     now.plusSeconds(86_400));
             case INDEPENDENCE -> {
               liberate(connection, loser, winner, now);
+              completeSecession(connection, campaign, winner, now);
               update(
                   connection,
                   "UPDATE campaign_tributes SET status='ENDED',version=version+1 WHERE (payer_city=? OR payee_city=?) AND status IN ('ACTIVE','OVERDUE')",
                   winner,
                   winner);
             }
-            case CIVIL_WAR, KINGDOM_INTERVENTION -> {
-              // The durable result and server history are the consequence; kingdom linkage is added
-              // in Sprint 12.
-            }
+            case CIVIL_WAR -> resolveSecession(connection, campaign, "CONTESTED", now);
+            case KINGDOM_INTERVENTION ->
+                recordKingdomIntervention(connection, campaignRow, campaign, now);
           }
           if (outcome == Outcome.ANNEXATION) deactivateCity(connection, loser, "ANNEXED", now);
           else if (outcome == Outcome.CONQUEST) occupy(connection, campaign, winner, loser, now);
@@ -121,6 +121,47 @@ public final class PostgresCampaignOutcomeGateway implements CampaignOutcomeGate
           history(connection, "CAMPAIGN_OUTCOME_" + outcome, campaign, terms, now);
           return result(connection, result);
         });
+  }
+
+  private static void completeSecession(
+      Connection connection, UUID campaign, UUID city, Instant now) throws SQLException {
+    update(
+        connection,
+        "DELETE FROM kingdom_members WHERE city_id=? AND kingdom_id=(SELECT kingdom_id FROM kingdom_secessions WHERE campaign_id=?)",
+        city,
+        campaign);
+    resolveSecession(connection, campaign, "COMPLETED", now);
+  }
+
+  private static void resolveSecession(
+      Connection connection, UUID campaign, String status, Instant now) throws SQLException {
+    update(
+        connection,
+        "UPDATE kingdom_secessions SET status=?,resolved_at=? WHERE campaign_id=? AND status='CONTESTED'",
+        status,
+        now,
+        campaign);
+  }
+
+  private static void recordKingdomIntervention(
+      Connection connection, Campaign campaign, UUID campaignId, Instant now) throws SQLException {
+    for (UUID city : List.of(campaign.attacker, campaign.defender)) {
+      try (PreparedStatement statement =
+          connection.prepareStatement("SELECT kingdom_id FROM kingdom_members WHERE city_id=?")) {
+        statement.setObject(1, city);
+        try (ResultSet result = statement.executeQuery()) {
+          if (result.next()) {
+            update(
+                connection,
+                "INSERT INTO kingdom_history(id,kingdom_id,event_type,payload,occurred_at) VALUES(?,?, 'KINGDOM_INTERVENTION',jsonb_build_object('campaign',?::text),?)",
+                UUID.randomUUID(),
+                result.getObject(1, UUID.class),
+                campaignId,
+                now);
+          }
+        }
+      }
+    }
   }
 
   @Override

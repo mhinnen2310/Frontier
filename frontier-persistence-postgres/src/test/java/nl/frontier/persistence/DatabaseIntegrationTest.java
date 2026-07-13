@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Map;
@@ -50,6 +51,8 @@ import nl.frontier.warfare.CampaignGateway;
 import nl.frontier.warfare.WarCampaign;
 import nl.frontier.warfare.WarDamageGateway;
 import nl.frontier.world.CivilizationGateway;
+import nl.frontier.world.KingdomIntegrationGateway;
+import nl.frontier.world.KingdomIntegrationService;
 import nl.frontier.world.WorldSimulationGateway;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -168,7 +171,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(25, result.getInt(1));
+        assertEquals(26, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1102,6 +1105,105 @@ class DatabaseIntegrationTest {
               .acceptInvitation(kingdomInvite.id(), buyer.id(), buyerOwner, Instant.now())
               .cities()
               .contains(buyer.id()));
+      KingdomIntegrationService kingdomIntegration =
+          new KingdomIntegrationService(new PostgresKingdomIntegrationGateway(store));
+      kingdomIntegration.assignRole(
+          firstKingdom.id(),
+          attackerOwner,
+          buyerOwner,
+          KingdomIntegrationGateway.Role.DIPLOMAT,
+          Instant.now());
+      var governanceVote =
+          kingdomIntegration.createVote(
+              firstKingdom.id(),
+              attackerOwner,
+              "SHARED_PROJECT",
+              "{\"project\":\"northern_road\"}",
+              Instant.now().plusSeconds(3_600),
+              Instant.now());
+      assertEquals(
+          "OPEN",
+          kingdomIntegration
+              .castVote(governanceVote.id(), attacker.id(), attackerOwner, true, Instant.now())
+              .status());
+      assertEquals(
+          "PASSED",
+          kingdomIntegration
+              .castVote(governanceVote.id(), buyer.id(), buyerOwner, true, Instant.now())
+              .status());
+      long kingdomBefore = kingdomIntegration.report(firstKingdom.id()).treasuryMinor();
+      var kingdomDeposit =
+          kingdomIntegration.deposit(
+              firstKingdom.id(),
+              attacker.id(),
+              attackerOwner,
+              100,
+              UUID.randomUUID(),
+              Instant.now());
+      assertEquals(kingdomBefore + 100, kingdomDeposit.kingdomBalanceMinor());
+      assertEquals(
+          kingdomBefore + 75,
+          kingdomIntegration
+              .withdraw(
+                  firstKingdom.id(),
+                  attacker.id(),
+                  attackerOwner,
+                  25,
+                  UUID.randomUUID(),
+                  Instant.now())
+              .kingdomBalanceMinor());
+      kingdomIntegration.setTaxRate(firstKingdom.id(), attackerOwner, 100, Instant.now());
+      assertTrue(
+          kingdomIntegration.collectTaxes(firstKingdom.id(), LocalDate.now(), Instant.now()).paid()
+              >= 1);
+      kingdomIntegration.setPolicy(
+          firstKingdom.id(), attackerOwner, "PEACEFUL_SECESSION", "DENY", Instant.now());
+      assertTrue(
+          kingdomIntegration.report(firstKingdom.id()).policies().stream()
+              .anyMatch(value -> value.equals("PEACEFUL_SECESSION=DENY")));
+      assertEquals(
+          "CONTESTED",
+          kingdomIntegration
+              .requestSecession(firstKingdom.id(), buyer.id(), buyerOwner, Instant.now())
+              .status());
+      var warApproval =
+          kingdomIntegration.approveWar(
+              firstKingdom.id(),
+              attackerOwner,
+              seller.id(),
+              "CAMPAIGN",
+              Instant.now().plusSeconds(3_600),
+              Instant.now());
+      assertEquals(seller.id(), warApproval.targetCity());
+      CampaignGateway.CampaignSnapshot kingdomCampaign =
+          campaigns.declare(
+              attacker.id(),
+              attackerOwner,
+              seller.id(),
+              WarCampaign.Type.BORDER,
+              new CampaignGateway.ObjectiveSpec(
+                  "KINGDOM_BORDER", warWorld, 800, 0, 800, 815, 320, 815, 10, 1),
+              100,
+              Duration.ofSeconds(1),
+              Duration.ofSeconds(10),
+              UUID.randomUUID(),
+              Instant.now());
+      assertEquals(attacker.id(), kingdomCampaign.attacker());
+      assertThrows(
+          DomainException.class,
+          () ->
+              campaigns.declare(
+                  attacker.id(),
+                  attackerOwner,
+                  seller.id(),
+                  WarCampaign.Type.BORDER,
+                  new CampaignGateway.ObjectiveSpec(
+                      "REPLAY", warWorld, 800, 0, 800, 815, 320, 815, 10, 1),
+                  100,
+                  Duration.ofSeconds(1),
+                  Duration.ofSeconds(10),
+                  UUID.randomUUID(),
+                  Instant.now()));
       CivilizationGateway.TreatySnapshot treaty =
           civilization.proposeTreaty(
               firstKingdom.id(),

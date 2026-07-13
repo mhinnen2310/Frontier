@@ -56,6 +56,7 @@ import nl.frontier.persistence.PostgresFinanceGateway;
 import nl.frontier.persistence.PostgresHarborGateway;
 import nl.frontier.persistence.PostgresInfluencePersistence;
 import nl.frontier.persistence.PostgresInfrastructureGateway;
+import nl.frontier.persistence.PostgresKingdomIntegrationGateway;
 import nl.frontier.persistence.PostgresLogisticsGateway;
 import nl.frontier.persistence.PostgresNpcMaterializationGateway;
 import nl.frontier.persistence.PostgresOutboxDispatcher;
@@ -74,6 +75,7 @@ import nl.frontier.warfare.CampaignGateway;
 import nl.frontier.warfare.CampaignOutcomeService;
 import nl.frontier.warfare.WarPolicyCache;
 import nl.frontier.world.CivilizationGateway;
+import nl.frontier.world.KingdomIntegrationService;
 import nl.frontier.world.WorldSimulationGateway;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -105,6 +107,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private PopulationSupervisor populationSupervisor;
   private CommercialSupervisor commercialSupervisor;
   private CampaignOutcomeSupervisor campaignOutcomeSupervisor;
+  private KingdomIntegrationSupervisor kingdomIntegrationSupervisor;
   private volatile boolean acceptingWrites;
 
   @Override
@@ -170,6 +173,8 @@ public final class FrontierPlugin extends JavaPlugin {
       nl.frontier.warfare.WarDamageGateway warDamageGateway = new PostgresWarDamageGateway(store);
       WorldSimulationGateway worldSimulationGateway = new PostgresWorldSimulationGateway(store);
       CivilizationGateway civilizationGateway = new PostgresCivilizationGateway(store);
+      KingdomIntegrationService kingdomIntegration =
+          new KingdomIntegrationService(new PostgresKingdomIntegrationGateway(store));
       SettlementApplicationService settlements =
           new SettlementApplicationService(new PostgresSettlementGateway(store));
       SettlementLifecycleService settlementLifecycle =
@@ -214,6 +219,7 @@ public final class FrontierPlugin extends JavaPlugin {
               repairGateway,
               worldSimulationGateway,
               civilizationGateway,
+              kingdomIntegration,
               Duration.ofHours(getConfig().getLong("campaigns.preparation-hours", 24)),
               Duration.ofDays(getConfig().getLong("campaigns.maximum-duration-days", 14)),
               getConfig().getLong("campaigns.declaration-cost-minor", 5_000),
@@ -375,6 +381,10 @@ public final class FrontierPlugin extends JavaPlugin {
               getConfig().getInt("civilization.maximum-kingdoms-per-cycle", 32),
               getLogger());
       civilizationSupervisor.start();
+      kingdomIntegrationSupervisor =
+          new KingdomIntegrationSupervisor(
+              schedulers, civilizationGateway, kingdomIntegration, getLogger());
+      kingdomIntegrationSupervisor.start();
       outboxSupervisor =
           new OutboxSupervisor(
               schedulers,
@@ -424,6 +434,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (repairSupervisor != null) repairSupervisor.stop();
     if (worldSimulationSupervisor != null) worldSimulationSupervisor.stop();
     if (civilizationSupervisor != null) civilizationSupervisor.stop();
+    if (kingdomIntegrationSupervisor != null) kingdomIntegrationSupervisor.stop();
     if (outboxSupervisor != null) outboxSupervisor.stop();
     if (harborSupervisor != null) harborSupervisor.stop();
     if (claimProtectionSupervisor != null) claimProtectionSupervisor.stop();
