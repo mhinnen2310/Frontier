@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0-RC2 - Release Train A
+
+- Completed Master Roadmap Sprints 1-5: truthful baseline, centralized typed configuration, fresh-world Harbor economy, complete centralized claim protection and repair-engine integrity.
+- Advanced the database to Flyway V32 with upgrade-safe repair occurrence and completion metadata.
+- Passed the complete test/build suite, a separate empty-database player journey, an in-place V31-to-V32 upgrade and Paper 26.2 startup on Java 26.
+- Published the Train A source checkpoint and shaded plugin JAR without replacing the immutable RC1 artifact.
+
 ## Master Roadmap Sprint 5 — Repair Engine Integrity
 
 - Bound every breach spend to a unique damage generation; rejecting a later re-break now refunds only that unconfirmed occurrence and preserves every earlier applied spend.
