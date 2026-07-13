@@ -180,6 +180,15 @@
 - Captured a real 32-second Paper/JFR baseline in `PERFORMANCE.md`; region/global tasks stayed at 0.03 ms average and 0.64 ms maximum with no queued async work at sample time.
 - Made the world-event integration test weather-policy aware after profiling reruns exposed its previous fixed-event assumption.
 
+### Sprint 20 — Multiplayer Scale Test
+
+- Added a reproducible `scaleTest` matrix for 50, 100, 250 and 500 synthetic players using real PostgreSQL gateways and 16 concurrent clients.
+- The 500 tier includes 500 settlements/claims/accounts/warehouses/orders/shipments/caravans, 1,000 workers, 250 wars/repair orders, 1,000 repair tasks and dynamic events.
+- Stress coverage includes world simulation, wars, repairs, economy, worker/NPC projections, caravans, events, diagnostics, rankings and database concurrency with invariant checks.
+- All tiers passed the 1,000 ms p95 and 60-second workload budgets; the 500 tier completed 4,000 operations in 2.066 seconds at 40.66 ms p95 and 81.02 ms maximum.
+- Booted and JFR-profiled real Paper against the 500-player dataset; region/global callbacks remained 0.04 ms average/3.17 ms maximum, scheduler queue was empty at sample and live security passed.
+- Documented methodology, exact tier results and scope limitations in `SCALE_TEST.md`.
+
 ## 1.0.0 - 2026-07-13
 
 - First complete Paper 26.2 release of The Frontier.

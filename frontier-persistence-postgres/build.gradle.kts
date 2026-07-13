@@ -17,4 +17,15 @@ dependencies {
 
 tasks.test {
     systemProperty("frontier.test.database.url", System.getenv("FRONTIER_TEST_DATABASE_URL") ?: "")
+    systemProperty("frontier.scale.database.url", System.getenv("FRONTIER_SCALE_DATABASE_URL") ?: "")
+}
+
+tasks.register<Test>("scaleTest") {
+    group = "verification"
+    description = "Runs the 50/100/250/500-player synthetic PostgreSQL load matrix."
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform()
+    filter.includeTestsMatching("nl.frontier.persistence.MultiplayerScaleTest")
+    systemProperty("frontier.scale.database.url", System.getenv("FRONTIER_SCALE_DATABASE_URL") ?: "")
 }
