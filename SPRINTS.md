@@ -12,7 +12,8 @@ The attached 60-sprint roadmap supersedes the legacy implementation sequence bel
 | A | 4 | Complete claim protection | complete |
 | A | 5 | Repair engine integrity | complete |
 | B | 6–10 | Founding, membership, districts and specialization | complete |
-| C | 11–15 | Building validation/UX, physical roads and infrastructure failure | pending |
+| C | 11 | Building validation framework | complete |
+| C | 12–15 | Type validators/UX, physical roads and infrastructure failure | pending |
 | D | 16–20 | Workers, Builder Guild, population and ambient life | pending |
 | E | 21–25 | Cargo, physical caravans, escorts, raids and criminality | pending |
 | F | 26–30 | Diplomacy, campaign outcomes, occupation/conquest and civil conflict | pending |

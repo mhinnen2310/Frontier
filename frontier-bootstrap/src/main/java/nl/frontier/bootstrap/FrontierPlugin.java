@@ -230,9 +230,10 @@ public final class FrontierPlugin extends JavaPlugin {
       BuildingRegistrationCoordinator buildingRegistrations =
           new BuildingRegistrationCoordinator(
               schedulers,
-              new PaperBuildingSurveyor(),
+              new PaperBuildingSurveyor(config.buildings().validation()),
               new BuildingValidationService(
-                  new PostgresBuildingValidationGateway(store), new BuildingValidator()));
+                  new PostgresBuildingValidationGateway(store),
+                  new BuildingValidator(config.buildings().validation())));
       FrontierCommand handler =
           new FrontierCommand(
               this::health,

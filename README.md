@@ -2,7 +2,7 @@
 
 The Frontier is a persistent civilization simulation for Minecraft Paper 26.2. Settlements grow through population, infrastructure and trade; borders respond to influence; campaigns run continuously with bounded structural damage; and registered war damage is reconstructed visibly by paid workers.
 
-Frontier is currently undergoing the 60-sprint Master Remediation & Expansion Roadmap. Release Trains A–B now cover the audited foundation, recoverable settlement founding/membership, complete district management and physically activated specialization balance. The Atlas, always-attackable cargo/crime, map walls, local web map and unified history expansion are not yet complete. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for the evidence-backed status; no presence-only feature is labeled complete.
+Frontier is currently undergoing the 60-sprint Master Remediation & Expansion Roadmap. Release Trains A–B cover the audited foundation, recoverable settlement founding/membership, complete district management and physically activated specialization balance. Train C is underway with the bounded building-validation framework complete. The Atlas, always-attackable cargo/crime, map walls, local web map and unified history expansion are not yet complete. See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for the evidence-backed status; no presence-only feature is labeled complete.
 
 ## Runtime requirements
 

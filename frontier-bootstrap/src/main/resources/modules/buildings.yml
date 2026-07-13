@@ -1,3 +1,13 @@
 # Physical building validation and registration.
 config-version: 1
 enabled: true
+
+validation:
+  maximum-width: 64
+  maximum-height: 64
+  maximum-depth: 64
+  maximum-volume: 32768
+  minimum-structural-blocks: 8
+  minimum-floor-coverage-percent: 60
+  minimum-wall-coverage-percent: 50
+  minimum-roof-coverage-percent: 60

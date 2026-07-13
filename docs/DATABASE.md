@@ -1,6 +1,6 @@
 # Database schema
 
-PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persistence-postgres/src/main/resources/db/migration/index.txt`; never modify a migration already used by a server. UUID primary keys identify aggregates, integer columns hold cents/units, timestamps are UTC, constraints protect lifecycle values, V31 indexes cover active work/lookups, V32 hardens repair occurrence/completion integrity, V33–V34 add recoverable settlement-founding expeditions, V35–V36 add membership governance, V37–V41 normalize the district aggregate, V42 adds constrained operational priorities and V43 adds the effective specialization projection/settings.
+PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persistence-postgres/src/main/resources/db/migration/index.txt`; never modify a migration already used by a server. UUID primary keys identify aggregates, integer columns hold cents/units, timestamps are UTC, constraints protect lifecycle values, V31 indexes cover active work/lookups, V32 hardens repair occurrence/completion integrity, V33–V34 add recoverable settlement-founding expeditions, V35–V36 add membership governance, V37–V41 normalize the district aggregate, V42 adds constrained operational priorities, V43 adds the effective specialization projection/settings and V44 constrains the complete building-validation lifecycle.
 
 ## Table families
 
@@ -27,6 +27,6 @@ PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persi
 | V16–V20 | Player wallets/Harbor, repair integrity, building lifecycle, districts and settlement lifecycle |
 | V21–V24 | Physical infrastructure, caravans, population and complete economy |
 | V25–V29 | Campaign outcomes, kingdom integration, world simulation, dynamic events and endgame |
-| V30–V43 | Security/performance and repair integrity, settlement founding/membership governance, normalized district aggregates, operational priorities and effective specialization balance |
+| V30–V44 | Security/performance and repair integrity, settlement founding/membership governance, normalized district aggregates, operational priorities, effective specialization balance and building validation lifecycle |
 
 For exact columns, foreign keys, checks and indexes, read the corresponding migration rather than relying on an independently generated schema dump. Backups must contain the complete database, including `flyway_schema_history`.

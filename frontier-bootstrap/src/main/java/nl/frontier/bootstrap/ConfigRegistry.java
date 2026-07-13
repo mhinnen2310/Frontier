@@ -245,6 +245,19 @@ public final class ConfigRegistry {
                 positive(districts, "balance.military-wage-penalty-percent", 100),
                 positive(districts, "balance.commercial-market-orders-per-building", 100),
                 positive(districts, "balance.logistics-warehouse-capacity-percent", 100)));
+    YamlConfiguration buildings = modules.get("buildings");
+    var buildingConfig =
+        new FrontierConfiguration.Buildings(
+            control(buildings),
+            new nl.frontier.city.BuildingValidationPolicy(
+                positive(buildings, "validation.maximum-width", 256),
+                positive(buildings, "validation.maximum-height", 384),
+                positive(buildings, "validation.maximum-depth", 256),
+                positive(buildings, "validation.maximum-volume", 1_000_000),
+                positive(buildings, "validation.minimum-structural-blocks", 1_000_000),
+                positive(buildings, "validation.minimum-floor-coverage-percent", 100),
+                positive(buildings, "validation.minimum-wall-coverage-percent", 100),
+                positive(buildings, "validation.minimum-roof-coverage-percent", 100)));
     YamlConfiguration kingdoms = modules.get("kingdoms");
     var kingdomConfig =
         new FrontierConfiguration.Kingdoms(
@@ -277,7 +290,7 @@ public final class ConfigRegistry {
             globalConfig,
             settlementConfig,
             districtConfig,
-            control(modules.get("buildings")),
+            buildingConfig,
             influenceConfig,
             economyConfig,
             control(modules.get("infrastructure")),
@@ -705,6 +718,19 @@ public final class ConfigRegistry {
             "balance.military-wage-penalty-percent",
             "balance.commercial-market-orders-per-building",
             "balance.logistics-warehouse-capacity-percent"));
+    keys.put(
+        "buildings",
+        leaves(
+            "config-version",
+            "enabled",
+            "validation.maximum-width",
+            "validation.maximum-height",
+            "validation.maximum-depth",
+            "validation.maximum-volume",
+            "validation.minimum-structural-blocks",
+            "validation.minimum-floor-coverage-percent",
+            "validation.minimum-wall-coverage-percent",
+            "validation.minimum-roof-coverage-percent"));
     keys.put(
         "economy",
         leaves(

@@ -33,6 +33,8 @@ class ConfigRegistryTest {
     assertEquals(40, config.districts().balance().minimumBuildingIntegrity());
     assertEquals(3, config.districts().balance().maximumBuildingContributions());
     assertEquals(25, config.districts().balance().logisticsWarehouseCapacityPercent());
+    assertEquals(32_768, config.buildings().validation().maximumVolume());
+    assertEquals(60, config.buildings().validation().minimumRoofCoveragePercent());
     assertTrue(config.enabled("settlements"));
     assertFalse(config.enabled("waypoints"));
     assertFalse(config.enabled("cartography"));
@@ -81,6 +83,14 @@ class ConfigRegistryTest {
             IllegalStateException.class,
             () -> ConfigRegistry.parse(resource("config.yml"), invalidDistricts, ignored -> {}));
     assertTrue(districtFailure.getMessage().contains("maximum-effective-bonus-percent"));
+
+    var invalidBuildings = moduleResources();
+    invalidBuildings.get("buildings").set("validation.minimum-wall-coverage-percent", 101);
+    var buildingFailure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> ConfigRegistry.parse(resource("config.yml"), invalidBuildings, ignored -> {}));
+    assertTrue(buildingFailure.getMessage().contains("minimum-wall-coverage-percent"));
   }
 
   @Test

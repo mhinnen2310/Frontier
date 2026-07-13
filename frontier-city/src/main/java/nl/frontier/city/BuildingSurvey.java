@@ -8,6 +8,8 @@ public record BuildingSurvey(
     int depth,
     int nonAirBlocks,
     int interiorAirBlocks,
+    int floorBlocks,
+    int wallBlocks,
     int roofBlocks,
     int entranceBlocks,
     int lightBlocks,

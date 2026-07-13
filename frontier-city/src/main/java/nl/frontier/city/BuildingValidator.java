@@ -2,86 +2,145 @@ package nl.frontier.city;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Predicate;
 
 public final class BuildingValidator {
-  public ValidationResult validate(
-      BuildingType type, BuildingSurvey survey, ValidationContext context) {
-    List<String> violations = new ArrayList<>();
-    if (context.overlap()) violations.add("building overlaps an existing registered building");
-    if (!context.districtCompatible())
-      violations.add("building type is incompatible with district");
+  private final BuildingValidationPolicy policy;
+
+  public BuildingValidator(BuildingValidationPolicy policy) {
+    this.policy = policy;
+  }
+
+  public BuildingDefinition definition(BuildingType type) {
+    List<ValidationRule> rules = new ArrayList<>(commonRules());
     switch (type) {
-      case WAREHOUSE -> warehouse(survey, context, violations);
-      case HOUSING -> housing(survey, violations);
-      case FARM -> farm(survey, violations);
-      case BUILDER_GUILD -> builderGuild(survey, violations);
-      case MARKET -> market(survey, violations);
-      case BARRACKS -> barracks(survey, violations);
+      case WAREHOUSE -> {
+        rules.add(minimum(5, 4, 5));
+        rules.addAll(enclosure());
+        rules.add(require(survey -> survey.storageBlocks() >= 2, "requires two storage blocks"));
+        rules.add(entrance());
+        rules.add(road());
+      }
+      case HOUSING -> {
+        rules.add(minimum(3, 3, 3));
+        rules.addAll(enclosure());
+        rules.add(require(survey -> survey.bedBlocks() >= 1, "requires a bed"));
+        rules.add(
+            require(survey -> survey.interiorAirBlocks() >= 6, "requires enclosed interior space"));
+        rules.add(entrance());
+        rules.add(require(survey -> survey.lightBlocks() >= 1, "requires a light source"));
+      }
+      case FARM -> {
+        rules.add(require(survey -> survey.farmlandBlocks() >= 16, "requires 16 farmland blocks"));
+        rules.add(require(survey -> survey.waterBlocks() >= 1, "requires water"));
+        rules.add(require(survey -> survey.cropBlocks() >= 8, "requires 8 planted crops"));
+      }
+      case BUILDER_GUILD -> {
+        rules.add(minimum(7, 4, 7));
+        rules.addAll(enclosure());
+        rules.add(
+            require(survey -> survey.craftingBlocks() >= 2, "requires two crafting stations"));
+        rules.add(require(survey -> survey.storageBlocks() >= 2, "requires two storage blocks"));
+        rules.add(entrance());
+      }
+      case MARKET -> {
+        rules.add(require(survey -> survey.stallBlocks() >= 3, "requires three stalls"));
+        rules.add(entrance());
+        rules.add(road());
+      }
+      case BARRACKS -> {
+        rules.add(minimum(5, 4, 5));
+        rules.addAll(enclosure());
+        rules.add(require(survey -> survey.bedBlocks() >= 4, "requires four beds"));
+        rules.add(require(survey -> survey.storageBlocks() >= 2, "requires equipment storage"));
+        rules.add(entrance());
+      }
     }
-    return new ValidationResult(type, violations.isEmpty(), List.copyOf(violations), survey);
+    return new BuildingDefinition(type, rules);
   }
 
-  private static void warehouse(
-      BuildingSurvey survey, ValidationContext context, List<String> violations) {
-    minimum(survey, 5, 4, 5, violations);
-    require(
-        survey.storageBlocks() >= 2, "warehouse requires at least two storage blocks", violations);
-    require(survey.entranceBlocks() >= 1, "warehouse requires an entrance", violations);
-    require(context.roadConnected(), "warehouse requires a physical road connection", violations);
+  public BuildingValidationResult validate(
+      BuildingType type, BuildingSurvey survey, BuildingValidationContext context) {
+    BuildingInspection inspection = BuildingInspection.inspect(survey, policy);
+    List<String> violations =
+        definition(type).rules().stream()
+            .map(rule -> rule.validate(inspection, context))
+            .flatMap(Optional::stream)
+            .toList();
+    return new BuildingValidationResult(type, violations.isEmpty(), violations, inspection);
   }
 
-  private static void housing(BuildingSurvey survey, List<String> violations) {
-    minimum(survey, 3, 3, 3, violations);
-    require(survey.bedBlocks() >= 1, "housing requires a bed", violations);
-    require(
-        survey.interiorAirBlocks() >= 6, "housing requires enclosed interior space", violations);
-    require(
-        survey.roofCoverage() >= 0.60, "housing requires at least 60% roof coverage", violations);
-    require(survey.entranceBlocks() >= 1, "housing requires an entrance", violations);
-    require(survey.lightBlocks() >= 1, "housing requires a light source", violations);
+  private List<ValidationRule> commonRules() {
+    return List.of(
+        (inspection, context) ->
+            context.controlledBySettlement()
+                ? Optional.empty()
+                : Optional.of("must be wholly inside controlled settlement claims"),
+        (inspection, context) ->
+            context.overlap()
+                ? Optional.of("overlaps an existing registered building")
+                : Optional.empty(),
+        (inspection, context) ->
+            context.districtCompatible()
+                ? Optional.empty()
+                : Optional.of("is incompatible with the selected district"),
+        (inspection, context) ->
+            inspection.withinScanBounds()
+                ? Optional.empty()
+                : Optional.of("exceeds configured building scan bounds"),
+        (inspection, context) ->
+            inspection.survey().nonAirBlocks() >= policy.minimumStructuralBlocks()
+                ? Optional.empty()
+                : Optional.of(
+                    "requires at least "
+                        + policy.minimumStructuralBlocks()
+                        + " structural blocks"));
   }
 
-  private static void farm(BuildingSurvey survey, List<String> violations) {
-    require(survey.farmlandBlocks() >= 16, "farm requires at least 16 farmland blocks", violations);
-    require(survey.waterBlocks() >= 1, "farm requires water", violations);
-    require(survey.cropBlocks() >= 8, "farm requires at least 8 planted crops", violations);
+  private List<ValidationRule> enclosure() {
+    return List.of(
+        (inspection, context) ->
+            inspection.floorCoveragePercent() >= policy.minimumFloorCoveragePercent()
+                ? Optional.empty()
+                : Optional.of(
+                    "floor coverage must be at least "
+                        + policy.minimumFloorCoveragePercent()
+                        + "%"),
+        (inspection, context) ->
+            inspection.wallCoveragePercent() >= policy.minimumWallCoveragePercent()
+                ? Optional.empty()
+                : Optional.of(
+                    "wall coverage must be at least " + policy.minimumWallCoveragePercent() + "%"),
+        (inspection, context) ->
+            inspection.roofCoveragePercent() >= policy.minimumRoofCoveragePercent()
+                ? Optional.empty()
+                : Optional.of(
+                    "roof coverage must be at least " + policy.minimumRoofCoveragePercent() + "%"));
   }
 
-  private static void builderGuild(BuildingSurvey survey, List<String> violations) {
-    minimum(survey, 7, 4, 7, violations);
-    require(
-        survey.craftingBlocks() >= 2, "builder guild requires two crafting stations", violations);
-    require(survey.storageBlocks() >= 2, "builder guild requires two storage blocks", violations);
-    require(survey.entranceBlocks() >= 1, "builder guild requires an entrance", violations);
+  private static ValidationRule minimum(int width, int height, int depth) {
+    return (inspection, context) -> {
+      BuildingSurvey survey = inspection.survey();
+      return survey.width() >= width && survey.height() >= height && survey.depth() >= depth
+          ? Optional.empty()
+          : Optional.of("minimum dimensions are " + width + "x" + height + "x" + depth);
+    };
   }
 
-  private static void market(BuildingSurvey survey, List<String> violations) {
-    require(survey.stallBlocks() >= 3, "market requires at least three stalls", violations);
-    require(survey.entranceBlocks() >= 1, "market requires public access", violations);
+  private static ValidationRule require(Predicate<BuildingSurvey> predicate, String failure) {
+    return (inspection, context) ->
+        predicate.test(inspection.survey()) ? Optional.empty() : Optional.of(failure);
   }
 
-  private static void barracks(BuildingSurvey survey, List<String> violations) {
-    minimum(survey, 5, 4, 5, violations);
-    require(survey.bedBlocks() >= 4, "barracks requires four beds", violations);
-    require(survey.storageBlocks() >= 2, "barracks requires equipment storage", violations);
-    require(survey.entranceBlocks() >= 1, "barracks requires an entrance", violations);
+  private static ValidationRule entrance() {
+    return require(survey -> survey.entranceBlocks() >= 1, "requires an entrance");
   }
 
-  private static void minimum(
-      BuildingSurvey survey, int width, int height, int depth, List<String> violations) {
-    require(
-        survey.width() >= width && survey.height() >= height && survey.depth() >= depth,
-        "minimum dimensions are " + width + "x" + height + "x" + depth,
-        violations);
+  private static ValidationRule road() {
+    return (inspection, context) ->
+        context.roadConnected()
+            ? Optional.empty()
+            : Optional.of("requires a physical road connection");
   }
-
-  private static void require(boolean condition, String violation, List<String> violations) {
-    if (!condition) violations.add(violation);
-  }
-
-  public record ValidationContext(
-      boolean overlap, boolean districtCompatible, boolean roadConnected) {}
-
-  public record ValidationResult(
-      BuildingType type, boolean valid, List<String> violations, BuildingSurvey survey) {}
 }

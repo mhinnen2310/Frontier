@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 public interface BuildingValidationGateway {
-  BuildingValidator.ValidationContext context(
+  BuildingValidationContext context(
       UUID city,
       UUID actor,
       BuildingType type,
@@ -16,14 +16,14 @@ public interface BuildingValidationGateway {
       UUID actor,
       SettlementGateway.Bounds bounds,
       String districtKey,
-      BuildingValidator.ValidationResult validation,
+      BuildingValidationResult validation,
       Instant now);
 
   record RegisteredBuilding(
       UUID id,
       UUID city,
       BuildingType type,
-      String state,
+      BuildingState state,
       int integrity,
       java.util.List<String> validationMessages) {}
 }

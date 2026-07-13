@@ -1,6 +1,7 @@
 package nl.frontier.bootstrap;
 
 import java.util.Set;
+import nl.frontier.city.BuildingValidationPolicy;
 import nl.frontier.city.DistrictBalancePolicy;
 import nl.frontier.economy.HarborPolicy;
 
@@ -8,7 +9,7 @@ public record FrontierConfiguration(
     Global global,
     Settlements settlements,
     Districts districts,
-    Control buildings,
+    Buildings buildings,
     Influence influence,
     Economy economy,
     Control infrastructure,
@@ -59,6 +60,8 @@ public record FrontierConfiguration(
   }
 
   public record Districts(Control control, DistrictBalancePolicy balance) {}
+
+  public record Buildings(Control control, BuildingValidationPolicy validation) {}
 
   public record Influence(
       Control control,
@@ -116,7 +119,7 @@ public record FrontierConfiguration(
     return switch (module) {
       case "settlements" -> settlements.control().enabled();
       case "districts" -> districts.control().enabled();
-      case "buildings" -> buildings.enabled();
+      case "buildings" -> buildings.control().enabled();
       case "influence" -> influence.control().enabled();
       case "economy" -> economy.control().enabled();
       case "infrastructure" -> infrastructure.enabled();

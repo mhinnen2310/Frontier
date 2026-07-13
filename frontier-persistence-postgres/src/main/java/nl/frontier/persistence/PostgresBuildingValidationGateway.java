@@ -9,9 +9,11 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 import nl.frontier.api.TransactionalStore;
+import nl.frontier.city.BuildingState;
 import nl.frontier.city.BuildingType;
+import nl.frontier.city.BuildingValidationContext;
 import nl.frontier.city.BuildingValidationGateway;
-import nl.frontier.city.BuildingValidator;
+import nl.frontier.city.BuildingValidationResult;
 import nl.frontier.city.DistrictBuildingPolicy;
 import nl.frontier.city.DistrictType;
 import nl.frontier.city.SettlementGateway;
@@ -26,7 +28,7 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
   }
 
   @Override
-  public BuildingValidator.ValidationContext context(
+  public BuildingValidationContext context(
       UUID city,
       UUID actor,
       BuildingType type,
@@ -35,8 +37,8 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
     return store.inTransaction(
         connection -> {
           requireRole(connection, city, actor);
-          requireClaimedBounds(connection, city, bounds);
-          return new BuildingValidator.ValidationContext(
+          return new BuildingValidationContext(
+              claimedBounds(connection, city, bounds),
               overlaps(connection, city, bounds),
               districtCompatible(connection, city, type, bounds, districtKey),
               false);
@@ -49,7 +51,7 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
       UUID actor,
       SettlementGateway.Bounds bounds,
       String districtKey,
-      BuildingValidator.ValidationResult validation,
+      BuildingValidationResult validation,
       Instant now) {
     return store.inTransaction(
         connection -> {
@@ -76,10 +78,31 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
             statement.setTimestamp(8, Timestamp.from(now));
             statement.executeUpdate();
           }
-          transition(connection, building, null, "PLANNED", report, actor, now);
-          transition(connection, building, "PLANNED", "UNDER_CONSTRUCTION", report, actor, now);
-          transition(connection, building, "UNDER_CONSTRUCTION", "VALIDATING", report, actor, now);
-          transition(connection, building, "VALIDATING", "ACTIVE", report, actor, now);
+          transition(connection, building, null, BuildingState.PLANNED, report, actor, now);
+          transition(
+              connection,
+              building,
+              BuildingState.PLANNED,
+              BuildingState.UNDER_CONSTRUCTION,
+              report,
+              actor,
+              now);
+          transition(
+              connection,
+              building,
+              BuildingState.UNDER_CONSTRUCTION,
+              BuildingState.VALIDATING,
+              report,
+              actor,
+              now);
+          transition(
+              connection,
+              building,
+              BuildingState.VALIDATING,
+              BuildingState.ACTIVE,
+              report,
+              actor,
+              now);
           try (PreparedStatement statement =
               connection.prepareStatement(
                   "UPDATE city_buildings SET status='ACTIVE',version=version+1 WHERE id=? AND status='PLANNED'")) {
@@ -88,7 +111,12 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
           }
           audit(connection, actor, building, report, now);
           return new RegisteredBuilding(
-              building, city, validation.type(), "ACTIVE", 100, validation.violations());
+              building,
+              city,
+              validation.type(),
+              BuildingState.ACTIVE,
+              100,
+              validation.violations());
         });
   }
 
@@ -108,6 +136,12 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
 
   private static void requireClaimedBounds(
       Connection connection, UUID city, SettlementGateway.Bounds bounds) throws SQLException {
+    if (!claimedBounds(connection, city, bounds))
+      throw new DomainException("every building chunk must be controlled by the settlement");
+  }
+
+  private static boolean claimedBounds(
+      Connection connection, UUID city, SettlementGateway.Bounds bounds) throws SQLException {
     int minChunkX = Math.floorDiv(bounds.minX(), 16);
     int maxChunkX = Math.floorDiv(bounds.maxX(), 16);
     int minChunkZ = Math.floorDiv(bounds.minZ(), 16);
@@ -124,8 +158,7 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
       statement.setInt(6, maxChunkZ);
       try (ResultSet result = statement.executeQuery()) {
         result.next();
-        if (result.getLong(1) != expected)
-          throw new DomainException("every building chunk must be controlled by the settlement");
+        return result.getLong(1) == expected;
       }
     }
   }
@@ -186,8 +219,9 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
     }
   }
 
-  private static String report(BuildingValidator.ValidationResult validation) {
-    var survey = validation.survey();
+  private static String report(BuildingValidationResult validation) {
+    var inspection = validation.inspection();
+    var survey = inspection.survey();
     return "{\"type\":\""
         + validation.type()
         + "\",\"valid\":true,\"dimensions\":\""
@@ -200,14 +234,20 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
         + survey.nonAirBlocks()
         + ",\"roadBlocks\":"
         + survey.roadBlocks()
+        + ",\"floorCoveragePercent\":"
+        + inspection.floorCoveragePercent()
+        + ",\"wallCoveragePercent\":"
+        + inspection.wallCoveragePercent()
+        + ",\"roofCoveragePercent\":"
+        + inspection.roofCoveragePercent()
         + "}";
   }
 
   private static void transition(
       Connection connection,
       UUID building,
-      String from,
-      String to,
+      BuildingState from,
+      BuildingState to,
       String report,
       UUID actor,
       Instant now)
@@ -217,8 +257,8 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
             "INSERT INTO building_validation_history(id,building_id,from_state,to_state,report,actor_id,occurred_at) VALUES(?,?,?,?,?::jsonb,?,?)")) {
       statement.setObject(1, UUID.randomUUID());
       statement.setObject(2, building);
-      statement.setString(3, from);
-      statement.setString(4, to);
+      statement.setString(3, from == null ? null : from.name());
+      statement.setString(4, to.name());
       statement.setString(5, report);
       statement.setObject(6, actor);
       statement.setTimestamp(7, Timestamp.from(now));

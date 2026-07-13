@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 11 — Building Validation Framework
+
+- Replaced registration-only acceptance with reusable `BuildingDefinition`, `ValidationRule`, `BuildingInspection` and `BuildingValidationResult` domain components.
+- Added bounded, configuration-driven live-world inspection for dimensions, volume, structural mass, floor, walls, roof, entrance, functional blocks and perimeter-road connectivity.
+- Kept outdoor farms distinct from enclosed buildings while applying settlement control, district compatibility, overlap and scan-bound rules to every type.
+- Made the database repeat settlement, overlap and district checks inside the registration transaction and persist a typed, audited eight-state lifecycle including `ABANDONED`.
+- Added Flyway V44, configuration validation, domain/PostgreSQL regression tests and an operator/player building-validation guide.
+
 ## 1.1.0-RC3 — Release Train B
 
 - Completed Master Roadmap Sprints 6–10: recoverable physical settlement founding, complete membership/governance lifecycle, normalized district persistence, complete district management and physically activated specialization balance.

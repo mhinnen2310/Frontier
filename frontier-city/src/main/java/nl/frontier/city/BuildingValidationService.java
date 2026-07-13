@@ -22,13 +22,14 @@ public final class BuildingValidationService {
       String districtKey,
       BuildingSurvey survey,
       Instant now) {
-    if (survey.volume() > 32_768) throw new DomainException("building volume exceeds 32768 blocks");
-    BuildingValidator.ValidationContext persisted =
-        gateway.context(city, actor, type, bounds, districtKey);
-    BuildingValidator.ValidationContext context =
-        new BuildingValidator.ValidationContext(
-            persisted.overlap(), persisted.districtCompatible(), survey.roadBlocks() > 0);
-    BuildingValidator.ValidationResult result = validator.validate(type, survey, context);
+    BuildingValidationContext persisted = gateway.context(city, actor, type, bounds, districtKey);
+    BuildingValidationContext context =
+        new BuildingValidationContext(
+            persisted.controlledBySettlement(),
+            persisted.overlap(),
+            persisted.districtCompatible(),
+            survey.roadBlocks() > 0);
+    BuildingValidationResult result = validator.validate(type, survey, context);
     if (!result.valid())
       throw new DomainException(
           "building validation failed: " + String.join("; ", result.violations()));

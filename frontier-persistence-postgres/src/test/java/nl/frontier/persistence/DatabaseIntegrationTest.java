@@ -18,8 +18,10 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import nl.frontier.api.RecoveryCoordinator;
+import nl.frontier.city.BuildingState;
 import nl.frontier.city.BuildingSurvey;
 import nl.frontier.city.BuildingType;
+import nl.frontier.city.BuildingValidationPolicy;
 import nl.frontier.city.BuildingValidationService;
 import nl.frontier.city.BuildingValidator;
 import nl.frontier.city.ClaimProtectionGateway;
@@ -371,7 +373,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(43, result.getInt(1));
+        assertEquals(44, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -863,7 +865,9 @@ class DatabaseIntegrationTest {
       districtService.worker(district.id(), owner, worker, 90, Instant.now());
       BuildingValidationService buildingValidation =
           new BuildingValidationService(
-              new PostgresBuildingValidationGateway(store), new BuildingValidator());
+              new PostgresBuildingValidationGateway(store),
+              new BuildingValidator(
+                  new BuildingValidationPolicy(64, 64, 64, 32_768, 8, 60, 50, 60)));
       SettlementGateway.Bounds farmBounds =
           new SettlementGateway.Bounds(world, 162, 60, 162, 169, 66, 169);
       var registeredFarm =
@@ -873,9 +877,9 @@ class DatabaseIntegrationTest {
               BuildingType.FARM,
               farmBounds,
               district.id().toString(),
-              new BuildingSurvey(8, 7, 8, 48, 0, 0, 0, 0, 0, 0, 24, 1, 16, 0, 0, 0, Map.of()),
+              new BuildingSurvey(8, 7, 8, 48, 0, 0, 0, 0, 0, 0, 0, 0, 24, 1, 16, 0, 0, 0, Map.of()),
               Instant.now());
-      assertEquals("ACTIVE", registeredFarm.state());
+      assertEquals(BuildingState.ACTIVE, registeredFarm.state());
       assertEquals(district.id(), districtService.resolve(owner, "Harvest Fields").id());
       assertEquals(district.id(), districtService.resolve(owner, district.id().toString()).id());
       districtService.removeBuilding(
@@ -895,7 +899,7 @@ class DatabaseIntegrationTest {
               BuildingType.FARM,
               secondFarmBounds,
               district.id().toString(),
-              new BuildingSurvey(4, 4, 4, 32, 0, 0, 0, 0, 0, 0, 16, 1, 8, 0, 0, 0, Map.of()),
+              new BuildingSurvey(4, 4, 4, 32, 0, 0, 0, 0, 0, 0, 0, 0, 16, 1, 8, 0, 0, 0, Map.of()),
               Instant.now());
       UUID roadNodeA = UUID.randomUUID();
       UUID roadNodeB = UUID.randomUUID();
@@ -962,7 +966,7 @@ class DatabaseIntegrationTest {
       try (var connection = database.dataSource().getConnection();
           var statement =
               connection.prepareStatement(
-                  "SELECT status,(SELECT count(*) FROM building_validation_history WHERE building_id=?),district_id,(SELECT count(*) FROM district_regions WHERE district_id=?),(SELECT count(*) FROM district_roles WHERE district_id=?),(SELECT count(*) FROM district_policies WHERE district_id=?) FROM city_buildings WHERE id=?")) {
+                  "SELECT status,(SELECT count(*) FROM building_validation_history WHERE building_id=?),district_id,(SELECT count(*) FROM district_regions WHERE district_id=?),(SELECT count(*) FROM district_roles WHERE district_id=?),(SELECT count(*) FROM district_policies WHERE district_id=?),validation_report->>'floorCoveragePercent' FROM city_buildings WHERE id=?")) {
         statement.setObject(1, registeredFarm.id());
         statement.setObject(2, district.id());
         statement.setObject(3, district.id());
@@ -976,7 +980,15 @@ class DatabaseIntegrationTest {
           assertEquals(1, result.getInt(4));
           assertEquals(4, result.getInt(5));
           assertEquals(1, result.getInt(6));
+          assertEquals("0", result.getString(7));
         }
+      }
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "UPDATE city_buildings SET status='UNKNOWN' WHERE id=?")) {
+        statement.setObject(1, registeredFarm.id());
+        assertThrows(SQLException.class, statement::executeUpdate);
       }
       districtService.removeWorker(district.id(), owner, worker, Instant.now());
       districtService.removeManager(district.id(), owner, Instant.now());

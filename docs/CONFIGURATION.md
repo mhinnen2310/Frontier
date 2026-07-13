@@ -36,7 +36,7 @@ Every file has `config-version: 1`; every module has `enabled`. Values are loade
 |---|---|---|
 | `settlements.yml` | Simulation/protection cadence; founding fee, founder minimum, attempt/lease lifetime, core/Harbor distances, materials and allowed world environments; mayor/settlement inactivity and disband confirmation timing | enabled |
 | `districts.yml` | Integrity activation thresholds; diminishing contribution count/rate; adjacency range/count/rate; over-specialization threshold/penalty; effective cap; Industrial/Military cost and Commercial/Logistics capacity modifiers | enabled; 40 integrity, 50% diminishing to 3 buildings, 10% adjacency up to 2 within 16 blocks, 20% penalty beyond 2 same-type districts, 30% cap |
-| `buildings.yml` | Physical validation/registration control | enabled |
+| `buildings.yml` | Physical validation/registration control; maximum width/height/depth/volume, minimum structural mass and floor/wall/roof coverage | enabled; 64 blocks per axis, 32,768 blocks total, 8 structural blocks, 60% floor, 50% walls, 60% roof |
 | `influence.yml` | Cadence/bound, contested threshold and lead hysteresis | enabled |
 | `economy.yml` | Market/production/logistics cadence; Harbor budgets, source/player caps, low-tier stock, jobs and limited daily orders | enabled |
 | `infrastructure.yml` | Infrastructure subsystem control | enabled |
@@ -57,6 +57,8 @@ All durations and batch limits must be positive. Founding requires positive mate
 Harbor's commodity allowlist is additionally bounded in code to bread, wheat, oak logs, cobblestone and iron ingots. Config may choose a subset but cannot introduce high-tier goods. Starter-job totals cannot exceed the per-player daily cap, daily currency creation cannot exceed the Harbor budget, and overlapping buy/sell prices may not permit arbitrage.
 
 District balance percentages are constrained to 1–100, contribution/adjacency/same-type counts to 1–20, integrity to 1–100 and adjacency distance to 1–256 blocks. Changing balance settings requires a server restart; startup synchronizes the validated immutable policy to the authoritative database projection.
+
+Building dimensions and volume must be positive and are enforced before any live-world iteration. Structural minimums must be positive; floor, wall and roof coverage are percentages from 1–100. These settings require a server restart because both the Paper survey adapter and pure validator capture one immutable policy at startup.
 
 ## Administration
 

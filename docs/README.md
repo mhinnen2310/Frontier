@@ -15,6 +15,7 @@ This directory is the maintained operator, player and developer manual for Front
 - [Settlement founding](SETTLEMENT_FOUNDING.md): expedition, founder, fee/material and physical-core recovery protocol.
 - [Settlement membership](SETTLEMENT_MEMBERSHIP.md): invitations, bans, succession, disband confirmation and ruin asset policy.
 - [Districts](DISTRICTS.md): normalized domain, regions, UUID building assignment, roles and persistence invariants.
+- [Building validation](BUILDING_VALIDATION.md): physical inspection rules, lifecycle and safe registration protocol.
 - [Claim protection](CLAIM_PROTECTION.md): central action policy, role rules and covered Paper events.
 - [Repair integrity](REPAIR_INTEGRITY.md): damage generations, crash recovery, leases and material safety.
 - [Configuration](CONFIGURATION.md): every configuration section and safe tuning.

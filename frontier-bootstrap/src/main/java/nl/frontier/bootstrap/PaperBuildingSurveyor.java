@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import nl.frontier.city.BuildingSurvey;
+import nl.frontier.city.BuildingValidationPolicy;
 import nl.frontier.city.SettlementGateway;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -38,6 +39,11 @@ final class PaperBuildingSurveyor {
           Material.COBBLESTONE,
           Material.STONE_BRICKS,
           Material.ANDESITE);
+  private final BuildingValidationPolicy policy;
+
+  PaperBuildingSurveyor(BuildingValidationPolicy policy) {
+    this.policy = policy;
+  }
 
   BuildingSurvey survey(SettlementGateway.Bounds bounds) {
     var world = Bukkit.getWorld(bounds.world());
@@ -46,9 +52,18 @@ final class PaperBuildingSurveyor {
     int height = bounds.maxY() - bounds.minY() + 1;
     int depth = bounds.maxZ() - bounds.minZ() + 1;
     long volume = Math.multiplyExact(Math.multiplyExact((long) width, height), depth);
-    if (volume > 32_768) throw new IllegalArgumentException("building volume exceeds 32768 blocks");
+    if (width <= 0
+        || height <= 0
+        || depth <= 0
+        || width > policy.maximumWidth()
+        || height > policy.maximumHeight()
+        || depth > policy.maximumDepth()
+        || volume > policy.maximumVolume())
+      throw new IllegalArgumentException("building selection exceeds configured scan bounds");
     int nonAir = 0;
     int interiorAir = 0;
+    int floor = 0;
+    int walls = 0;
     int roof = 0;
     int entrances = 0;
     int lights = 0;
@@ -73,6 +88,15 @@ final class PaperBuildingSurveyor {
           }
           materials.merge(material.getKey().asString(), 1, Integer::sum);
           if (!material.isAir()) nonAir++;
+          if (y == bounds.minY() && material.isSolid()) floor++;
+          boolean wall =
+              y > bounds.minY()
+                  && y < bounds.maxY()
+                  && (x == bounds.minX()
+                      || x == bounds.maxX()
+                      || z == bounds.minZ()
+                      || z == bounds.maxZ());
+          if (wall && material.isSolid()) walls++;
           if (y == bounds.maxY() && !material.isAir()) roof++;
           boolean interior =
               x > bounds.minX()
@@ -95,7 +119,6 @@ final class PaperBuildingSurveyor {
           if (CROPS.contains(material)) crops++;
           if (CRAFTING.contains(material)) crafting++;
           if (STALLS.contains(material)) stalls++;
-          if (ROAD.contains(material)) roads++;
         }
       }
     }
@@ -105,6 +128,8 @@ final class PaperBuildingSurveyor {
         depth,
         nonAir,
         interiorAir,
+        floor,
+        walls,
         roof,
         entrances,
         lights,

@@ -11,7 +11,7 @@ This is the truthful baseline for the 60-sprint Master Remediation & Expansion R
 | Command roots | 25 |
 | Paper Dialog screens | 14 |
 | Paper listener adapters | 6 |
-| Flyway migrations | 43 (V1–V43) |
+| Flyway migrations | 44 (V1–V44) |
 | PostgreSQL public gameplay tables | 155 |
 | Bukkit permissions | 3 |
 
@@ -26,7 +26,7 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 | Repair integrity | complete | Generation-linked breach accounting, two-phase mutation/material consumption, idempotent purchase/commit, multi-task progress, lease/restart recovery, unload defer, conflict quarantine and completion-based archive/re-break tests pass |
 | Settlement founding/lifecycle | complete for Sprints 6–7 | Physical expedition founding, charter/founders, configurable fee/material/location rules, invitations/revocation, leave/kick/ban, role-safe transfer/succession, delayed disband, abandonment, asset-frozen ruins/recovery, merge and complete audit history have transactional integration coverage |
 | Districts | complete for Sprint 10 | Name-based management and complete Dialog reports feed a config-driven effective specialization projection requiring valid buildings plus connected infrastructure, with diminishing returns, adjacency, over-specialization and real cost/capacity trade-offs |
-| Buildings | partial | Physical validators exist for six types and lifecycle/history are durable; Town Hall, Workshop, Mine, Watchtower and selection/preview UX are missing |
+| Buildings | complete for Sprint 11 | Reusable definitions/rules consume one bounded physical inspection; settlement control, district, overlap and hard scan bounds are enforced, six types validate functional structure, and the eight-state lifecycle/history are constrained. Town Hall, Workshop, Mine, Watchtower and selection/preview UX remain Sprint 12 work |
 | Roads/infrastructure | partial | Physical bounded validation, capacity/health/traffic and routing exist; dirty-segment invalidation, failure orders and critical-path gameplay are incomplete |
 | Workers/population | partial | Profession, skill, morale, wage, experience, housing, employment, migration and retirement exist; full task states, visible schedules and Builder Guild player contribution are incomplete |
 | Ambient settlement life | partial | Harbor/worker/caravan presentation and announcements exist; citizen/guard/market/day-night activity is incomplete |
