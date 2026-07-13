@@ -48,6 +48,7 @@ public final class PostgresRepairGateway implements RepairGateway {
     return store.inTransaction(
         connection -> {
           requireRepairAccess(connection, city, actor, campaign);
+          advisoryLock(connection, "repair-purchase:" + idempotency);
           RepairSnapshot existing = byIdempotency(connection, idempotency);
           if (existing != null) return existing;
           lockEligibleDamage(connection, city, campaign);
@@ -231,15 +232,17 @@ public final class PostgresRepairGateway implements RepairGateway {
             statement.setObject(1, row.journal);
             statement.executeUpdate();
           }
-          releaseWorker(connection, task);
+          releaseWorker(connection, task, true);
           int completed = completedTasks(connection, row.order);
           int total = totalTasks(connection, row.order);
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "UPDATE repair_orders SET completed_tasks=?,status=?,version=version+1 WHERE id=?")) {
+                  "UPDATE repair_orders SET completed_tasks=?,status=?,completed_at=CASE WHEN ? THEN ? ELSE completed_at END,version=version+1 WHERE id=?")) {
             statement.setInt(1, completed);
-            statement.setString(2, completed == total ? "COMPLETED" : "ACTIVE");
-            statement.setObject(3, row.order);
+            statement.setString(2, completed == total ? "COMPLETED" : "REPAIRING");
+            statement.setBoolean(3, completed == total);
+            statement.setTimestamp(4, Timestamp.from(now));
+            statement.setObject(5, row.order);
             statement.executeUpdate();
           }
           history(connection, row.order, task, "TASK_COMMITTED", "{}", now);
@@ -258,7 +261,7 @@ public final class PostgresRepairGateway implements RepairGateway {
           if (!coordinator.equals(row.leaseOwner))
             throw new DomainException("repair task lease is owned by another coordinator");
           releaseConsumption(connection, row.consumption);
-          releaseWorker(connection, task);
+          releaseWorker(connection, task, false);
           try (PreparedStatement statement =
               connection.prepareStatement(
                   "UPDATE repair_tasks SET status=CASE WHEN attempts+1>=5 THEN 'REVIEW_REQUIRED' ELSE 'READY' END,prepared_consumption_id=NULL,lease_owner=NULL,lease_expires_at=NULL,last_error=?,updated_at=?,attempts=attempts+1,version=version+1 WHERE id=?")) {
@@ -280,6 +283,29 @@ public final class PostgresRepairGateway implements RepairGateway {
   }
 
   @Override
+  public void defer(UUID coordinator, UUID task, String reason, Instant retryAt, Instant now) {
+    store.inTransaction(
+        connection -> {
+          TaskRow row = rawTask(connection, task);
+          if (row.status.equals("COMPLETED")) return null;
+          if (!coordinator.equals(row.leaseOwner))
+            throw new DomainException("repair task lease is owned by another coordinator");
+          releaseWorker(connection, task, false);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE repair_tasks SET lease_owner=NULL,lease_expires_at=?,last_error=?,updated_at=?,version=version+1 WHERE id=? AND status='PREPARED'")) {
+            statement.setTimestamp(1, Timestamp.from(retryAt));
+            statement.setString(2, reason);
+            statement.setTimestamp(3, Timestamp.from(now));
+            statement.setObject(4, task);
+            statement.executeUpdate();
+          }
+          history(connection, row.order, task, "TASK_DEFERRED", jsonReason(reason), now);
+          return null;
+        });
+  }
+
+  @Override
   public void conflict(UUID coordinator, UUID task, String actualBlockData, Instant now) {
     store.inTransaction(
         connection -> {
@@ -288,7 +314,7 @@ public final class PostgresRepairGateway implements RepairGateway {
           if (!coordinator.equals(row.leaseOwner))
             throw new DomainException("repair task lease is owned by another coordinator");
           releaseConsumption(connection, row.consumption);
-          releaseWorker(connection, task);
+          releaseWorker(connection, task, false);
           try (PreparedStatement statement =
               connection.prepareStatement(
                   "INSERT INTO repair_conflicts(id,repair_task_id,expected_data,actual_data,target_data,detected_at) VALUES(?,?,?,?,?,?)")) {
@@ -320,7 +346,7 @@ public final class PostgresRepairGateway implements RepairGateway {
           List<UUID> orders = new ArrayList<>();
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "SELECT o.id FROM repair_orders o WHERE o.status='COMPLETED' AND o.created_at<? ORDER BY o.created_at,o.id LIMIT ? FOR UPDATE OF o SKIP LOCKED")) {
+                  "SELECT o.id FROM repair_orders o WHERE o.status='COMPLETED' AND o.completed_at<? ORDER BY o.completed_at,o.id LIMIT ? FOR UPDATE OF o SKIP LOCKED")) {
             statement.setTimestamp(1, Timestamp.from(completedBefore));
             statement.setInt(2, maximum);
             try (ResultSet result = statement.executeQuery()) {
@@ -519,10 +545,7 @@ public final class PostgresRepairGateway implements RepairGateway {
       return prepared(row, worker);
     }
     WorkerSelection worker = availableBuilder(connection, row.city);
-    if (worker == null) {
-      updateOrderStatus(connection, row.order, "PAUSED_MATERIAL");
-      return null;
-    }
+    if (worker == null) return null;
     ReservationRow reservation = nextReservation(connection, row.order, row.commodity);
     if (reservation == null) {
       updateOrderStatus(connection, row.order, "PAUSED_MATERIAL");
@@ -786,7 +809,8 @@ public final class PostgresRepairGateway implements RepairGateway {
     history(connection, row.order, row.id, "REPAIRING", "{}", now);
   }
 
-  private static void releaseWorker(Connection connection, UUID task) throws SQLException {
+  private static void releaseWorker(Connection connection, UUID task, boolean completed)
+      throws SQLException {
     UUID worker = null;
     try (PreparedStatement statement =
         connection.prepareStatement(
@@ -798,15 +822,17 @@ public final class PostgresRepairGateway implements RepairGateway {
     }
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "UPDATE work_packages SET status='COMPLETED',version=version+1 WHERE repair_task_id=? AND status IN ('ISSUED','ACTIVE')")) {
-      statement.setObject(1, task);
+            "UPDATE work_packages SET status=?,version=version+1 WHERE repair_task_id=? AND status IN ('ISSUED','ACTIVE')")) {
+      statement.setString(1, completed ? "COMPLETED" : "EXPIRED");
+      statement.setObject(2, task);
       statement.executeUpdate();
     }
     if (worker != null) {
       try (PreparedStatement statement =
           connection.prepareStatement(
-              "UPDATE workers SET state='IDLE',task_id=NULL,lease_expires_at=NULL,experience=experience+1,version=version+1 WHERE id=?")) {
-        statement.setObject(1, worker);
+              "UPDATE workers SET state='IDLE',task_id=NULL,lease_expires_at=NULL,experience=experience+?,version=version+1 WHERE id=?")) {
+        statement.setInt(1, completed ? 1 : 0);
+        statement.setObject(2, worker);
         statement.executeUpdate();
       }
     }
@@ -845,6 +871,14 @@ public final class PostgresRepairGateway implements RepairGateway {
       try (ResultSet result = statement.executeQuery()) {
         return result.next() ? load(connection, result.getObject(1, UUID.class)) : null;
       }
+    }
+  }
+
+  private static void advisoryLock(Connection connection, String key) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?,0))")) {
+      statement.setString(1, key);
+      statement.executeQuery().close();
     }
   }
 

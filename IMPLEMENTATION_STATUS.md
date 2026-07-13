@@ -11,7 +11,7 @@ This is the truthful baseline for the 60-sprint Master Remediation & Expansion R
 | Command roots | 25 |
 | Paper Dialog screens | 14 |
 | Paper listener adapters | 6 |
-| Flyway migrations | 31 (V1–V31) |
+| Flyway migrations | 32 (V1–V32) |
 | PostgreSQL public gameplay tables | 146 |
 | Bukkit permissions | 3 |
 
@@ -23,7 +23,7 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 |---|---|---|
 | Wallets, treasury and Harbor bootstrap | complete | Transactional player/city transfers, idempotency and audit plus config-driven low-tier stock/jobs/orders, non-arbitrage pricing and global/player daily caps have integration coverage |
 | Claim protection | complete | One cached `TerritoryActionPolicy` covers actor/action/source/target, ownership, roles, overrides, campaign, treaty, incident and bypass; all listed Paper actions plus cross-boundary propagation have exploit and handler-contract coverage |
-| Repair integrity | complete for current scope | Two-phase mutation, generations, leases, recovery, conflict quarantine and archive/re-break tests exist; Sprint 5 will remap every new acceptance phrase |
+| Repair integrity | complete | Generation-linked breach accounting, two-phase mutation/material consumption, idempotent purchase/commit, multi-task progress, lease/restart recovery, unload defer, conflict quarantine and completion-based archive/re-break tests pass |
 | Settlement founding/lifecycle | partial | Core, fee/material saga, location, succession, ruins and merge exist; expeditions, founder confirmations, bans/revocation and strong disband UX are missing |
 | Districts | partial | Persistent bounded districts, managers, budgets, policies, workers, history and bonuses exist; district memberships/roles, logistics type and deeper balancing are incomplete |
 | Buildings | partial | Physical validators exist for six types and lifecycle/history are durable; Town Hall, Workshop, Mine, Watchtower and selection/preview UX are missing |

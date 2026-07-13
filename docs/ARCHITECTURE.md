@@ -41,6 +41,8 @@ propagation uses the same policy and cannot cross territory-owner boundaries.
 - Monetary values and quantities are integer units; no floating-point accounting.
 - Caller-supplied idempotency keys protect replayable writes.
 - Work queues use leases and retry-safe lifecycle states.
+- Damage/repair bridge world state with generation-linked authorization and two-phase prepared
+  material consumption; see [Repair integrity](REPAIR_INTEGRITY.md).
 - `SELECT ... FOR UPDATE` and advisory locks serialize contested aggregates.
 - The transactional outbox separates durable decisions from Paper-side effects.
 - Chunk scans and simulation cycles are bounded and measured by named scheduler metrics.

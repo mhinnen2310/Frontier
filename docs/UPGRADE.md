@@ -18,4 +18,4 @@ If startup fails before migrations, restore the prior JAR/config. If any new mig
 
 ## From 1.0.0
 
-The 1.0.0 artifact remains immutable. Frontier 1.1 adds migrations V16–V31 for Harbor/wallets through performance hardening. Back up first and allow the application to apply the entire sequence once. Existing cities remain authoritative; new systems initialize from migrations and bounded recovery.
+The 1.0.0 artifact remains immutable. Frontier 1.1 adds migrations V16–V32 for Harbor/wallets through repair occurrence/completion hardening. Back up first and allow the application to apply the entire sequence once. Existing cities remain authoritative; new systems initialize from migrations and bounded recovery.

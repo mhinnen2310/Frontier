@@ -24,6 +24,8 @@ public interface RepairGateway {
 
   void release(UUID worker, UUID task, String reason, Instant now);
 
+  void defer(UUID worker, UUID task, String reason, Instant retryAt, Instant now);
+
   void conflict(UUID worker, UUID task, String actualBlockData, Instant now);
 
   int archiveCompleted(Instant completedBefore, int maximum, Instant now);

@@ -87,7 +87,7 @@ final class RepairSupervisor {
           () -> {
             World world = Bukkit.getWorld(task.world());
             if (world == null) {
-              release(task, "WORLD_NOT_LOADED");
+              defer(task, "WORLD_NOT_LOADED");
               return;
             }
             var block = world.getBlockAt(task.x(), task.y(), task.z());
@@ -109,7 +109,7 @@ final class RepairSupervisor {
                         player ->
                             wars.hostileCampaign(player.getUniqueId(), task.city()).isPresent());
             if (hostile) {
-              release(task, "HOSTILE_NEARBY");
+              defer(task, "HOSTILE_NEARBY");
               return;
             }
             animate(task);
@@ -118,7 +118,7 @@ final class RepairSupervisor {
             commit(task);
           });
     } catch (IllegalStateException unloaded) {
-      release(task, "WORLD_NOT_LOADED");
+      defer(task, "WORLD_OR_CHUNK_NOT_LOADED");
     }
   }
 
@@ -150,10 +150,11 @@ final class RepairSupervisor {
             });
   }
 
-  private void release(RepairGateway.PreparedTask task, String reason) {
+  private void defer(RepairGateway.PreparedTask task, String reason) {
+    Instant now = Instant.now();
     schedulers.async(
         () -> {
-          repairs.release(coordinator, task.id(), reason, Instant.now());
+          repairs.defer(coordinator, task.id(), reason, now.plus(lease), now);
           return null;
         });
   }

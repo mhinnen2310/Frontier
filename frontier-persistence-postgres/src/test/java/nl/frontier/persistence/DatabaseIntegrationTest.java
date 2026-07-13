@@ -221,7 +221,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(31, result.getInt(1));
+        assertEquals(32, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -997,6 +997,25 @@ class DatabaseIntegrationTest {
       assertEquals(
           0,
           damage.authorizeAndJournal(attempt, Duration.ofHours(6), 1_200, 3_000).chargedPoints());
+      WarDamageGateway.DamageAttempt secondAttempt =
+          new WarDamageGateway.DamageAttempt(
+              campaign.id(),
+              attackerOwner,
+              defender.id(),
+              warWorld,
+              806,
+              64,
+              805,
+              "minecraft:stone_bricks",
+              "minecraft:air",
+              "PLAYER_BREAK",
+              2,
+              0,
+              declaredAt.plusSeconds(2));
+      WarDamageGateway.Decision secondDamage =
+          damage.authorizeAndJournal(secondAttempt, Duration.ofHours(6), 1_200, 3_000);
+      assertTrue(secondDamage.mutationRequired());
+      damage.confirmApplied(secondDamage.damage(), secondAttempt.damagedData(), Instant.now());
       CampaignGateway.ObjectiveTickReport objectiveTick =
           campaigns.tickObjectives(
               java.util.List.of(
@@ -1036,7 +1055,7 @@ class DatabaseIntegrationTest {
           new SettlementGateway.Bounds(warWorld, 800, 50, 800, 815, 90, 815),
           EnumSet.of(GovernmentRole.MAYOR),
           Instant.now());
-      economy.deposit(defender.id(), defenderOwner, "minecraft:stone_bricks", 1, Instant.now());
+      economy.deposit(defender.id(), defenderOwner, "minecraft:stone_bricks", 2, Instant.now());
       production.hire(defender.id(), defenderOwner, "BUILDER", 80, 25, Instant.now());
       PostgresRepairGateway repairs = new PostgresRepairGateway(store);
       RepairGateway.Quote repairQuote =
@@ -1046,21 +1065,46 @@ class DatabaseIntegrationTest {
               campaign.id(),
               RepairOrder.Priority.NORMAL,
               Instant.now());
-      assertEquals(1, repairQuote.tasks());
-      assertEquals(43, repairQuote.totalCostMinor());
-      RepairGateway.RepairSnapshot repair =
-          repairs.purchase(
-              defender.id(),
-              defenderOwner,
-              campaign.id(),
-              RepairOrder.Priority.NORMAL,
-              UUID.randomUUID(),
-              Instant.now());
+      assertEquals(2, repairQuote.tasks());
+      assertEquals(86, repairQuote.totalCostMinor());
+      UUID repairIdempotency = UUID.randomUUID();
+      RepairGateway.RepairSnapshot repair;
+      try (var repairExecutors = Executors.newFixedThreadPool(2)) {
+        var firstPurchase =
+            repairExecutors.submit(
+                () ->
+                    repairs.purchase(
+                        defender.id(),
+                        defenderOwner,
+                        campaign.id(),
+                        RepairOrder.Priority.NORMAL,
+                        repairIdempotency,
+                        Instant.now()));
+        var replayPurchase =
+            repairExecutors.submit(
+                () ->
+                    repairs.purchase(
+                        defender.id(),
+                        defenderOwner,
+                        campaign.id(),
+                        RepairOrder.Priority.NORMAL,
+                        repairIdempotency,
+                        Instant.now()));
+        repair = firstPurchase.get(10, TimeUnit.SECONDS);
+        assertEquals(repair.id(), replayPurchase.get(10, TimeUnit.SECONDS).id());
+      }
       assertEquals(RepairOrder.Status.RESERVED, repair.status());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement("UPDATE repair_orders SET created_at=? WHERE id=?")) {
+        statement.setTimestamp(1, java.sql.Timestamp.from(Instant.now().minus(Duration.ofDays(2))));
+        statement.setObject(2, repair.id());
+        statement.executeUpdate();
+      }
       UUID expiredCoordinator = UUID.randomUUID();
       RepairGateway.PreparedTask repairTask =
           repairs
-              .leaseReady(expiredCoordinator, 10, Instant.now(), Instant.now().minusSeconds(1))
+              .leaseReady(expiredCoordinator, 1, Instant.now(), Instant.now().minusSeconds(1))
               .stream()
               .filter(value -> value.order().equals(repair.id()))
               .findFirst()
@@ -1069,15 +1113,77 @@ class DatabaseIntegrationTest {
       UUID repairCoordinator = UUID.randomUUID();
       repairTask =
           repairs
-              .leaseReady(repairCoordinator, 10, Instant.now(), Instant.now().plusSeconds(60))
+              .leaseReady(repairCoordinator, 1, Instant.now(), Instant.now().plusSeconds(60))
               .stream()
               .filter(value -> value.order().equals(repair.id()))
               .findFirst()
               .orElseThrow();
-      repairs.commit(repairCoordinator, repairTask.id(), Instant.now());
-      repairs.commit(repairCoordinator, repairTask.id(), Instant.now());
+      UUID releasedConsumption = repairTask.consumption();
+      repairs.release(repairCoordinator, repairTask.id(), "RETRYABLE_TEST_FAILURE", Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement("SELECT status FROM material_consumptions WHERE id=?")) {
+        statement.setObject(1, releasedConsumption);
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("RELEASED", result.getString(1));
+        }
+      }
+      repairCoordinator = UUID.randomUUID();
+      repairTask =
+          repairs
+              .leaseReady(repairCoordinator, 1, Instant.now(), Instant.now().plusSeconds(60))
+              .stream()
+              .filter(value -> value.order().equals(repair.id()))
+              .findFirst()
+              .orElseThrow();
+      assertEquals(releasedConsumption, repairTask.consumption());
+      UUID preparedConsumption = repairTask.consumption();
+      UUID deferredTask = repairTask.id();
+      Instant deferredAt = Instant.now();
+      repairs.defer(
+          repairCoordinator,
+          repairTask.id(),
+          "WORLD_OR_CHUNK_NOT_LOADED",
+          deferredAt.plusSeconds(10),
+          deferredAt);
+      UUID parallelCoordinator = UUID.randomUUID();
+      RepairGateway.PreparedTask parallelTask =
+          repairs
+              .leaseReady(
+                  parallelCoordinator, 1, deferredAt.plusSeconds(5), deferredAt.plusSeconds(60))
+              .getFirst();
+      assertFalse(parallelTask.id().equals(deferredTask));
+      repairs.commit(parallelCoordinator, parallelTask.id(), deferredAt.plusSeconds(6));
+      assertEquals(RepairOrder.Status.REPAIRING, repairs.orders(defender.id()).getFirst().status());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT t.status,t.attempts,c.status FROM repair_tasks t JOIN material_consumptions c ON c.id=t.prepared_consumption_id WHERE t.id=?")) {
+        statement.setObject(1, repairTask.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("PREPARED", result.getString(1));
+          assertEquals(1, result.getInt(2));
+          assertEquals("PREPARED", result.getString(3));
+        }
+      }
+      UUID resumedCoordinator = UUID.randomUUID();
+      repairTask =
+          repairs
+              .leaseReady(
+                  resumedCoordinator, 1, deferredAt.plusSeconds(11), deferredAt.plusSeconds(71))
+              .stream()
+              .filter(value -> value.order().equals(repair.id()))
+              .findFirst()
+              .orElseThrow();
+      assertEquals(preparedConsumption, repairTask.consumption());
+      repairs.commit(resumedCoordinator, repairTask.id(), Instant.now());
+      repairs.commit(resumedCoordinator, repairTask.id(), Instant.now());
       assertEquals(RepairOrder.Status.COMPLETED, repairs.orders(defender.id()).getFirst().status());
-      assertEquals(957, settlements.treasuryBalance(defender.id()));
+      assertEquals(914, settlements.treasuryBalance(defender.id()));
+      assertEquals(
+          0, repairs.archiveCompleted(Instant.now().minus(Duration.ofDays(1)), 10, Instant.now()));
       assertEquals(1, repairs.archiveCompleted(Instant.now().plusSeconds(1), 10, Instant.now()));
       assertEquals(RepairOrder.Status.ARCHIVED, repairs.orders(defender.id()).getFirst().status());
 
@@ -1090,6 +1196,7 @@ class DatabaseIntegrationTest {
                 + campaign.id()
                 + "'");
       }
+      DamageSpendStats originalSpend = damageSpendStats(database, damageDecision.damage());
       WarDamageGateway.Decision rebreak =
           damage.authorizeAndJournal(
               new WarDamageGateway.DamageAttempt(
@@ -1111,11 +1218,77 @@ class DatabaseIntegrationTest {
               3_000);
       assertTrue(rebreak.mutationRequired());
       assertTrue(rebreak.chargedPoints() > 0);
+      DamageSpendStats reservedRebreak = damageSpendStats(database, rebreak.damage());
+      assertEquals(originalSpend.count() + 1, reservedRebreak.count());
+      assertEquals(reservedRebreak.count(), reservedRebreak.distinctGenerations());
       assertTrue(
           damage.pendingMutations(10).stream()
               .anyMatch(value -> value.damage().equals(rebreak.damage())));
       damage.reject(rebreak.damage(), "TEST_ROLLBACK", Instant.now());
       assertEquals(0, damage.pendingMutations(10).size());
+      DamageSpendStats rejectedRebreak = damageSpendStats(database, rebreak.damage());
+      assertEquals(originalSpend, rejectedRebreak);
+
+      WarDamageGateway.DamageAttempt conflictAttempt =
+          new WarDamageGateway.DamageAttempt(
+              campaign.id(),
+              attackerOwner,
+              defender.id(),
+              warWorld,
+              807,
+              64,
+              805,
+              "minecraft:stone_bricks",
+              "minecraft:air",
+              "PLAYER_BREAK",
+              2,
+              0,
+              Instant.now());
+      WarDamageGateway.Decision conflictDamage =
+          damage.authorizeAndJournal(conflictAttempt, Duration.ofHours(6), 1_200, 3_000);
+      assertTrue(conflictDamage.mutationRequired());
+      damage.confirmApplied(conflictDamage.damage(), conflictAttempt.damagedData(), Instant.now());
+      try (var connection = database.dataSource().getConnection();
+          var statement = connection.createStatement()) {
+        statement.executeUpdate(
+            "UPDATE campaigns SET phase='ENDED' WHERE id='" + campaign.id() + "'");
+      }
+      economy.deposit(defender.id(), defenderOwner, "minecraft:stone_bricks", 1, Instant.now());
+      RepairGateway.RepairSnapshot conflictOrder =
+          repairs.purchase(
+              defender.id(),
+              defenderOwner,
+              campaign.id(),
+              RepairOrder.Priority.NORMAL,
+              UUID.randomUUID(),
+              Instant.now());
+      UUID conflictCoordinator = UUID.randomUUID();
+      RepairGateway.PreparedTask conflictTask =
+          repairs
+              .leaseReady(conflictCoordinator, 10, Instant.now(), Instant.now().plusSeconds(60))
+              .stream()
+              .filter(value -> value.order().equals(conflictOrder.id()))
+              .findFirst()
+              .orElseThrow();
+      repairs.conflict(conflictCoordinator, conflictTask.id(), "minecraft:dirt", Instant.now());
+      assertEquals(
+          RepairOrder.Status.REVIEW_REQUIRED,
+          repairs.orders(defender.id()).stream()
+              .filter(value -> value.id().equals(conflictOrder.id()))
+              .findFirst()
+              .orElseThrow()
+              .status());
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT t.status,c.status FROM repair_tasks t JOIN material_consumptions c ON c.id=t.prepared_consumption_id WHERE t.id=?")) {
+        statement.setObject(1, conflictTask.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("REVIEW_REQUIRED", result.getString(1));
+          assertEquals("RELEASED", result.getString(2));
+        }
+      }
 
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1631,4 +1804,20 @@ class DatabaseIntegrationTest {
           "INSERT INTO global_objectives(id,objective_key,status,progress,target,version) VALUES(gen_random_uuid(),'CONNECT_CAPITALS','ACTIVE',0,1,0),(gen_random_uuid(),'BUILD_WORLD_WONDERS','ACTIVE',0,1,0),(gen_random_uuid(),'SURVIVE_WORLD_CRISIS','ACTIVE',0,1,0),(gen_random_uuid(),'RESTORE_WAR_RUINS','ACTIVE',0,1,0)");
     }
   }
+
+  private static DamageSpendStats damageSpendStats(DatabaseManager database, UUID damage)
+      throws SQLException {
+    try (var connection = database.dataSource().getConnection();
+        var statement =
+            connection.prepareStatement(
+                "SELECT count(*),coalesce(sum(points),0),count(DISTINCT damage_generation) FROM breach_spends WHERE damage_id=?")) {
+      statement.setObject(1, damage);
+      try (var result = statement.executeQuery()) {
+        result.next();
+        return new DamageSpendStats(result.getLong(1), result.getLong(2), result.getLong(3));
+      }
+    }
+  }
+
+  private record DamageSpendStats(long count, long points, long distinctGenerations) {}
 }

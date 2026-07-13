@@ -1,5 +1,15 @@
 # Changelog
 
+## Master Roadmap Sprint 5 — Repair Engine Integrity
+
+- Bound every breach spend to a unique damage generation; rejecting a later re-break now refunds only that unconfirmed occurrence and preserves every earlier applied spend.
+- Serialized concurrent repair-purchase replay and proved that one idempotency key returns one paid order.
+- Added non-striking task deferral for unloaded worlds/chunks and temporary hostility while retaining prepared material for safe resume.
+- Fixed multi-block orders stalling after their first commit, removed the false material-pause transition when builders are merely busy, and limited worker experience to completed placement.
+- Based archival delay on durable `completed_at` rather than creation time and added Flyway V32 for upgrade-safe occurrence/completion metadata.
+- Expanded PostgreSQL coverage for two-block partial progress, release/re-prepare, expired lease recovery, defer/resume, manual-edit quarantine, duplicate commit and rejected re-break accounting.
+- Removed the unused in-memory journal/consumption models that contradicted the authoritative PostgreSQL protocol.
+
 ## Master Roadmap Sprint 4 — Complete Claim Protection
 
 - Added one pure `TerritoryActionPolicy` with actor, action, target/source territory, ownership, role, override, campaign, treaty, incident and bypass context.

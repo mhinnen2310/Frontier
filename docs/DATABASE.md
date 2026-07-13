@@ -1,6 +1,6 @@
 # Database schema
 
-PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persistence-postgres/src/main/resources/db/migration/index.txt`; never modify a migration already used by a server. UUID primary keys identify aggregates, integer columns hold cents/units, timestamps are UTC, constraints protect lifecycle values, and indexes in V31 cover active work and lookup paths.
+PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persistence-postgres/src/main/resources/db/migration/index.txt`; never modify a migration already used by a server. UUID primary keys identify aggregates, integer columns hold cents/units, timestamps are UTC, constraints protect lifecycle values, V31 indexes cover active work/lookups and V32 hardens repair occurrence/completion integrity.
 
 ## Table families
 
@@ -27,6 +27,6 @@ PostgreSQL is authoritative. Flyway applies the ordered files in `frontier-persi
 | V16–V20 | Player wallets/Harbor, repair integrity, building lifecycle, districts and settlement lifecycle |
 | V21–V24 | Physical infrastructure, caravans, population and complete economy |
 | V25–V29 | Campaign outcomes, kingdom integration, world simulation, dynamic events and endgame |
-| V30–V31 | Security constraints and performance indexes |
+| V30–V32 | Security constraints, performance indexes and repair occurrence/completion integrity |
 
 For exact columns, foreign keys, checks and indexes, read the corresponding migration rather than relying on an independently generated schema dump. Backups must contain the complete database, including `flyway_schema_history`.

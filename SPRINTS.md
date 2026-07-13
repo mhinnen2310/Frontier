@@ -10,7 +10,7 @@ The attached 60-sprint roadmap supersedes the legacy implementation sequence bel
 | A | 2 | Central typed configuration architecture | complete |
 | A | 3 | Fresh-world economy bootstrap | complete |
 | A | 4 | Complete claim protection | complete |
-| A | 5 | Repair engine integrity | pending |
+| A | 5 | Repair engine integrity | complete |
 | B | 6–10 | Founding, membership, districts and specialization | pending |
 | C | 11–15 | Building validation/UX, physical roads and infrastructure failure | pending |
 | D | 16–20 | Workers, Builder Guild, population and ambient life | pending |

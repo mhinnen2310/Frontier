@@ -77,6 +77,7 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
           if (charged > remaining)
             return new Decision(false, "breach capacity exhausted", 0, remaining, null, false);
           UUID damage = existing == null ? UUID.randomUUID() : existing.id;
+          int generation = existing == null ? 1 : Math.addExact(existing.generation, 1);
           if (existing == null) {
             try (PreparedStatement statement =
                 connection.prepareStatement(
@@ -118,7 +119,7 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
           }
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "INSERT INTO breach_spends(id,campaign_id,points,occurred_at,actor_id,damage_id,effective_multiplier) VALUES(?,?,?,?,?,?,?)")) {
+                  "INSERT INTO breach_spends(id,campaign_id,points,occurred_at,actor_id,damage_id,effective_multiplier,damage_generation) VALUES(?,?,?,?,?,?,?,?)")) {
             statement.setObject(1, UUID.randomUUID());
             statement.setObject(2, attempt.campaign());
             statement.setInt(3, charged);
@@ -126,6 +127,7 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
             statement.setObject(5, attempt.attacker());
             statement.setObject(6, damage);
             statement.setDouble(7, multiplier);
+            statement.setInt(8, generation);
             statement.executeUpdate();
           }
           try (PreparedStatement statement =
@@ -133,7 +135,8 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
                   "INSERT INTO outbox_events(id,aggregate_type,aggregate_id,event_type,payload,occurred_at) VALUES(?,'DAMAGE',?,'StructuralDamageAuthorized',?::jsonb,?)")) {
             statement.setObject(1, UUID.randomUUID());
             statement.setObject(2, damage);
-            statement.setString(3, "{\"chargedPoints\":" + charged + "}");
+            statement.setString(
+                3, "{\"chargedPoints\":" + charged + ",\"generation\":" + generation + "}");
             statement.setTimestamp(4, Timestamp.from(attempt.now()));
             statement.executeUpdate();
           }
@@ -201,19 +204,23 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
     store.inTransaction(
         connection -> {
           String mutation;
+          int generation;
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "SELECT mutation_state FROM damage_journal WHERE id=? FOR UPDATE")) {
+                  "SELECT mutation_state,generation FROM damage_journal WHERE id=? FOR UPDATE")) {
             statement.setObject(1, damage);
             try (ResultSet result = statement.executeQuery()) {
               if (!result.next()) return null;
               mutation = result.getString(1);
+              generation = result.getInt(2);
             }
           }
           if (!mutation.equals("AUTHORIZED")) return null;
           try (PreparedStatement statement =
-              connection.prepareStatement("DELETE FROM breach_spends WHERE damage_id=?")) {
+              connection.prepareStatement(
+                  "DELETE FROM breach_spends WHERE damage_id=? AND damage_generation=?")) {
             statement.setObject(1, damage);
+            statement.setInt(2, generation);
             statement.executeUpdate();
           }
           try (PreparedStatement statement =
@@ -277,7 +284,7 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
       java.sql.Connection connection, DamageAttempt attempt) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT id,repair_state,mutation_state FROM damage_journal WHERE campaign_id=? AND world_id=? AND x=? AND y=? AND z=? FOR UPDATE")) {
+            "SELECT id,repair_state,mutation_state,generation FROM damage_journal WHERE campaign_id=? AND world_id=? AND x=? AND y=? AND z=? FOR UPDATE")) {
       statement.setObject(1, attempt.campaign());
       statement.setObject(2, attempt.world());
       statement.setInt(3, attempt.x());
@@ -286,7 +293,10 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
       try (ResultSet result = statement.executeQuery()) {
         return result.next()
             ? new ExistingDamage(
-                result.getObject(1, UUID.class), result.getString(2), result.getString(3))
+                result.getObject(1, UUID.class),
+                result.getString(2),
+                result.getString(3),
+                result.getInt(4))
             : null;
       }
     }
@@ -349,5 +359,5 @@ public final class PostgresWarDamageGateway implements WarDamageGateway {
     }
   }
 
-  private record ExistingDamage(UUID id, String repairState, String mutation) {}
+  private record ExistingDamage(UUID id, String repairState, String mutation, int generation) {}
 }
