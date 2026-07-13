@@ -4,19 +4,39 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class InfrastructureValidator {
+  private final InfrastructureValidationPolicy policy;
+
+  public InfrastructureValidator() {
+    this(InfrastructureValidationPolicy.defaults());
+  }
+
+  public InfrastructureValidator(InfrastructureValidationPolicy policy) {
+    this.policy = policy;
+  }
+
   public Validation validate(InfrastructureType type, InfrastructureSurvey survey) {
     List<String> violations = new ArrayList<>();
     if (survey.samples() < 2) violations.add("route requires at least two samples");
-    if (survey.connectivity() < 0.85) violations.add("route connectivity must be at least 85%");
-    if (survey.minimumWidth() < 2) violations.add("road width must be at least two blocks");
-    if (survey.surfaceQuality() < 40) violations.add("surface quality must be at least 40");
-    if (survey.maximumSlope() > 1.5) violations.add("route slope is too steep");
-    if (survey.brokenSegments() > Math.max(1, survey.samples() / 10))
+    if (survey.samples() - 1 > policy.maximumLength())
+      violations.add("route exceeds the maximum physical length");
+    if (!survey.endpointsConnected())
+      violations.add("route does not connect both registered endpoints");
+    if (survey.connectivity() * 100 < policy.minimumConnectivityPercent())
+      violations.add(
+          "route connectivity must be at least " + policy.minimumConnectivityPercent() + "%");
+    if (survey.minimumWidth() < policy.minimumWidth())
+      violations.add("road width must be at least " + policy.minimumWidth() + " blocks");
+    if (survey.surfaceQuality() < policy.minimumSurfaceQuality())
+      violations.add("surface quality must be at least " + policy.minimumSurfaceQuality());
+    if (survey.maximumSlope() > policy.maximumSlope()) violations.add("route slope is too steep");
+    if (survey.brokenSegments() * 100 > survey.samples() * policy.maximumBrokenPercent())
       violations.add("route has too many broken segments");
-    if (type == InfrastructureType.BRIDGE && survey.bridgeSamples() < 2)
+    if (type == InfrastructureType.BRIDGE && survey.bridgeSamples() < policy.minimumBridgeSamples())
       violations.add("bridge route requires a physical bridge span");
-    if (type == InfrastructureType.TUNNEL && survey.tunnelSamples() < 2)
+    if (type == InfrastructureType.TUNNEL && survey.tunnelSamples() < policy.minimumTunnelSamples())
       violations.add("tunnel route requires enclosed tunnel segments");
+    if (type == InfrastructureType.GATE && survey.gateSamples() < policy.minimumGateSamples())
+      violations.add("gate route requires a physical gate segment");
     if (survey.destroyedBridges() > 0) violations.add("route contains destroyed bridge spans");
     int health =
         Math.max(

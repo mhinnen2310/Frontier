@@ -44,6 +44,7 @@ import nl.frontier.economy.EconomyGateway;
 import nl.frontier.economy.FinanceApplicationService;
 import nl.frontier.economy.HarborGateway;
 import nl.frontier.economy.HarborPolicy;
+import nl.frontier.economy.InfrastructureGateway;
 import nl.frontier.economy.InfrastructureSurvey;
 import nl.frontier.economy.InfrastructureType;
 import nl.frontier.economy.InfrastructureValidator;
@@ -373,7 +374,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(45, result.getInt(1));
+        assertEquals(47, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1233,19 +1234,42 @@ class DatabaseIntegrationTest {
       LogisticsGateway.RoadNode buyerNode =
           logistics.registerNode(
               buyer.id(), buyerOwner, sellerWorld, 328, 64, 328, "WAREHOUSE", Instant.now());
+      PostgresInfrastructureGateway infrastructure = new PostgresInfrastructureGateway(store);
       var physicalEdge =
-          new PostgresInfrastructureGateway(store)
-              .register(
-                  seller.id(),
-                  sellerOwner,
-                  sellerNode.id(),
-                  buyerNode.id(),
-                  80,
-                  new InfrastructureValidator()
-                      .validate(
-                          InfrastructureType.ROAD,
-                          new InfrastructureSurvey(161, 161, 3, 0, 0, 80, 1, 0, 0)),
-                  Instant.now());
+          infrastructure.register(
+              seller.id(),
+              sellerOwner,
+              sellerNode.id(),
+              buyerNode.id(),
+              80,
+              new InfrastructureValidator()
+                  .validate(
+                      InfrastructureType.ROAD,
+                      new InfrastructureSurvey(
+                          161,
+                          161,
+                          3,
+                          0,
+                          0,
+                          80,
+                          1,
+                          0,
+                          0,
+                          true,
+                          0,
+                          328,
+                          64,
+                          328,
+                          488,
+                          64,
+                          488,
+                          java.util.stream.IntStream.rangeClosed(0, 160)
+                              .mapToObj(
+                                  index ->
+                                      new InfrastructureSurvey.RoutePoint(
+                                          index, 328 + index, 64, 328 + index))
+                              .toList())),
+              Instant.now());
       assertEquals(seller.id(), physicalEdge.owner());
       assertEquals(2_700, physicalEdge.capacity());
       try (var connection = database.dataSource().getConnection();
@@ -1318,6 +1342,36 @@ class DatabaseIntegrationTest {
           assertEquals(3, result.getInt(7));
           assertEquals(80, result.getInt(8));
           assertEquals(0, result.getInt(9));
+        }
+      }
+      assertEquals(
+          1,
+          infrastructure.markDirty(
+              List.of(
+                  new InfrastructureGateway.ChangedBlock(sellerWorld, 400, 64, 400, "BLOCK_BREAK")),
+              Instant.now()));
+      assertEquals(
+          0,
+          infrastructure.markDirty(
+              List.of(
+                  new InfrastructureGateway.ChangedBlock(sellerWorld, 700, 64, 700, "BLOCK_BREAK")),
+              Instant.now()));
+      assertEquals(
+          1,
+          infrastructure.markDirty(
+              List.of(
+                  new InfrastructureGateway.ChangedBlock(sellerWorld, 401, 64, 401, "PISTON_MOVE")),
+              Instant.now()));
+      try (var connection = database.dataSource().getConnection();
+          var statement =
+              connection.prepareStatement(
+                  "SELECT e.route_state,d.reason,d.change_count FROM road_edges e JOIN dirty_road_edges d ON d.edge_id=e.id WHERE e.id=?")) {
+        statement.setObject(1, physicalEdge.id());
+        try (var result = statement.executeQuery()) {
+          assertTrue(result.next());
+          assertEquals("DIRTY", result.getString(1));
+          assertEquals("PISTON_MOVE", result.getString(2));
+          assertEquals(2, result.getLong(3));
         }
       }
       assertEquals(

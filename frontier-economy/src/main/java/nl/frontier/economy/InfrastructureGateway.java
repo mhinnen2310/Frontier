@@ -1,6 +1,7 @@
 package nl.frontier.economy;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public interface InfrastructureGateway {
@@ -15,9 +16,13 @@ public interface InfrastructureGateway {
       InfrastructureValidator.Validation validation,
       Instant now);
 
+  int markDirty(List<ChangedBlock> changes, Instant now);
+
   record Point(UUID world, int x, int y, int z) {}
 
   record Context(UUID city, Point from, Point to) {}
+
+  record ChangedBlock(UUID world, int x, int y, int z, String reason) {}
 
   record Edge(
       UUID id,

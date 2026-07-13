@@ -18,6 +18,12 @@ class InfrastructureValidatorTest {
     assertTrue(
         validator
             .validate(
+                InfrastructureType.GATE,
+                new InfrastructureSurvey(20, 20, 3, 0, 0, 80, 1, 0, 0, true, 1, 0, 0, 0, 19, 0, 0))
+            .valid());
+    assertTrue(
+        validator
+            .validate(
                 InfrastructureType.BRIDGE, new InfrastructureSurvey(20, 20, 3, 12, 0, 80, 1, 0, 0))
             .valid());
     assertTrue(
@@ -34,5 +40,12 @@ class InfrastructureValidatorTest {
             InfrastructureType.BRIDGE, new InfrastructureSurvey(20, 10, 1, 0, 0, 20, 3, 10, 2));
     assertFalse(result.valid());
     assertTrue(result.violations().size() >= 6);
+    assertFalse(
+        validator
+            .validate(
+                InfrastructureType.ROAD,
+                new InfrastructureSurvey(
+                    300, 300, 3, 0, 0, 80, 1, 0, 0, true, 0, 0, 64, 0, 299, 64, 0))
+            .valid());
   }
 }

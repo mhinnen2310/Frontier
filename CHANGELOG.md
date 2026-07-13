@@ -1,5 +1,14 @@
 # Changelog
 
+## Master Roadmap Sprint 14 — Physical Roads and Route Validation
+
+- Replaced straight-line-only road checks with bounded corridor snapshots and pure asynchronous path detection, including connected endpoints, width, continuity, slope, gaps, surface quality, bridge spans, tunnel enclosure and physical gates.
+- Moved every world read onto the owning Paper region scheduler per touched chunk; database writes and immutable snapshot analysis remain on named async workers.
+- Added typed road material profiles and all validation/scan/dirty-queue bounds to `infrastructure.yml`, with startup validation and safe default merging for existing servers.
+- Derived route health and capacity from the validated physical path while retaining explicit settlement ownership, planning importance and shipment-driven traffic.
+- Added accepted-block-change observers, exact persisted route segments, a bounded deduplicating queue and transactional dirty-edge marking through Flyway V46–V47, without database or gameplay decisions in listeners.
+- Added curved-path, endpoint, gap, destroyed-span, gate, scan-bound, queue, listener-contract, configuration and PostgreSQL ownership/dirty-state regression tests.
+
 ## Master Roadmap Sprint 13 — Building Registration UX
 
 - Added the Architect & Buildings Paper Dialog plus a tagged blaze-rod selector with left/right corner capture, world-safe normalized bounds, configurable timeout and cancel/confirm flow.

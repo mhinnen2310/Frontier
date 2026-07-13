@@ -1,6 +1,7 @@
 package nl.frontier.economy;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import nl.frontier.domain.DomainException;
@@ -34,5 +35,10 @@ public final class InfrastructureService {
       throw new DomainException(
           "infrastructure validation failed: " + String.join("; ", validation.violations()));
     return gateway.register(city, actor, from, to, importance, validation, now);
+  }
+
+  public int markDirty(List<InfrastructureGateway.ChangedBlock> changes, Instant now) {
+    if (changes.isEmpty()) return 0;
+    return gateway.markDirty(List.copyOf(changes), now);
   }
 }

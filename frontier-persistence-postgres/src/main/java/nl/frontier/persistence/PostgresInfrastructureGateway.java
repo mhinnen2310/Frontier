@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import nl.frontier.api.TransactionalStore;
@@ -16,9 +17,15 @@ import nl.frontier.economy.InfrastructureValidator;
 public final class PostgresInfrastructureGateway implements InfrastructureGateway {
   private static final Set<String> ROLES = Set.of("MAYOR", "ARCHITECT");
   private final TransactionalStore store;
+  private final int maximumLength;
 
   public PostgresInfrastructureGateway(TransactionalStore store) {
+    this(store, 256);
+  }
+
+  public PostgresInfrastructureGateway(TransactionalStore store, int maximumLength) {
     this.store = store;
+    this.maximumLength = maximumLength;
   }
 
   @Override
@@ -59,12 +66,37 @@ public final class PostgresInfrastructureGateway implements InfrastructureGatewa
                   + survey.samples()
                   + ",\"connected\":"
                   + survey.connectedSamples()
+                  + ",\"endpointsConnected\":"
+                  + survey.endpointsConnected()
+                  + ",\"surfaceQuality\":"
+                  + survey.surfaceQuality()
+                  + ",\"bridgeSamples\":"
+                  + survey.bridgeSamples()
+                  + ",\"tunnelSamples\":"
+                  + survey.tunnelSamples()
+                  + ",\"gateSamples\":"
+                  + survey.gateSamples()
                   + ",\"destroyedBridges\":"
                   + survey.destroyedBridges()
+                  + ",\"routePoints\":"
+                  + survey.route().size()
+                  + ",\"bounds\":["
+                  + survey.minX()
+                  + ","
+                  + survey.minY()
+                  + ","
+                  + survey.minZ()
+                  + ","
+                  + survey.maxX()
+                  + ","
+                  + survey.maxY()
+                  + ","
+                  + survey.maxZ()
+                  + "]"
                   + "}";
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "INSERT INTO road_edges(id,from_node,to_node,distance,capacity,integrity,version,infrastructure_type,traffic,importance,owner_city,minimum_width,surface_quality,maximum_slope,broken_segments,bridge_segments,tunnel_segments,validation_report,validated_at) VALUES(?,?,?,?,?,?,0,?,0,?,?,?,?,?,?,?,?,?::jsonb,?)")) {
+                  "INSERT INTO road_edges(id,from_node,to_node,distance,capacity,integrity,version,infrastructure_type,traffic,importance,owner_city,minimum_width,surface_quality,maximum_slope,broken_segments,bridge_segments,tunnel_segments,validation_report,validated_at,route_world,route_min_x,route_min_y,route_min_z,route_max_x,route_max_y,route_max_z,route_state) VALUES(?,?,?,?,?,?,0,?,0,?,?,?,?,?,?,?,?,?::jsonb,?,?,?,?,?,?,?,?,'VALID')")) {
             statement.setObject(1, edge);
             statement.setObject(2, from);
             statement.setObject(3, to);
@@ -82,7 +114,30 @@ public final class PostgresInfrastructureGateway implements InfrastructureGatewa
             statement.setInt(15, survey.tunnelSamples());
             statement.setString(16, report);
             statement.setTimestamp(17, Timestamp.from(now));
+            statement.setObject(18, context.from().world());
+            statement.setInt(19, survey.minX());
+            statement.setInt(20, survey.minY());
+            statement.setInt(21, survey.minZ());
+            statement.setInt(22, survey.maxX());
+            statement.setInt(23, survey.maxY());
+            statement.setInt(24, survey.maxZ());
             statement.executeUpdate();
+          }
+          if (!survey.route().isEmpty()) {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "INSERT INTO road_edge_segments(edge_id,sequence,world_id,x,y,z) VALUES(?,?,?,?,?,?)")) {
+              for (var point : survey.route()) {
+                statement.setObject(1, edge);
+                statement.setInt(2, point.sequence());
+                statement.setObject(3, context.from().world());
+                statement.setInt(4, point.x());
+                statement.setInt(5, point.y());
+                statement.setInt(6, point.z());
+                statement.addBatch();
+              }
+              statement.executeBatch();
+            }
           }
           try (PreparedStatement statement =
               connection.prepareStatement(
@@ -107,6 +162,32 @@ public final class PostgresInfrastructureGateway implements InfrastructureGatewa
         });
   }
 
+  @Override
+  public int markDirty(List<ChangedBlock> changes, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          int marked = 0;
+          for (ChangedBlock change : changes) {
+            try (PreparedStatement statement =
+                connection.prepareStatement(
+                    "WITH hits AS (SELECT DISTINCT edge_id FROM road_edge_segments WHERE world_id=? AND x BETWEEN ?-1 AND ?+1 AND z BETWEEN ?-1 AND ?+1 AND y BETWEEN ?-3 AND ?+3), affected AS (UPDATE road_edges e SET route_state='DIRTY',version=e.version+1 FROM hits h WHERE e.id=h.edge_id AND e.route_state NOT IN ('LEGACY','DESTROYED') RETURNING e.id) INSERT INTO dirty_road_edges(edge_id,reason,first_marked_at,last_marked_at,change_count) SELECT id,?,?,?,1 FROM affected ON CONFLICT(edge_id) DO UPDATE SET reason=excluded.reason,last_marked_at=excluded.last_marked_at,change_count=dirty_road_edges.change_count+1")) {
+              statement.setObject(1, change.world());
+              statement.setInt(2, change.x());
+              statement.setInt(3, change.x());
+              statement.setInt(4, change.z());
+              statement.setInt(5, change.z());
+              statement.setInt(6, change.y());
+              statement.setInt(7, change.y());
+              statement.setString(8, change.reason());
+              statement.setTimestamp(9, Timestamp.from(now));
+              statement.setTimestamp(10, Timestamp.from(now));
+              marked += statement.executeUpdate();
+            }
+          }
+          return marked;
+        });
+  }
+
   private static int roadCapacityBonus(Connection connection, UUID city) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
@@ -119,7 +200,7 @@ public final class PostgresInfrastructureGateway implements InfrastructureGatewa
     }
   }
 
-  private static Context context(Connection connection, UUID city, UUID from, UUID to, boolean lock)
+  private Context context(Connection connection, UUID city, UUID from, UUID to, boolean lock)
       throws SQLException {
     if (from.equals(to)) throw new DomainException("infrastructure edge needs two nodes");
     Point first = point(connection, from, lock);
@@ -129,8 +210,9 @@ public final class PostgresInfrastructureGateway implements InfrastructureGatewa
     if (!first.world().equals(second.world()))
       throw new DomainException("infrastructure nodes are in different worlds");
     double horizontal = Math.hypot(first.x() - second.x(), first.z() - second.z());
-    if (horizontal > 256)
-      throw new DomainException("physical infrastructure is limited to 256 blocks per edge");
+    if (horizontal > maximumLength)
+      throw new DomainException(
+          "physical infrastructure is limited to " + maximumLength + " blocks per edge");
     return new Context(city, first, second);
   }
 

@@ -34,6 +34,7 @@ import nl.frontier.economy.EconomyApplicationService;
 import nl.frontier.economy.FinanceApplicationService;
 import nl.frontier.economy.HarborApplicationService;
 import nl.frontier.economy.HarborGateway;
+import nl.frontier.economy.InfrastructurePathAnalyzer;
 import nl.frontier.economy.InfrastructureService;
 import nl.frontier.economy.InfrastructureValidator;
 import nl.frontier.economy.LogisticsGateway;
@@ -118,6 +119,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private CampaignOutcomeSupervisor campaignOutcomeSupervisor;
   private KingdomIntegrationSupervisor kingdomIntegrationSupervisor;
   private DynamicEventSupervisor dynamicEventSupervisor;
+  private InfrastructureDirtySupervisor infrastructureDirtySupervisor;
   private volatile boolean acceptingWrites;
   private ConfigRegistry configRegistry;
 
@@ -237,6 +239,13 @@ public final class FrontierPlugin extends JavaPlugin {
                   new BuildingValidator(config.buildings().validation()),
                   Duration.ofHours(config.buildings().transferProposalHours())),
               Duration.ofSeconds(config.buildings().selectionTimeoutSeconds()));
+      var infrastructurePolicy = config.infrastructure().validation();
+      InfrastructureService infrastructure =
+          new InfrastructureService(
+              new PostgresInfrastructureGateway(store, infrastructurePolicy.maximumLength()),
+              new InfrastructureValidator(infrastructurePolicy));
+      InfrastructureDirtyTracker infrastructureDirty =
+          new InfrastructureDirtyTracker(config.infrastructure().maximumDirtyQueue());
       FrontierCommand handler =
           new FrontierCommand(
               this::health,
@@ -282,9 +291,9 @@ public final class FrontierPlugin extends JavaPlugin {
               foundingCoordinator,
               new InfrastructureRegistrationCoordinator(
                   schedulers,
-                  new PaperInfrastructureSurveyor(),
-                  new InfrastructureService(
-                      new PostgresInfrastructureGateway(store), new InfrastructureValidator())),
+                  new PaperInfrastructureSurveyor(infrastructurePolicy),
+                  new InfrastructurePathAnalyzer(infrastructurePolicy),
+                  infrastructure),
               caravans,
               population,
               commerce,
@@ -317,6 +326,10 @@ public final class FrontierPlugin extends JavaPlugin {
         getServer()
             .getPluginManager()
             .registerEvents(new BuildingSelectionListener(buildingRegistrations), this);
+      if (config.enabled("infrastructure"))
+        getServer()
+            .getPluginManager()
+            .registerEvents(new InfrastructureDirtyListener(infrastructureDirty), this);
       if (config.enabled("economy"))
         getServer()
             .getPluginManager()
@@ -386,6 +399,15 @@ public final class FrontierPlugin extends JavaPlugin {
               config.economy().maximumShipmentsPerCycle(),
               getLogger());
       if (config.enabled("infrastructure")) logisticsSupervisor.start();
+      infrastructureDirtySupervisor =
+          new InfrastructureDirtySupervisor(
+              schedulers,
+              infrastructureDirty,
+              infrastructure,
+              Duration.ofSeconds(config.infrastructure().dirtyCycleSeconds()),
+              config.infrastructure().maximumDirtyPerCycle(),
+              getLogger());
+      if (config.enabled("infrastructure")) infrastructureDirtySupervisor.start();
       npcMaterializationSupervisor =
           new NpcMaterializationSupervisor(
               this,
@@ -532,6 +554,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (economySupervisor != null) economySupervisor.stop();
     if (productionSupervisor != null) productionSupervisor.stop();
     if (logisticsSupervisor != null) logisticsSupervisor.stop();
+    if (infrastructureDirtySupervisor != null) infrastructureDirtySupervisor.stop();
     if (npcMaterializationSupervisor != null) npcMaterializationSupervisor.stop();
     if (campaignSupervisor != null) campaignSupervisor.stop();
     if (objectiveSupervisor != null) objectiveSupervisor.stop();

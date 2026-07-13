@@ -4,9 +4,8 @@ import java.time.Instant;
 import java.util.UUID;
 import java.util.function.Consumer;
 import nl.frontier.api.SchedulerFacade;
-import nl.frontier.domain.Ids.WorldId;
-import nl.frontier.domain.Position.BlockPos;
 import nl.frontier.economy.InfrastructureGateway;
+import nl.frontier.economy.InfrastructurePathAnalyzer;
 import nl.frontier.economy.InfrastructureService;
 import nl.frontier.economy.InfrastructureType;
 import org.bukkit.entity.Player;
@@ -14,14 +13,17 @@ import org.bukkit.entity.Player;
 final class InfrastructureRegistrationCoordinator {
   private final SchedulerFacade schedulers;
   private final PaperInfrastructureSurveyor surveyor;
+  private final InfrastructurePathAnalyzer analyzer;
   private final InfrastructureService infrastructure;
 
   InfrastructureRegistrationCoordinator(
       SchedulerFacade schedulers,
       PaperInfrastructureSurveyor surveyor,
+      InfrastructurePathAnalyzer analyzer,
       InfrastructureService infrastructure) {
     this.schedulers = schedulers;
     this.surveyor = surveyor;
+    this.analyzer = analyzer;
     this.infrastructure = infrastructure;
   }
 
@@ -43,24 +45,26 @@ final class InfrastructureRegistrationCoordinator {
                 respond(player, () -> failure.accept(contextError));
                 return;
               }
-              var point = context.from();
-              schedulers.at(
-                  new BlockPos(new WorldId(point.world()), point.x(), point.y(), point.z()),
-                  () -> {
-                    try {
-                      var survey = surveyor.survey(context);
+              surveyor.snapshot(
+                  context,
+                  schedulers,
+                  snapshot ->
                       schedulers
-                          .async(
-                              () ->
-                                  infrastructure.register(
-                                      city,
-                                      actor,
-                                      from,
-                                      to,
-                                      type,
-                                      importance,
-                                      survey,
-                                      Instant.now()))
+                          .asyncNamed("infrastructure-analysis", () -> analyzer.analyze(snapshot))
+                          .thenCompose(
+                              survey ->
+                                  schedulers.asyncNamed(
+                                      "infrastructure-registration",
+                                      () ->
+                                          infrastructure.register(
+                                              city,
+                                              actor,
+                                              from,
+                                              to,
+                                              type,
+                                              importance,
+                                              survey,
+                                              Instant.now())))
                           .whenComplete(
                               (edge, error) ->
                                   respond(
@@ -68,11 +72,8 @@ final class InfrastructureRegistrationCoordinator {
                                       () -> {
                                         if (error == null) success.accept(edge);
                                         else failure.accept(error);
-                                      }));
-                    } catch (RuntimeException error) {
-                      respond(player, () -> failure.accept(error));
-                    }
-                  });
+                                      })),
+                  error -> respond(player, () -> failure.accept(error)));
             });
   }
 

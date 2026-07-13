@@ -21,6 +21,7 @@ import nl.frontier.city.BuildingRequirements;
 import nl.frontier.city.BuildingType;
 import nl.frontier.city.BuildingValidationPolicy;
 import nl.frontier.economy.HarborPolicy;
+import nl.frontier.economy.InfrastructureValidationPolicy;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -194,6 +195,14 @@ public final class ConfigRegistry {
             positive(economy, "logistics.maximum-shipments-per-cycle", Integer.MAX_VALUE),
             positiveLong(economy, "harbor.refresh-seconds"),
             harborPolicy(economy));
+    YamlConfiguration infrastructure = modules.get("infrastructure");
+    var infrastructureConfig =
+        new FrontierConfiguration.Infrastructure(
+            control(infrastructure),
+            infrastructurePolicy(infrastructure),
+            positiveLong(infrastructure, "dirty.cycle-seconds"),
+            positive(infrastructure, "dirty.maximum-per-cycle", 100_000),
+            positive(infrastructure, "dirty.maximum-queue", 1_000_000));
     YamlConfiguration warfare = modules.get("warfare");
     int breachBase = positive(warfare, "breach.base-points", Integer.MAX_VALUE);
     int breachMaximum = positive(warfare, "breach.maximum-points", Integer.MAX_VALUE);
@@ -310,7 +319,7 @@ public final class ConfigRegistry {
             buildingConfig,
             influenceConfig,
             economyConfig,
-            control(modules.get("infrastructure")),
+            infrastructureConfig,
             control(modules.get("caravans")),
             warfareConfig,
             repairConfig,
@@ -582,6 +591,46 @@ public final class ConfigRegistry {
         sells);
   }
 
+  private static InfrastructureValidationPolicy infrastructurePolicy(FileConfiguration document) {
+    Map<String, Integer> profiles = new LinkedHashMap<>();
+    for (Map<?, ?> row : document.getMapList("validation.surface-profiles")) {
+      Object rawMaterial = row.get("material");
+      String material =
+          String.valueOf(rawMaterial == null ? "" : rawMaterial).strip().toUpperCase(Locale.ROOT);
+      Object rawQuality = row.get("quality");
+      if (org.bukkit.Material.matchMaterial(material) == null)
+        throw invalid("infrastructure surface profile has unknown material " + material);
+      if (!(rawQuality instanceof Number number)
+          || number.intValue() < 1
+          || number.intValue() > 100)
+        throw invalid("infrastructure surface quality must be 1-100 for " + material);
+      profiles.put(material, number.intValue());
+    }
+    Set<String> gateMaterials = normalizedSet(document, "validation.gate-materials");
+    for (String material : gateMaterials)
+      if (org.bukkit.Material.matchMaterial(material) == null)
+        throw invalid("infrastructure gate material is unknown: " + material);
+    try {
+      return new InfrastructureValidationPolicy(
+          positive(document, "validation.maximum-length", 2_048),
+          positive(document, "validation.corridor-radius", 16),
+          positive(document, "validation.vertical-tolerance", 16),
+          positive(document, "validation.maximum-snapshot-columns", 1_000_000),
+          positive(document, "validation.minimum-connectivity-percent", 100),
+          positive(document, "validation.minimum-width", 32),
+          positive(document, "validation.minimum-surface-quality", 100),
+          positiveDouble(document, "validation.maximum-slope", 16),
+          nonNegative(document, "validation.maximum-broken-percent", 100),
+          positive(document, "validation.minimum-bridge-samples", 10_000),
+          positive(document, "validation.minimum-tunnel-samples", 10_000),
+          positive(document, "validation.minimum-gate-samples", 10_000),
+          profiles,
+          gateMaterials);
+    } catch (IllegalArgumentException error) {
+      throw invalid("infrastructure validation policy: " + error.getMessage());
+    }
+  }
+
   private static List<HarborPolicy.MarketOffer> offers(FileConfiguration document, String key) {
     return document.getMapList(key).stream()
         .map(
@@ -647,6 +696,13 @@ public final class ConfigRegistry {
   private static int nonNegative(FileConfiguration document, String key, int maximum) {
     int value = document.getInt(key, 0);
     if (value < 0 || value > maximum) throw invalid(key + " must be between 0 and " + maximum);
+    return value;
+  }
+
+  private static double positiveDouble(FileConfiguration document, String key, double maximum) {
+    double value = document.getDouble(key);
+    if (!Double.isFinite(value) || value <= 0 || value > maximum)
+      throw invalid(key + " must be greater than 0 and at most " + maximum);
     return value;
   }
 
@@ -824,6 +880,28 @@ public final class ConfigRegistry {
             "harbor.starter-jobs",
             "harbor.buy-orders",
             "harbor.sell-orders"));
+    keys.put(
+        "infrastructure",
+        leaves(
+            "config-version",
+            "enabled",
+            "validation.maximum-length",
+            "validation.corridor-radius",
+            "validation.vertical-tolerance",
+            "validation.maximum-snapshot-columns",
+            "validation.minimum-connectivity-percent",
+            "validation.minimum-width",
+            "validation.minimum-surface-quality",
+            "validation.maximum-slope",
+            "validation.maximum-broken-percent",
+            "validation.minimum-bridge-samples",
+            "validation.minimum-tunnel-samples",
+            "validation.minimum-gate-samples",
+            "validation.surface-profiles",
+            "validation.gate-materials",
+            "dirty.cycle-seconds",
+            "dirty.maximum-per-cycle",
+            "dirty.maximum-queue"));
     keys.put(
         "warfare",
         leaves(

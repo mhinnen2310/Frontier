@@ -39,7 +39,7 @@ Every file has `config-version: 1`; every module has `enabled`. Values are loade
 | `buildings.yml` | Physical validation/registration control; maximum width/height/depth/volume, minimum structural mass and floor/wall/roof coverage | enabled; 64 blocks per axis, 32,768 blocks total, 8 structural blocks, 60% floor, 50% walls, 60% roof |
 | `influence.yml` | Cadence/bound, contested threshold and lead hysteresis | enabled |
 | `economy.yml` | Market/production/logistics cadence; Harbor budgets, source/player caps, low-tier stock, jobs and limited daily orders | enabled |
-| `infrastructure.yml` | Infrastructure subsystem control | enabled |
+| `infrastructure.yml` | Route/corridor/snapshot bounds; continuity, width, quality, slope and evidence thresholds; material profiles; dirty queue cadence/bounds | enabled; 256 blocks, radius 6, 65,536 columns, 85% continuity, width 2, quality 40, slope 1.5 |
 | `caravans.yml` | Caravan subsystem control | enabled |
 | `warfare.yml` | Campaign timing/cost, breach budget and objective lifecycle | enabled |
 | `repairs.yml` | Task cycle/lease/archive/bound, unsafe radius and damage recovery | enabled |
@@ -59,6 +59,8 @@ Harbor's commodity allowlist is additionally bounded in code to bread, wheat, oa
 District balance percentages are constrained to 1–100, contribution/adjacency/same-type counts to 1–20, integrity to 1–100 and adjacency distance to 1–256 blocks. Changing balance settings requires a server restart; startup synchronizes the validated immutable policy to the authoritative database projection.
 
 Building dimensions and volume must be positive and are enforced before any live-world iteration. Structural minimums must be positive; floor, wall and roof coverage are percentages from 1–100. Under `types`, every one of the ten building types has minimum dimensions, enclosure/entrance/road switches and functional block-group counts. Type dimensions cannot exceed the global scan bounds or volume; counts are non-negative, bounded by maximum volume and at least one functional group per type must remain positive. `registration.selection-timeout-seconds` defaults to 300 and is capped at 3,600; `registration.transfer-proposal-hours` defaults to 24 and is capped at 168. These settings require a server restart because the UI, Paper survey adapter and pure validator capture one immutable policy at startup.
+
+Infrastructure material profiles use Bukkit material names and qualities from 1–100. Gate material names must also resolve at startup. Maximum edge length is capped at 2,048, corridor/vertical radii at 16, snapshot columns at 1,000,000 and dirty queue size at 1,000,000; packaged defaults are deliberately much lower. Changing these values requires a restart because the snapshot adapter, pure analyzer, validator and transactional gateway share one immutable policy.
 
 ## Administration
 

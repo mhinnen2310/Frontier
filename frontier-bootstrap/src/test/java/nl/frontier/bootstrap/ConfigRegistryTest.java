@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import nl.frontier.city.BuildingFeature;
 import nl.frontier.city.BuildingType;
@@ -39,6 +40,9 @@ class ConfigRegistryTest {
     assertEquals(60, config.buildings().validation().minimumRoofCoveragePercent());
     assertEquals(300, config.buildings().selectionTimeoutSeconds());
     assertEquals(24, config.buildings().transferProposalHours());
+    assertEquals(256, config.infrastructure().validation().maximumLength());
+    assertEquals(100, config.infrastructure().validation().quality("STONE_BRICKS"));
+    assertEquals(10_000, config.infrastructure().maximumDirtyQueue());
     assertEquals(
         1,
         config
@@ -159,6 +163,18 @@ class ConfigRegistryTest {
                 ConfigRegistry.parse(
                     resource("config.yml"), invalidSelectionTimeout, ignored -> {}));
     assertTrue(timeoutFailure.getMessage().contains("selection-timeout-seconds"));
+
+    var invalidRoadQuality = moduleResources();
+    invalidRoadQuality
+        .get("infrastructure")
+        .set(
+            "validation.surface-profiles",
+            List.of(Map.of("material", "STONE_BRICKS", "quality", 101)));
+    var roadQualityFailure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> ConfigRegistry.parse(resource("config.yml"), invalidRoadQuality, ignored -> {}));
+    assertTrue(roadQualityFailure.getMessage().contains("surface quality"));
   }
 
   @Test

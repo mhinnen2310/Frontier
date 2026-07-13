@@ -4,6 +4,7 @@ import java.util.Set;
 import nl.frontier.city.BuildingValidationPolicy;
 import nl.frontier.city.DistrictBalancePolicy;
 import nl.frontier.economy.HarborPolicy;
+import nl.frontier.economy.InfrastructureValidationPolicy;
 
 public record FrontierConfiguration(
     Global global,
@@ -12,7 +13,7 @@ public record FrontierConfiguration(
     Buildings buildings,
     Influence influence,
     Economy economy,
-    Control infrastructure,
+    Infrastructure infrastructure,
     Control caravans,
     Warfare warfare,
     Repairs repairs,
@@ -85,6 +86,13 @@ public record FrontierConfiguration(
       long harborRefreshSeconds,
       HarborPolicy harborPolicy) {}
 
+  public record Infrastructure(
+      Control control,
+      InfrastructureValidationPolicy validation,
+      long dirtyCycleSeconds,
+      int maximumDirtyPerCycle,
+      int maximumDirtyQueue) {}
+
   public record Warfare(
       Control control,
       long preparationHours,
@@ -126,7 +134,7 @@ public record FrontierConfiguration(
       case "buildings" -> buildings.control().enabled();
       case "influence" -> influence.control().enabled();
       case "economy" -> economy.control().enabled();
-      case "infrastructure" -> infrastructure.enabled();
+      case "infrastructure" -> infrastructure.control().enabled();
       case "caravans" -> caravans.enabled();
       case "warfare" -> warfare.control().enabled();
       case "repairs" -> repairs.control().enabled();

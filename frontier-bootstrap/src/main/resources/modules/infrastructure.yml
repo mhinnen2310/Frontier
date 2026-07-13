@@ -1,2 +1,38 @@
 config-version: 1
 enabled: true
+
+validation:
+  maximum-length: 256
+  corridor-radius: 6
+  vertical-tolerance: 3
+  maximum-snapshot-columns: 65536
+  minimum-connectivity-percent: 85
+  minimum-width: 2
+  minimum-surface-quality: 40
+  maximum-slope: 1.5
+  maximum-broken-percent: 10
+  minimum-bridge-samples: 2
+  minimum-tunnel-samples: 2
+  minimum-gate-samples: 1
+  surface-profiles:
+    - material: STONE_BRICKS
+      quality: 100
+    - material: COBBLESTONE
+      quality: 80
+    - material: ANDESITE
+      quality: 75
+    - material: GRAVEL
+      quality: 60
+    - material: DIRT_PATH
+      quality: 50
+    - material: PACKED_MUD
+      quality: 65
+  gate-materials:
+    - IRON_BARS
+    - OAK_FENCE_GATE
+    - IRON_DOOR
+
+dirty:
+  cycle-seconds: 5
+  maximum-per-cycle: 500
+  maximum-queue: 10000

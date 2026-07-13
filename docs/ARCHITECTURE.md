@@ -45,6 +45,8 @@ propagation uses the same policy and cannot cross territory-owner boundaries.
 
 Building corner selections are intentionally ephemeral Paper UI state. The listener only captures a tagged tool click; a bounded region task surveys the world and the city service performs preview or confirmation against transactional PostgreSQL authorization. Confirm never trusts the previous preview. Revalidation, unregister and two-mayor parcel transfer are database service operations with append-only validation/audit history.
 
+Physical infrastructure uses a two-stage read/analyze pipeline. A corridor plan is bounded before scheduling; each touched chunk is captured on its own Paper region scheduler into immutable surface cells. Pure asynchronous path analysis then derives continuity, endpoint connection, width, slope, bridge/tunnel/gate evidence, quality, health, capacity, bounds and exact path segments. Accepted block-change listeners only enqueue coordinates into a bounded deduplicating tracker; an asynchronous transactional service intersects persisted segments and marks matching routes dirty.
+
 ## Integrity rules
 
 - Monetary values and quantities are integer units; no floating-point accounting.

@@ -1,97 +1,162 @@
 package nl.frontier.bootstrap;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import nl.frontier.api.SchedulerFacade;
+import nl.frontier.domain.Ids.WorldId;
+import nl.frontier.domain.Position.BlockPos;
 import nl.frontier.economy.InfrastructureGateway;
-import nl.frontier.economy.InfrastructureSurvey;
+import nl.frontier.economy.InfrastructureSnapshot;
+import nl.frontier.economy.InfrastructureValidationPolicy;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.World;
 
+/** Captures immutable route cells on the owning region scheduler for every touched chunk. */
 final class PaperInfrastructureSurveyor {
-  private static final Map<Material, Integer> SURFACES =
-      Map.of(
-          Material.STONE_BRICKS, 100,
-          Material.COBBLESTONE, 80,
-          Material.ANDESITE, 75,
-          Material.GRAVEL, 60,
-          Material.DIRT_PATH, 50,
-          Material.PACKED_MUD, 65);
   private static final Set<Material> WATER = Set.of(Material.WATER, Material.BUBBLE_COLUMN);
+  private final InfrastructureValidationPolicy policy;
 
-  InfrastructureSurvey survey(InfrastructureGateway.Context context) {
+  PaperInfrastructureSurveyor(InfrastructureValidationPolicy policy) {
+    this.policy = policy;
+  }
+
+  void snapshot(
+      InfrastructureGateway.Context context,
+      SchedulerFacade schedulers,
+      Consumer<InfrastructureSnapshot> success,
+      Consumer<Throwable> failure) {
+    List<PlannedColumn> columns;
+    try {
+      columns = plan(context);
+    } catch (RuntimeException error) {
+      failure.accept(error);
+      return;
+    }
+    Map<Chunk, List<PlannedColumn>> chunks = new LinkedHashMap<>();
+    for (PlannedColumn column : columns)
+      chunks
+          .computeIfAbsent(
+              new Chunk(Math.floorDiv(column.x, 16), Math.floorDiv(column.z, 16)),
+              ignored -> new ArrayList<>())
+          .add(column);
+    var cells = new ConcurrentLinkedQueue<InfrastructureSnapshot.Cell>();
+    Set<InfrastructureSnapshot.Column> voids = ConcurrentHashMap.newKeySet();
+    AtomicInteger remaining = new AtomicInteger(chunks.size());
+    AtomicBoolean completed = new AtomicBoolean();
+    try {
+      for (List<PlannedColumn> chunkColumns : chunks.values()) {
+        PlannedColumn anchor = chunkColumns.getFirst();
+        schedulers.at(
+            new BlockPos(new WorldId(context.from().world()), anchor.x, anchor.expectedY, anchor.z),
+            () -> {
+              try {
+                World world = Bukkit.getWorld(context.from().world());
+                if (world == null)
+                  throw new IllegalStateException("infrastructure world is not loaded");
+                for (PlannedColumn column : chunkColumns) capture(world, column, cells, voids);
+                if (remaining.decrementAndGet() == 0 && completed.compareAndSet(false, true))
+                  success.accept(
+                      new InfrastructureSnapshot(
+                          context.from().world(),
+                          context.from(),
+                          context.to(),
+                          List.copyOf(cells),
+                          Set.copyOf(voids),
+                          columns.size()));
+              } catch (RuntimeException error) {
+                if (completed.compareAndSet(false, true)) failure.accept(error);
+              }
+            });
+      }
+    } catch (RuntimeException error) {
+      if (completed.compareAndSet(false, true)) failure.accept(error);
+    }
+  }
+
+  List<PlannedColumn> plan(InfrastructureGateway.Context context) {
     var from = context.from();
     var to = context.to();
-    var world = Bukkit.getWorld(from.world());
-    if (world == null) throw new IllegalStateException("infrastructure world is not loaded");
     int deltaX = to.x() - from.x();
     int deltaZ = to.z() - from.z();
-    int samples = Math.max(Math.abs(deltaX), Math.abs(deltaZ)) + 1;
-    if (samples > 257)
-      throw new IllegalArgumentException("infrastructure survey exceeds 256 blocks");
-    int connected = 0;
-    int minimumWidth = Integer.MAX_VALUE;
-    int bridges = 0;
-    int tunnels = 0;
-    int quality = 0;
-    int broken = 0;
-    int destroyedBridges = 0;
-    Integer previousY = null;
-    double maximumSlope = 0;
-    boolean perpendicularX = Math.abs(deltaZ) >= Math.abs(deltaX);
-    for (int index = 0; index < samples; index++) {
-      double fraction = samples == 1 ? 0 : (double) index / (samples - 1);
-      int x = (int) Math.round(from.x() + deltaX * fraction);
-      int z = (int) Math.round(from.z() + deltaZ * fraction);
+    int routeSamples = Math.max(Math.abs(deltaX), Math.abs(deltaZ)) + 1;
+    if (routeSamples - 1 > policy.maximumLength())
+      throw new IllegalArgumentException(
+          "infrastructure survey exceeds " + policy.maximumLength() + " blocks");
+    Map<ColumnKey, PlannedColumn> unique = new LinkedHashMap<>();
+    for (int index = 0; index < routeSamples; index++) {
+      double fraction = routeSamples == 1 ? 0 : (double) index / (routeSamples - 1);
+      int centerX = (int) Math.round(from.x() + deltaX * fraction);
+      int centerZ = (int) Math.round(from.z() + deltaZ * fraction);
       int expectedY = (int) Math.round(from.y() + (to.y() - from.y()) * fraction);
-      int y = surfaceY(world, x, expectedY, z);
-      if (y == Integer.MIN_VALUE) {
-        broken++;
-        Material below = world.getBlockAt(x, expectedY - 1, z).getType();
-        if (below.isAir() || WATER.contains(below)) destroyedBridges++;
-        continue;
-      }
-      connected++;
-      Material material = world.getBlockAt(x, y, z).getType();
-      quality += SURFACES.getOrDefault(material, 0);
-      minimumWidth = Math.min(minimumWidth, width(world, x, y, z, perpendicularX));
-      Material below = world.getBlockAt(x, y - 1, z).getType();
-      if (below.isAir() || WATER.contains(below)) bridges++;
-      if (world.getBlockAt(x, y + 2, z).getType().isSolid()) tunnels++;
-      if (previousY != null) maximumSlope = Math.max(maximumSlope, Math.abs(y - previousY));
-      previousY = y;
-    }
-    return new InfrastructureSurvey(
-        samples,
-        connected,
-        minimumWidth == Integer.MAX_VALUE ? 0 : minimumWidth,
-        bridges,
-        tunnels,
-        connected == 0 ? 0 : quality / connected,
-        maximumSlope,
-        broken,
-        destroyedBridges);
-  }
-
-  private static int surfaceY(org.bukkit.World world, int x, int expectedY, int z) {
-    for (int offset = 0; offset <= 3; offset++) {
-      int above = expectedY + offset;
-      if (SURFACES.containsKey(world.getBlockAt(x, above, z).getType())) return above;
-      int below = expectedY - offset;
-      if (offset > 0 && SURFACES.containsKey(world.getBlockAt(x, below, z).getType())) return below;
-    }
-    return Integer.MIN_VALUE;
-  }
-
-  private static int width(org.bukkit.World world, int x, int y, int z, boolean perpendicularX) {
-    int width = 1;
-    for (int direction : new int[] {-1, 1}) {
-      for (int offset = 1; offset <= 8; offset++) {
-        int testX = perpendicularX ? x + direction * offset : x;
-        int testZ = perpendicularX ? z : z + direction * offset;
-        if (!SURFACES.containsKey(world.getBlockAt(testX, y, testZ).getType())) break;
-        width++;
+      for (int x = centerX - policy.corridorRadius(); x <= centerX + policy.corridorRadius(); x++) {
+        for (int z = centerZ - policy.corridorRadius();
+            z <= centerZ + policy.corridorRadius();
+            z++) {
+          ColumnKey key = new ColumnKey(x, z);
+          unique.putIfAbsent(key, new PlannedColumn(x, expectedY, z));
+          if (unique.size() > policy.maximumSnapshotColumns())
+            throw new IllegalArgumentException("infrastructure snapshot exceeds configured bound");
+        }
       }
     }
-    return width;
+    return List.copyOf(unique.values());
   }
+
+  private void capture(
+      World world,
+      PlannedColumn column,
+      ConcurrentLinkedQueue<InfrastructureSnapshot.Cell> cells,
+      Set<InfrastructureSnapshot.Column> voids) {
+    int surfaceY = Integer.MIN_VALUE;
+    int quality = 0;
+    for (int offset = 0; offset <= policy.verticalTolerance(); offset++) {
+      int above = column.expectedY + offset;
+      int aboveQuality =
+          policy.quality(world.getBlockAt(column.x, above, column.z).getType().name());
+      if (aboveQuality > 0) {
+        surfaceY = above;
+        quality = aboveQuality;
+        break;
+      }
+      if (offset == 0) continue;
+      int below = column.expectedY - offset;
+      int belowQuality =
+          policy.quality(world.getBlockAt(column.x, below, column.z).getType().name());
+      if (belowQuality > 0) {
+        surfaceY = below;
+        quality = belowQuality;
+        break;
+      }
+    }
+    if (surfaceY == Integer.MIN_VALUE) {
+      Material below = world.getBlockAt(column.x, column.expectedY - 1, column.z).getType();
+      if (below.isAir() || WATER.contains(below))
+        voids.add(new InfrastructureSnapshot.Column(column.x, column.z));
+      return;
+    }
+    Material below = world.getBlockAt(column.x, surfaceY - 1, column.z).getType();
+    boolean bridge = below.isAir() || WATER.contains(below);
+    boolean tunnel = world.getBlockAt(column.x, surfaceY + 2, column.z).getType().isSolid();
+    boolean gate = false;
+    for (int y = surfaceY; y <= surfaceY + 2; y++)
+      gate |= policy.gate(world.getBlockAt(column.x, y, column.z).getType().name());
+    cells.add(
+        new InfrastructureSnapshot.Cell(
+            column.x, surfaceY, column.z, quality, bridge, tunnel, gate));
+  }
+
+  record PlannedColumn(int x, int expectedY, int z) {}
+
+  private record ColumnKey(int x, int z) {}
+
+  private record Chunk(int x, int z) {}
 }
