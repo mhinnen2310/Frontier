@@ -272,7 +272,9 @@ public final class ConfigRegistry {
                     maximumBuildingWidth,
                     maximumBuildingHeight,
                     maximumBuildingDepth,
-                    maximumBuildingVolume)));
+                    maximumBuildingVolume)),
+            positive(buildings, "registration.selection-timeout-seconds", 3_600),
+            positive(buildings, "registration.transfer-proposal-hours", 168));
     YamlConfiguration kingdoms = modules.get("kingdoms");
     var kingdomConfig =
         new FrontierConfiguration.Kingdoms(
@@ -901,7 +903,9 @@ public final class ConfigRegistry {
             "validation.minimum-structural-blocks",
             "validation.minimum-floor-coverage-percent",
             "validation.minimum-wall-coverage-percent",
-            "validation.minimum-roof-coverage-percent"));
+            "validation.minimum-roof-coverage-percent",
+            "registration.selection-timeout-seconds",
+            "registration.transfer-proposal-hours"));
     for (BuildingType type : BuildingType.values()) {
       String prefix = "types." + buildingTypeKey(type);
       keys.add(prefix + ".minimum-width");

@@ -43,6 +43,8 @@ source/target context, `TerritoryActionPolicy` decides from the in-memory projec
 authorized campaign break/explosion enters the transactional structural-damage journal. Actorless
 propagation uses the same policy and cannot cross territory-owner boundaries.
 
+Building corner selections are intentionally ephemeral Paper UI state. The listener only captures a tagged tool click; a bounded region task surveys the world and the city service performs preview or confirmation against transactional PostgreSQL authorization. Confirm never trusts the previous preview. Revalidation, unregister and two-mayor parcel transfer are database service operations with append-only validation/audit history.
+
 ## Integrity rules
 
 - Monetary values and quantities are integer units; no floating-point accounting.

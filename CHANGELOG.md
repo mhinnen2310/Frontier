@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 13 — Building Registration UX
+
+- Added the Architect & Buildings Paper Dialog plus a tagged blaze-rod selector with left/right corner capture, world-safe normalized bounds, configurable timeout and cancel/confirm flow.
+- Added service-backed physical preview with overlap/district/claim checks, complete required-versus-observed reports and valid/invalid corner particles.
+- Added transactional revalidation, safe unregister-to-`ABANDONED`, retained history and guards against unregistering or transferring buildings with live warehouse/depot/production/worker dependencies.
+- Added two-mayor ownership-transfer proposals; acceptance atomically transfers the exclusive building parcel claims and building while clearing the old district assignment.
+- Added Flyway V45, selection-state tests, complete Dialog catalog coverage and PostgreSQL tests for role denial, revalidation, history, unregister and transfer acceptance.
+
 ## Master Roadmap Sprint 12 — Core Building Validators
 
 - Completed configurable physical validators for Town Hall, Warehouse, Housing, Farm, Builder Guild, Market, Barracks, Workshop, Mine Entrance and Watchtower.

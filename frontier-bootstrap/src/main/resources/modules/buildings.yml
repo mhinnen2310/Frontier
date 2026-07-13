@@ -12,6 +12,10 @@ validation:
   minimum-wall-coverage-percent: 50
   minimum-roof-coverage-percent: 60
 
+registration:
+  selection-timeout-seconds: 300
+  transfer-proposal-hours: 24
+
 # Shape-agnostic functional profiles. Counts can be tuned, but every type must retain
 # at least one functional requirement and remain within the hard scan bounds above.
 types:

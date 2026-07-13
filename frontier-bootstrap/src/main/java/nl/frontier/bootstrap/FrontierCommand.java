@@ -616,10 +616,67 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
   }
 
   private void building(Player player, String[] args) {
-    if (args.length < 2 || args.length > 4)
-      throw new IllegalArgumentException(
-          "usage: /frontier city building <type> [radius] [district-uuid]");
-    BuildingType type = BuildingType.valueOf(args[1].toUpperCase(Locale.ROOT).replace('-', '_'));
+    if (args.length < 2) throw buildingUsage();
+    String action = args[1].toLowerCase(Locale.ROOT);
+    switch (action) {
+      case "start" -> {
+        if (args.length < 3 || args.length > 4) throw buildingUsage();
+        BuildingType type = parseBuildingType(args[2]);
+        String district = args.length == 4 ? args[3] : null;
+        withCityEntity(
+            player, city -> buildingRegistrations.start(player, city.id(), type, district));
+      }
+      case "preview", "report" -> buildingRegistrations.preview(player);
+      case "confirm" -> buildingRegistrations.confirm(player);
+      case "cancel" -> buildingRegistrations.cancel(player);
+      case "revalidate" -> {
+        if (args.length != 3)
+          throw new IllegalArgumentException(
+              "usage: /frontier city building revalidate <building-uuid>");
+        UUID building = UUID.fromString(args[2]);
+        withCityEntity(
+            player, city -> buildingRegistrations.revalidate(player, city.id(), building));
+      }
+      case "unregister" -> {
+        if (args.length != 4 || !args[3].equalsIgnoreCase("confirm"))
+          throw new IllegalArgumentException(
+              "usage: /frontier city building unregister <building-uuid> confirm");
+        UUID building = UUID.fromString(args[2]);
+        withCityEntity(
+            player, city -> buildingRegistrations.unregister(player, city.id(), building));
+      }
+      case "history" -> {
+        if (args.length < 3 || args.length > 4)
+          throw new IllegalArgumentException(
+              "usage: /frontier city building history <building-uuid> [limit]");
+        UUID building = UUID.fromString(args[2]);
+        int limit = args.length == 4 ? Integer.parseInt(args[3]) : 20;
+        withCityEntity(
+            player, city -> buildingRegistrations.history(player, city.id(), building, limit));
+      }
+      case "transfer" -> {
+        if (args.length != 4)
+          throw new IllegalArgumentException(
+              "usage: /frontier city building transfer <building-uuid> <target-city-uuid>");
+        UUID building = UUID.fromString(args[2]);
+        UUID targetCity = UUID.fromString(args[3]);
+        withCityEntity(
+            player,
+            city -> buildingRegistrations.proposeTransfer(player, city.id(), building, targetCity));
+      }
+      case "transfer-accept" -> {
+        if (args.length != 3)
+          throw new IllegalArgumentException(
+              "usage: /frontier city building transfer-accept <proposal-uuid>");
+        buildingRegistrations.acceptTransfer(player, UUID.fromString(args[2]));
+      }
+      default -> legacyBuildingRegistration(player, args);
+    }
+  }
+
+  private void legacyBuildingRegistration(Player player, String[] args) {
+    if (args.length > 4) throw buildingUsage();
+    BuildingType type = parseBuildingType(args[1]);
     int radius = args.length >= 3 ? Integer.parseInt(args[2]) : 4;
     String district = args.length == 4 ? args[3] : null;
     if (radius < 1 || radius > 16)
@@ -634,39 +691,34 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
             location.getBlockX() + radius,
             Math.min(320, location.getBlockY() + 8),
             location.getBlockZ() + radius);
-    schedulers
-        .async(() -> settlements.city(player.getUniqueId()))
-        .whenComplete(
-            (city, error) ->
-                schedulers.forEntity(
-                    player.getUniqueId(),
-                    () -> {
-                      if (error != null) {
-                        player.sendMessage(Component.text(rootMessage(error), NamedTextColor.RED));
-                      } else if (city.isEmpty()) {
-                        player.sendMessage(
-                            Component.text("You are not in a settlement.", NamedTextColor.RED));
-                      } else {
-                        buildingRegistrations.register(
-                            player,
-                            city.orElseThrow().id(),
-                            type,
-                            bounds,
-                            district,
-                            registered ->
-                                player.sendMessage(
-                                    Component.text(
-                                        "Validated and activated "
-                                            + registered.type()
-                                            + " building "
-                                            + registered.id(),
-                                        NamedTextColor.GREEN)),
-                            failure ->
-                                player.sendMessage(
-                                    Component.text(rootMessage(failure), NamedTextColor.RED)));
-                      }
-                    },
-                    () -> {}));
+    withCityEntity(
+        player,
+        city ->
+            buildingRegistrations.register(
+                player,
+                city.id(),
+                type,
+                bounds,
+                district,
+                registered ->
+                    player.sendMessage(
+                        Component.text(
+                            "Validated and activated "
+                                + registered.type()
+                                + " building "
+                                + registered.id(),
+                            NamedTextColor.GREEN)),
+                failure ->
+                    player.sendMessage(Component.text(rootMessage(failure), NamedTextColor.RED))));
+  }
+
+  private static BuildingType parseBuildingType(String value) {
+    return BuildingType.valueOf(value.toUpperCase(Locale.ROOT).replace('-', '_'));
+  }
+
+  private static IllegalArgumentException buildingUsage() {
+    return new IllegalArgumentException(
+        "usage: /frontier city building start <type> [district-uuid] | preview | confirm | cancel | revalidate | unregister | history | transfer | transfer-accept");
   }
 
   private void district(Player player, String[] args) {
@@ -3237,6 +3289,28 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         success);
   }
 
+  private void withCityEntity(
+      Player player, java.util.function.Consumer<SettlementGateway.CitySnapshot> work) {
+    schedulers
+        .async(() -> settlements.city(player.getUniqueId()))
+        .whenComplete(
+            (city, failure) ->
+                schedulers.forEntity(
+                    player.getUniqueId(),
+                    () -> {
+                      if (failure != null) {
+                        player.sendMessage(
+                            Component.text(rootMessage(failure), NamedTextColor.RED));
+                      } else if (city.isEmpty()) {
+                        player.sendMessage(
+                            Component.text("You are not in a settlement.", NamedTextColor.RED));
+                      } else {
+                        work.accept(city.orElseThrow());
+                      }
+                    },
+                    () -> {}));
+  }
+
   private <T> void execute(
       Player player,
       java.util.function.Supplier<T> work,
@@ -3291,7 +3365,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         (city.id() + ":upgrade:" + city.level().next()).getBytes(StandardCharsets.UTF_8));
   }
 
-  private static String rootMessage(Throwable failure) {
+  static String rootMessage(Throwable failure) {
     Throwable value = failure;
     while (value.getCause() != null) value = value.getCause();
     return value.getMessage() == null ? "Operation failed." : value.getMessage();
@@ -3420,10 +3494,34 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         && args[0].equalsIgnoreCase("city")
         && args[1].equalsIgnoreCase("building"))
       return matching(
+          java.util.stream.Stream.concat(
+                  java.util.stream.Stream.of(
+                      "start",
+                      "preview",
+                      "confirm",
+                      "cancel",
+                      "revalidate",
+                      "unregister",
+                      "history",
+                      "transfer",
+                      "transfer-accept"),
+                  Arrays.stream(BuildingType.values())
+                      .map(type -> type.name().toLowerCase(Locale.ROOT).replace('_', '-')))
+              .toList(),
+          args[2]);
+    if (args.length == 4
+        && args[0].equalsIgnoreCase("city")
+        && args[1].equalsIgnoreCase("building")
+        && args[2].equalsIgnoreCase("start"))
+      return matching(
           Arrays.stream(BuildingType.values())
               .map(type -> type.name().toLowerCase(Locale.ROOT).replace('_', '-'))
               .toList(),
-          args[2]);
+          args[3]);
+    if (args.length == 5
+        && args[0].equalsIgnoreCase("city")
+        && args[1].equalsIgnoreCase("building")
+        && args[2].equalsIgnoreCase("unregister")) return matching(List.of("confirm"), args[4]);
     if (args.length == 2 && args[0].equalsIgnoreCase("district"))
       return matching(
           List.of(

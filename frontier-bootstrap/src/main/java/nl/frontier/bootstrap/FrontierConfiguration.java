@@ -61,7 +61,11 @@ public record FrontierConfiguration(
 
   public record Districts(Control control, DistrictBalancePolicy balance) {}
 
-  public record Buildings(Control control, BuildingValidationPolicy validation) {}
+  public record Buildings(
+      Control control,
+      BuildingValidationPolicy validation,
+      long selectionTimeoutSeconds,
+      long transferProposalHours) {}
 
   public record Influence(
       Control control,

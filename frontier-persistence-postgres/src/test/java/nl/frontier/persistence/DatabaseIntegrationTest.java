@@ -373,7 +373,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(44, result.getInt(1));
+        assertEquals(45, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -963,6 +963,20 @@ class DatabaseIntegrationTest {
       assertEquals(150, districtReport.specialization().effectiveFactorPercent());
       assertEquals("DAYLIGHT", districtReport.district().policies().get("WORK"));
       assertTrue(districtReport.history().size() >= 8);
+      var revalidatedFarm =
+          buildingValidation.revalidate(
+              city.id(),
+              owner,
+              registeredFarm.id(),
+              new BuildingSurvey(8, 7, 8, 48, 0, 0, 0, 0, 0, 0, 0, 0, 24, 1, 16, 0, 0, 0, Map.of()),
+              Instant.now());
+      assertEquals(BuildingState.ACTIVE, revalidatedFarm.state());
+      assertEquals(5, buildingValidation.history(city.id(), owner, registeredFarm.id(), 20).size());
+      assertThrows(
+          DomainException.class,
+          () ->
+              buildingValidation.unregister(
+                  city.id(), firstManager, registeredFarm.id(), Instant.now()));
       try (var connection = database.dataSource().getConnection();
           var statement =
               connection.prepareStatement(
@@ -975,7 +989,7 @@ class DatabaseIntegrationTest {
         try (var result = statement.executeQuery()) {
           assertTrue(result.next());
           assertEquals("ACTIVE", result.getString(1));
-          assertEquals(4, result.getInt(2));
+          assertEquals(5, result.getInt(2));
           assertEquals(district.id(), result.getObject(3, UUID.class));
           assertEquals(1, result.getInt(4));
           assertEquals(4, result.getInt(5));
@@ -990,6 +1004,14 @@ class DatabaseIntegrationTest {
         statement.setObject(1, registeredFarm.id());
         assertThrows(SQLException.class, statement::executeUpdate);
       }
+      assertEquals(
+          BuildingState.ABANDONED,
+          buildingValidation
+              .unregister(city.id(), owner, registeredFarm.id(), Instant.now())
+              .state());
+      assertEquals(
+          BuildingState.ABANDONED,
+          buildingValidation.history(city.id(), owner, registeredFarm.id(), 1).getFirst().to());
       districtService.removeWorker(district.id(), owner, worker, Instant.now());
       districtService.removeManager(district.id(), owner, Instant.now());
       assertTrue(districtService.memberships(district.id(), owner).isEmpty());
@@ -1009,10 +1031,41 @@ class DatabaseIntegrationTest {
                   EnumSet.of(GovernmentRole.MAYOR),
                   Instant.now())
               .state());
+      SettlementGateway.Bounds transferableBounds =
+          new SettlementGateway.Bounds(world, 178, 60, 162, 181, 63, 165);
+      var transferable =
+          buildingValidation.validateAndRegister(
+              city.id(),
+              owner,
+              BuildingType.FARM,
+              transferableBounds,
+              null,
+              new BuildingSurvey(4, 4, 4, 32, 0, 0, 0, 0, 0, 0, 0, 0, 16, 1, 8, 0, 0, 0, Map.of()),
+              Instant.now());
+      UUID targetMayor = UUID.randomUUID();
+      var transferTarget =
+          settlements.create(
+              targetMayor, "BuildingTarget-" + shortId(), world, 20, 20, Instant.now());
+      var transferProposal =
+          buildingValidation.proposeTransfer(
+              city.id(), owner, transferable.id(), transferTarget.id(), Instant.now());
+      assertThrows(
+          DomainException.class,
+          () -> buildingValidation.acceptTransfer(owner, transferProposal.id(), Instant.now()));
+      var transferred =
+          buildingValidation.acceptTransfer(targetMayor, transferProposal.id(), Instant.now());
+      assertEquals(transferTarget.id(), transferred.city());
+      assertEquals(
+          transferable.id(),
+          buildingValidation.building(transferTarget.id(), targetMayor, transferable.id()).id());
+      assertThrows(
+          DomainException.class,
+          () -> buildingValidation.building(city.id(), owner, transferable.id()));
       ClaimProtectionGateway.Snapshot protection =
           new PostgresClaimProtectionGateway(store).load(Instant.now());
       assertEquals(
-          city.id(), protection.claims().get(new ClaimProtectionGateway.ClaimKey(world, 11, 10)));
+          transferTarget.id(),
+          protection.claims().get(new ClaimProtectionGateway.ClaimKey(world, 11, 10)));
       assertTrue(
           protection.members().stream()
               .anyMatch(value -> value.city().equals(city.id()) && value.player().equals(owner)));

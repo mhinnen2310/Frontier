@@ -33,7 +33,14 @@ All counts and type dimensions are server-configurable within the global scan li
 
 ## Registration protocol
 
-1. The command supplies the settlement, optional district, type and two selected corners.
+1. Open `/frontier menu buildings` or run `/frontier city building start <type> [district]`. A tagged blaze rod is issued for the configured session lifetime.
+2. Left-click the first corner and right-click the second. Frontier normalizes reverse corners, rejects cross-world selection and automatically previews after the second click.
+3. Preview rereads the bounded cuboid, prints every missing requirement with observed values and marks its corners with green or red particles. It also reports claim, district and overlap failures.
+4. Run `confirm` to resurvey and register or `cancel` to discard the session. A successful preview is never treated as authorization for a later confirmation.
+
+The underlying registration protocol then proceeds:
+
+1. The UI supplies the settlement, optional district, type and two selected corners.
 2. The Paper survey rejects oversized dimensions or volume before iterating blocks, then produces counts and coverage percentages.
 3. Pure rules evaluate the inspection and authorization context.
 4. On success PostgreSQL opens one transaction, locks the settlement and repeats claim control, overlap and district compatibility checks.
@@ -41,12 +48,20 @@ All counts and type dimensions are server-configurable within the global scan li
 
 The repeated database checks are deliberate: Minecraft chunks and PostgreSQL cannot share one transaction. A stale world survey can therefore fail safely before an invalid assignment commits.
 
+## Revalidation, unregister and transfer
+
+Mayors and architects may revalidate or inspect history. Revalidation excludes the building itself from overlap but repeats all other live and transactional checks; integrity still decides whether the resulting state is `ACTIVE`, `DAMAGED`, `DISABLED` or `DESTROYED`.
+
+Unregister records `ABANDONED`, clears the district and preserves history. It is rejected while an active warehouse, Builder Guild depot, production order or assigned/housed worker depends on the building. An abandoned footprint may be registered again.
+
+Only a source mayor may propose ownership transfer and only the target mayor may accept it before expiry. Acceptance is one transaction: it verifies that the building's claim chunks contain no other active source building, transfers those claims and the building, and clears the district assignment. One-sided or overlapping transfers fail without partial mutation.
+
 ## Lifecycle
 
 The constrained state vocabulary is `PLANNED`, `UNDER_CONSTRUCTION`, `VALIDATING`, `ACTIVE`, `DAMAGED`, `DISABLED`, `DESTROYED`, and `ABANDONED`. Only validated `ACTIVE` or sufficiently healthy `DAMAGED` buildings contribute to district specialization. Damage, ruin and later revalidation flows must use this same vocabulary; callers may not invent status strings.
 
 ## Tuning and troubleshooting
 
-`modules/buildings.yml` controls maximum dimensions/volume, minimum structural blocks and enclosure coverage thresholds. Invalid or non-positive bounds fail startup. These are restart-required settings.
+`modules/buildings.yml` controls maximum dimensions/volume, minimum structural blocks, enclosure coverage, per-type rules, selection timeout and transfer-proposal lifetime. Invalid or non-positive bounds fail startup. These are restart-required settings.
 
 When registration fails, inspect the returned violation list and the stored validation report. Do not bypass a failure with SQL: adjust the selection or physical structure. If a formerly active building is physically edited, later type-specific validation and integrity sprints govern its reinspection and state transition.

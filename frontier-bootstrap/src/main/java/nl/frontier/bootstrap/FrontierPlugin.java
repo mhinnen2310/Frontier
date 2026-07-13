@@ -229,11 +229,14 @@ public final class FrontierPlugin extends JavaPlugin {
               getLogger());
       BuildingRegistrationCoordinator buildingRegistrations =
           new BuildingRegistrationCoordinator(
+              this,
               schedulers,
               new PaperBuildingSurveyor(config.buildings().validation()),
               new BuildingValidationService(
                   new PostgresBuildingValidationGateway(store),
-                  new BuildingValidator(config.buildings().validation())));
+                  new BuildingValidator(config.buildings().validation()),
+                  Duration.ofHours(config.buildings().transferProposalHours())),
+              Duration.ofSeconds(config.buildings().selectionTimeoutSeconds()));
       FrontierCommand handler =
           new FrontierCommand(
               this::health,
@@ -310,6 +313,10 @@ public final class FrontierPlugin extends JavaPlugin {
         throw new IllegalStateException("frontier command is missing from plugin.yml");
       command.setExecutor(handler);
       command.setTabCompleter(handler);
+      if (config.enabled("buildings"))
+        getServer()
+            .getPluginManager()
+            .registerEvents(new BuildingSelectionListener(buildingRegistrations), this);
       if (config.enabled("economy"))
         getServer()
             .getPluginManager()

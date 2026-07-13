@@ -9,10 +9,10 @@ This is the truthful baseline for the 60-sprint Master Remediation & Expansion R
 | Gradle modules | 14 |
 | Application/domain service classes | 19 |
 | Command roots | 25 |
-| Paper Dialog screens | 14 |
-| Paper listener adapters | 6 |
-| Flyway migrations | 44 (V1–V44) |
-| PostgreSQL public gameplay tables | 155 |
+| Paper Dialog screens | 15 |
+| Paper listener adapters | 7 |
+| Flyway migrations | 45 (V1–V45) |
+| PostgreSQL public gameplay tables | 156 |
 | Bukkit permissions | 3 |
 
 The runtime modules are domain, API, city, influence, economy, warfare, repair, NPC, world, Paper UI, PostgreSQL persistence, observability and bootstrap. Testkit is build-only. `/frontier admin build` reports the packaged version, Git source revision/time, Java runtime, Paper target, live schema version and these module states.
@@ -26,7 +26,7 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 | Repair integrity | complete | Generation-linked breach accounting, two-phase mutation/material consumption, idempotent purchase/commit, multi-task progress, lease/restart recovery, unload defer, conflict quarantine and completion-based archive/re-break tests pass |
 | Settlement founding/lifecycle | complete for Sprints 6–7 | Physical expedition founding, charter/founders, configurable fee/material/location rules, invitations/revocation, leave/kick/ban, role-safe transfer/succession, delayed disband, abandonment, asset-frozen ruins/recovery, merge and complete audit history have transactional integration coverage |
 | Districts | complete for Sprint 10 | Name-based management and complete Dialog reports feed a config-driven effective specialization projection requiring valid buildings plus connected infrastructure, with diminishing returns, adjacency, over-specialization and real cost/capacity trade-offs |
-| Buildings | complete for Sprint 12 | Reusable definitions/rules consume one bounded physical inspection; settlement control, district, overlap and hard scan bounds are enforced; all ten roadmap types use safe config-driven functional profiles without schematics; failures show required/observed values; and the eight-state lifecycle/history are constrained. Selection/preview/revalidation UX remains Sprint 13 work |
+| Buildings | complete for Sprint 13 | All ten types have safe config-driven physical rules; the Architect Dialog and tagged selection tool provide timeout, particles, overlap preview, reports and confirm/cancel; transactional revalidation/unregister/history and two-mayor parcel ownership transfer have PostgreSQL coverage |
 | Roads/infrastructure | partial | Physical bounded validation, capacity/health/traffic and routing exist; dirty-segment invalidation, failure orders and critical-path gameplay are incomplete |
 | Workers/population | partial | Profession, skill, morale, wage, experience, housing, employment, migration and retirement exist; full task states, visible schedules and Builder Guild player contribution are incomplete |
 | Ambient settlement life | partial | Harbor/worker/caravan presentation and announcements exist; citizen/guard/market/day-night activity is incomplete |

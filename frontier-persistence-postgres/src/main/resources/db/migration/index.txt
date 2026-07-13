@@ -42,3 +42,4 @@ V41__remove_legacy_district_json.sql
 V42__district_management_priorities.sql
 V43__district_specialization_balance.sql
 V44__building_validation_framework.sql
+V45__building_registration_ux.sql

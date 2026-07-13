@@ -9,6 +9,7 @@ public interface FrontierUi {
   enum Screen {
     FRONTIER,
     SETTLEMENT,
+    BUILDINGS,
     DISTRICT,
     KINGDOM,
     TREASURY,

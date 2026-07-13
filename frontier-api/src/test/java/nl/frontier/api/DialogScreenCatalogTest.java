@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 final class DialogScreenCatalogTest {
   @Test
   void everyRequestedScreenHasReachableValidActionsAndBackNavigation() {
-    assertEquals(14, FrontierUi.Screen.values().length);
+    assertEquals(15, FrontierUi.Screen.values().length);
     Set<String> rootTargets =
         DialogScreenCatalog.actions(FrontierUi.Screen.FRONTIER).stream()
             .map(DialogScreenCatalog.Action::command)
@@ -46,6 +46,7 @@ final class DialogScreenCatalogTest {
             Set.of(
                 "Frontier",
                 "Settlement",
+                "Architect & Buildings",
                 "Districts",
                 "Kingdom",
                 "Treasury",

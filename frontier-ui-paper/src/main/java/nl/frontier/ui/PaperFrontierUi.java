@@ -247,6 +247,13 @@ public final class PaperFrontierUi implements FrontierUi {
     return switch (screen) {
       case FRONTIER, REPORTS, SETTINGS -> List.of();
       case SETTLEMENT -> List.of(text("city_name", "Settlement name", "New Frontier"));
+      case BUILDINGS ->
+          List.of(
+              text("building_type", "Building type", "warehouse"),
+              text("district_id", "District UUID (optional)", ""),
+              text("building_id", "Building UUID", ""),
+              text("target_city", "Target settlement UUID", ""),
+              text("proposal_id", "Transfer proposal UUID", ""));
       case DISTRICT ->
           List.of(
               text("district_name", "District name to open", "Central"),

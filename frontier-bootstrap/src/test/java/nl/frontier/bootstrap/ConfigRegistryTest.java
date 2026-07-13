@@ -37,6 +37,8 @@ class ConfigRegistryTest {
     assertEquals(25, config.districts().balance().logisticsWarehouseCapacityPercent());
     assertEquals(32_768, config.buildings().validation().maximumVolume());
     assertEquals(60, config.buildings().validation().minimumRoofCoveragePercent());
+    assertEquals(300, config.buildings().selectionTimeoutSeconds());
+    assertEquals(24, config.buildings().transferProposalHours());
     assertEquals(
         1,
         config
@@ -147,6 +149,16 @@ class ConfigRegistryTest {
                 ConfigRegistry.parse(
                     resource("config.yml"), invalidBuildingBoolean, ignored -> {}));
     assertTrue(booleanFailure.getMessage().contains("must be true or false"));
+
+    var invalidSelectionTimeout = moduleResources();
+    invalidSelectionTimeout.get("buildings").set("registration.selection-timeout-seconds", 3_601);
+    var timeoutFailure =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                ConfigRegistry.parse(
+                    resource("config.yml"), invalidSelectionTimeout, ignored -> {}));
+    assertTrue(timeoutFailure.getMessage().contains("selection-timeout-seconds"));
   }
 
   @Test

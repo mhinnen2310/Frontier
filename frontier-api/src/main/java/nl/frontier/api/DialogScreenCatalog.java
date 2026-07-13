@@ -14,6 +14,7 @@ public final class DialogScreenCatalog {
     return switch (screen) {
       case FRONTIER -> "Frontier";
       case SETTLEMENT -> "Settlement";
+      case BUILDINGS -> "Architect & Buildings";
       case DISTRICT -> "Districts";
       case KINGDOM -> "Kingdom";
       case TREASURY -> "Treasury";
@@ -34,6 +35,7 @@ public final class DialogScreenCatalog {
       case FRONTIER ->
           List.of(
               nav("Settlement", SETTLEMENT),
+              nav("Buildings", BUILDINGS),
               nav("Districts", DISTRICT),
               nav("Kingdom", KINGDOM),
               nav("Treasury", TREASURY),
@@ -53,7 +55,24 @@ public final class DialogScreenCatalog {
               mutate("Claim current chunk", "frontier city claim"),
               mutate("Upgrade settlement", "frontier city upgrade"),
               read("Population", "frontier population"),
+              nav("Buildings", BUILDINGS),
               nav("Districts", DISTRICT),
+              back());
+      case BUILDINGS ->
+          List.of(
+              mutate(
+                  "Start selection",
+                  "frontier city building start $(building_type) $(district_id)"),
+              read("Preview report", "frontier city building preview"),
+              mutate("Confirm registration", "frontier city building confirm"),
+              mutate("Cancel selection", "frontier city building cancel"),
+              mutate("Revalidate", "frontier city building revalidate $(building_id)"),
+              read("History", "frontier city building history $(building_id) 20"),
+              mutate("Unregister", "frontier city building unregister $(building_id) confirm"),
+              mutate(
+                  "Propose transfer",
+                  "frontier city building transfer $(building_id) $(target_city)"),
+              mutate("Accept transfer", "frontier city building transfer-accept $(proposal_id)"),
               back());
       case DISTRICT ->
           List.of(
