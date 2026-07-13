@@ -12,6 +12,8 @@ import nl.frontier.api.TransactionalStore;
 import nl.frontier.city.BuildingType;
 import nl.frontier.city.BuildingValidationGateway;
 import nl.frontier.city.BuildingValidator;
+import nl.frontier.city.DistrictBuildingPolicy;
+import nl.frontier.city.DistrictType;
 import nl.frontier.city.SettlementGateway;
 import nl.frontier.domain.DomainException;
 
@@ -170,16 +172,7 @@ public final class PostgresBuildingValidationGateway implements BuildingValidati
       statement.setInt(9, bounds.maxZ());
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) return false;
-        String districtType = result.getString(1);
-        return switch (type) {
-          case WAREHOUSE ->
-              Set.of("INDUSTRIAL", "COMMERCIAL", "LOGISTICS", "HARBOR").contains(districtType);
-          case HOUSING -> districtType.equals("RESIDENTIAL");
-          case FARM -> districtType.equals("AGRICULTURAL");
-          case BUILDER_GUILD -> Set.of("INDUSTRIAL", "GOVERNMENT").contains(districtType);
-          case MARKET -> Set.of("COMMERCIAL", "HARBOR").contains(districtType);
-          case BARRACKS -> districtType.equals("MILITARY");
-        };
+        return DistrictBuildingPolicy.compatible(DistrictType.valueOf(result.getString(1)), type);
       }
     }
   }

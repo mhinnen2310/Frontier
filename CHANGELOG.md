@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 9 — District Management Gameplay
+
+- Completed name-or-UUID district lookup and player commands for selection/info, creation, rename, resize, deletion, manager assignment/removal, budgets, workers, buildings, production priority, repair priority, policies and reports.
+- Added transactional building reassignment with settlement ownership, region containment, district-type compatibility, role and current-state revalidation.
+- Added separate persisted production and repair priorities through Flyway V42; district managers may operate local allocations while settlement planners retain oversight.
+- Expanded district reports with concrete worker/building assignments and added Manager, Production and Maintenance Dialog views with service-backed mutations.
+- Added PostgreSQL and pure-domain coverage for name lookup, manager removal, priorities, assignment reports and the complete building compatibility matrix.
+
 ## Master Roadmap Sprint 8 — District Domain and Persistence
 
 - Promoted districts to a complete persisted aggregate with status, tier, center, maintenance requirement, normalized region, policies, roles, memberships, budgets and history.

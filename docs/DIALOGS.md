@@ -6,7 +6,7 @@
 |---|---|
 | `frontier` | Navigation to every subsystem |
 | `settlement` | Overview, found, claim, upgrade, population |
-| `district` | List, overview, rename and reports |
+| `district` | List/create/select plus Overview, Manager, Buildings, Workers, Budget, Production, Maintenance, Reports, Policies and History views; contextual mutation buttons call the same transactional commands |
 | `kingdom` | List, overview, create, approve war, tax and policy |
 | `treasury` | Player/settlement balances, audit, deposit, withdraw and pay |
 | `repair` | Orders, quotes and purchase |

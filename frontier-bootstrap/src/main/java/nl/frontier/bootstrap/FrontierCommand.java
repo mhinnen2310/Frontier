@@ -677,21 +677,30 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
             city -> districts.list(city.id(), player.getUniqueId()),
             values ->
                 values.isEmpty()
-                    ? "No districts. Use /frontier district create <type> <radius> <name>."
+                    ? "No districts. Use /frontier district create <type> <name>."
                     : values.stream()
-                        .map(value -> value.name() + "=" + value.id() + " [" + value.type() + "]")
+                        .map(value -> value.name() + " [" + value.type() + "]")
                         .collect(java.util.stream.Collectors.joining(" | ")));
         return;
       }
       String action = args[0].toLowerCase(Locale.ROOT);
       switch (action) {
         case "create" -> {
-          if (args.length < 4)
+          if (args.length < 3)
             throw new IllegalArgumentException(
-                "usage: /frontier district create <type> <radius> <name>");
+                "usage: /frontier district create <type> [radius] <name>");
           DistrictType type = DistrictType.valueOf(args[1].toUpperCase(Locale.ROOT));
-          int radius = districtRadius(args[2]);
-          String name = String.join(" ", Arrays.copyOfRange(args, 3, args.length));
+          int radius = 16;
+          int nameStart = 2;
+          if (args.length >= 4) {
+            try {
+              radius = districtRadius(args[2]);
+              nameStart = 3;
+            } catch (NumberFormatException ignored) {
+              // Radius is optional; a non-number starts the district name.
+            }
+          }
+          String name = String.join(" ", Arrays.copyOfRange(args, nameStart, args.length));
           SettlementGateway.Bounds bounds = districtBounds(player, radius);
           withCity(
               player,
@@ -708,120 +717,213 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                       + ")");
         }
         case "delete" -> {
-          UUID district = districtId(args, 1, "delete <district-uuid>");
+          String reference = districtReference(args, 1, "delete <district>");
           execute(
               player,
               () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
                 districts.delete(district, player.getUniqueId(), Instant.now());
-                return district;
+                return reference;
               },
               value -> "Deleted district " + value);
         }
         case "resize" -> {
-          UUID district = districtId(args, 1, "resize <district-uuid> <radius>");
+          String reference = districtReference(args, 1, "resize <district> <radius>");
           if (args.length != 3)
             throw new IllegalArgumentException(
-                "usage: /frontier district resize <district-uuid> <radius>");
+                "usage: /frontier district resize <district> <radius>");
           SettlementGateway.Bounds bounds = districtBounds(player, districtRadius(args[2]));
           execute(
               player,
-              () -> districts.resize(district, player.getUniqueId(), bounds, Instant.now()),
+              () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
+                return districts.resize(district, player.getUniqueId(), bounds, Instant.now());
+              },
               value -> "Resized " + value.name());
         }
         case "rename" -> {
-          UUID district = districtId(args, 1, "rename <district-uuid> <name>");
+          String reference = districtReference(args, 1, "rename <district> <name>");
           if (args.length < 3)
             throw new IllegalArgumentException(
-                "usage: /frontier district rename <district-uuid> <name>");
+                "usage: /frontier district rename <district> <name>");
           String name = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
           execute(
               player,
-              () -> districts.rename(district, player.getUniqueId(), name, Instant.now()),
+              () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
+                return districts.rename(district, player.getUniqueId(), name, Instant.now());
+              },
               value -> "Renamed district to " + value.name());
         }
-        case "manager-assign", "manager-transfer" -> {
-          UUID district = districtId(args, 1, action + " <district-uuid> <player>");
+        case "manager", "manager-assign", "manager-transfer" -> {
+          String reference = districtReference(args, 1, action + " <district> <player>");
           if (args.length != 3)
             throw new IllegalArgumentException(
-                "usage: /frontier district " + action + " <district-uuid> <player>");
+                "usage: /frontier district " + action + " <district> <player>");
           UUID manager = resolvePlayer(player, args[2]);
-          boolean transfer = action.equals("manager-transfer");
           execute(
               player,
-              () ->
-                  districts.manager(
-                      district, player.getUniqueId(), manager, transfer, Instant.now()),
+              () -> {
+                var district = districts.resolve(player.getUniqueId(), reference);
+                return districts.manager(
+                    district.id(),
+                    player.getUniqueId(),
+                    manager,
+                    action.equals("manager-transfer"),
+                    Instant.now());
+              },
               value -> "District manager is now " + value.manager());
         }
+        case "manager-remove" -> {
+          String reference = districtReference(args, 1, "manager-remove <district>");
+          if (args.length != 2)
+            throw new IllegalArgumentException(
+                "usage: /frontier district manager-remove <district>");
+          execute(
+              player,
+              () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
+                return districts.removeManager(district, player.getUniqueId(), Instant.now());
+              },
+              value -> "Removed district manager from " + value.name());
+        }
         case "budget" -> {
-          UUID district = districtId(args, 1, "budget <district-uuid> <cents>");
+          String reference = districtReference(args, 1, "budget <district> <cents>");
           if (args.length != 3)
             throw new IllegalArgumentException(
-                "usage: /frontier district budget <district-uuid> <cents>");
+                "usage: /frontier district budget <district> <cents>");
           long amount = Long.parseLong(args[2]);
           execute(
               player,
-              () -> districts.budget(district, player.getUniqueId(), amount, Instant.now()),
+              () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
+                return districts.budget(district, player.getUniqueId(), amount, Instant.now());
+              },
               value -> "District budget is " + value.budgetMinor() + " cents");
         }
         case "priority" -> {
-          UUID district = districtId(args, 1, "priority <district-uuid> <0-100>");
+          String reference = districtReference(args, 1, "priority <district> <0-100>");
           if (args.length != 3)
             throw new IllegalArgumentException(
-                "usage: /frontier district priority <district-uuid> <0-100>");
+                "usage: /frontier district priority <district> <0-100>");
           int priority = Integer.parseInt(args[2]);
           execute(
               player,
-              () -> districts.priority(district, player.getUniqueId(), priority, Instant.now()),
+              () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
+                return districts.priority(district, player.getUniqueId(), priority, Instant.now());
+              },
               value -> "District priority is " + value.priority());
         }
-        case "policy" -> {
-          UUID district = districtId(args, 1, "policy <district-uuid> <key> <value>");
-          if (args.length != 4)
+        case "production-priority", "repair-priority" -> {
+          String reference = districtReference(args, 1, action + " <district> <0-100>");
+          if (args.length != 3)
             throw new IllegalArgumentException(
-                "usage: /frontier district policy <district-uuid> <key> <value>");
+                "usage: /frontier district " + action + " <district> <0-100>");
+          int priority = Integer.parseInt(args[2]);
           execute(
               player,
-              () ->
-                  districts.policy(district, player.getUniqueId(), args[2], args[3], Instant.now()),
+              () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
+                return action.equals("production-priority")
+                    ? districts.productionPriority(
+                        district, player.getUniqueId(), priority, Instant.now())
+                    : districts.repairPriority(
+                        district, player.getUniqueId(), priority, Instant.now());
+              },
+              value ->
+                  action.equals("production-priority")
+                      ? "Production priority is " + value.productionPriority()
+                      : "Repair priority is " + value.repairPriority());
+        }
+        case "policy" -> {
+          String reference = districtReference(args, 1, "policy <district> <key> <value>");
+          if (args.length != 4)
+            throw new IllegalArgumentException(
+                "usage: /frontier district policy <district> <key> <value>");
+          execute(
+              player,
+              () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
+                return districts.policy(
+                    district, player.getUniqueId(), args[2], args[3], Instant.now());
+              },
               value -> "District policies: " + value.policies());
         }
         case "worker-assign" -> {
-          UUID district =
-              districtId(args, 1, "worker-assign <district-uuid> <worker-uuid> [priority]");
+          String reference =
+              districtReference(args, 1, "worker-assign <district> <worker-uuid> [priority]");
           if (args.length < 3 || args.length > 4)
             throw new IllegalArgumentException(
-                "usage: /frontier district worker-assign <district-uuid> <worker-uuid> [priority]");
+                "usage: /frontier district worker-assign <district> <worker-uuid> [priority]");
           UUID worker = UUID.fromString(args[2]);
           int priority = args.length == 4 ? Integer.parseInt(args[3]) : 50;
           execute(
               player,
-              () ->
-                  districts.worker(district, player.getUniqueId(), worker, priority, Instant.now()),
+              () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
+                return districts.worker(
+                    district, player.getUniqueId(), worker, priority, Instant.now());
+              },
               value -> "Assigned worker " + value.worker());
         }
         case "worker-remove" -> {
-          UUID district = districtId(args, 1, "worker-remove <district-uuid> <worker-uuid>");
+          String reference = districtReference(args, 1, "worker-remove <district> <worker-uuid>");
           if (args.length != 3)
             throw new IllegalArgumentException(
-                "usage: /frontier district worker-remove <district-uuid> <worker-uuid>");
+                "usage: /frontier district worker-remove <district> <worker-uuid>");
           UUID worker = UUID.fromString(args[2]);
           execute(
               player,
               () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
                 districts.removeWorker(district, player.getUniqueId(), worker, Instant.now());
                 return worker;
               },
               value -> "Removed worker " + value);
         }
-        case "view" -> {
-          UUID district = districtId(args, 1, "view <district-uuid> [view]");
+        case "building-assign", "building-remove" -> {
+          String reference = districtReference(args, 1, action + " <district> <building-uuid>");
+          if (args.length != 3)
+            throw new IllegalArgumentException(
+                "usage: /frontier district " + action + " <district> <building-uuid>");
+          UUID building = UUID.fromString(args[2]);
+          execute(
+              player,
+              () -> {
+                UUID district = districts.resolve(player.getUniqueId(), reference).id();
+                if (action.equals("building-assign"))
+                  return districts
+                      .building(district, player.getUniqueId(), building, Instant.now())
+                      .building();
+                districts.removeBuilding(district, player.getUniqueId(), building, Instant.now());
+                return building;
+              },
+              value ->
+                  (action.equals("building-assign") ? "Assigned building " : "Removed building ")
+                      + value);
+        }
+        case "view", "info", "select" -> {
+          String reference = districtReference(args, 1, action + " <district> [view]");
           String view = args.length >= 3 ? args[2].toLowerCase(Locale.ROOT) : "overview";
           if (!java.util.Set.of(
-                  "overview", "budget", "workers", "buildings", "reports", "policies", "history")
+                  "overview",
+                  "manager",
+                  "budget",
+                  "workers",
+                  "buildings",
+                  "production",
+                  "maintenance",
+                  "reports",
+                  "policies",
+                  "history")
               .contains(view)) throw new IllegalArgumentException("unknown district dialog view");
           schedulers
-              .async(() -> districts.report(district, player.getUniqueId()))
+              .async(
+                  () -> {
+                    UUID district = districts.resolve(player.getUniqueId(), reference).id();
+                    return districts.report(district, player.getUniqueId());
+                  })
               .whenComplete(
                   (report, failure) ->
                       schedulers.global(
@@ -832,24 +934,24 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                             else
                               ui.openDistrict(
                                   new PlayerId(player.getUniqueId()),
-                                  district,
+                                  report.district().id(),
                                   view,
                                   districtSummary(report, view));
                           }));
         }
         default ->
             throw new IllegalArgumentException(
-                "district actions: list, create, delete, resize, rename, manager-assign, manager-transfer, budget, priority, policy, worker-assign, worker-remove, view");
+                "district actions: list, create, select, info, rename, resize, delete, manager, manager-remove, budget, building-assign, worker-assign, production-priority, repair-priority, policy, view");
       }
     } catch (IllegalArgumentException failure) {
       player.sendMessage(Component.text(failure.getMessage(), NamedTextColor.RED));
     }
   }
 
-  private static UUID districtId(String[] args, int index, String usage) {
+  private static String districtReference(String[] args, int index, String usage) {
     if (args.length <= index)
       throw new IllegalArgumentException("usage: /frontier district " + usage);
-    return UUID.fromString(args[index]);
+    return args[index];
   }
 
   private static int districtRadius(String raw) {
@@ -877,11 +979,35 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
       case "budget" ->
           "Budget " + district.budgetMinor() + " cents; spent " + report.budgetSpentMinor();
       case "workers" ->
-          report.workers()
-              + " assigned workers; efficiency bonus "
-              + district.bonuses().workerEfficiency()
+          report.workerAssignments().isEmpty()
+              ? "No assigned workers; efficiency bonus "
+                  + district.bonuses().workerEfficiency()
+                  + "%"
+              : report.workerAssignments().stream()
+                  .map(value -> value.worker() + " priority " + value.priority())
+                  .collect(java.util.stream.Collectors.joining(" | "));
+      case "buildings" ->
+          report.buildingAssignments().isEmpty()
+              ? "No assigned buildings."
+              : report.buildingAssignments().stream()
+                  .map(value -> value.type() + " " + value.building() + " [" + value.status() + "]")
+                  .collect(java.util.stream.Collectors.joining(" | "));
+      case "manager" ->
+          "Manager " + district.manager() + "; " + report.members() + " district memberships";
+      case "production" ->
+          "Production priority "
+              + district.productionPriority()
+              + "; production bonus "
+              + district.bonuses().production()
               + "%";
-      case "buildings" -> report.buildings() + " active/damaged buildings in district";
+      case "maintenance" ->
+          "Repair priority "
+              + district.repairPriority()
+              + "; maintenance "
+              + district.maintenanceMinor()
+              + " cents/day; maintenance bonus "
+              + district.bonuses().maintenance()
+              + "%";
       case "reports" -> "Stored " + report.storedUnits() + " units; bonuses " + district.bonuses();
       case "policies" -> "Policies " + district.policies();
       case "history" ->
@@ -897,6 +1023,14 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
               + district.type()
               + "] priority "
               + district.priority()
+              + "; status "
+              + district.status()
+              + "; tier "
+              + district.tier()
+              + "; center "
+              + district.center().x()
+              + ","
+              + district.center().z()
               + "; manager "
               + district.manager();
     };
@@ -3142,7 +3276,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
             NamedTextColor.GOLD));
     sender.sendMessage(
         Component.text(
-            "/frontier district list|create|delete|resize|rename|manager-assign|manager-transfer|budget|priority|policy|worker-assign|worker-remove|view",
+            "/frontier district list|create|select|info|rename|resize|delete|manager|manager-remove|budget|priority|production-priority|repair-priority|policy|worker-assign|worker-remove|building-assign|building-remove|view",
             NamedTextColor.GRAY));
     sender.sendMessage(
         Component.text(
@@ -3263,16 +3397,24 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
           List.of(
               "list",
               "create",
+              "select",
+              "info",
               "delete",
               "resize",
               "rename",
+              "manager",
               "manager-assign",
               "manager-transfer",
+              "manager-remove",
               "budget",
               "priority",
+              "production-priority",
+              "repair-priority",
               "policy",
               "worker-assign",
               "worker-remove",
+              "building-assign",
+              "building-remove",
               "view"),
           args[1]);
     if (args.length == 3

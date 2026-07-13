@@ -14,6 +14,7 @@ import io.papermc.paper.registry.data.dialog.input.DialogInput;
 import io.papermc.paper.registry.data.dialog.type.DialogType;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -116,20 +117,92 @@ public final class PaperFrontierUi implements FrontierUi {
   @Override
   public void openDistrict(PlayerId player, UUID district, String view, String summary) {
     String prefix = "frontier district view " + district + " ";
-    open(
-        player,
-        "District " + view,
-        summary,
-        List.of(
-            command("Overview", prefix + "overview"),
-            command("Budget", prefix + "budget"),
-            command("Workers", prefix + "workers"),
-            command("Buildings", prefix + "buildings"),
-            command("Reports", prefix + "reports"),
-            command("Policies", prefix + "policies"),
-            command("History", prefix + "history"),
-            command("District menu", "frontier menu district"),
-            command("Back", "frontier menu")));
+    List<ActionButton> actions =
+        new ArrayList<>(
+            List.of(
+                command("Overview", prefix + "overview"),
+                command("Manager", prefix + "manager"),
+                command("Budget", prefix + "budget"),
+                command("Workers", prefix + "workers"),
+                command("Buildings", prefix + "buildings"),
+                command("Production", prefix + "production"),
+                command("Maintenance", prefix + "maintenance"),
+                command("Reports", prefix + "reports"),
+                command("Policies", prefix + "policies"),
+                command("History", prefix + "history")));
+    switch (view) {
+      case "overview" -> {
+        actions.add(
+            command("Rename", "frontier district rename " + district + " $(district_name)", true));
+        actions.add(command("Resize", "frontier district resize " + district + " $(radius)", true));
+      }
+      case "manager" -> {
+        actions.add(
+            command(
+                "Assign manager",
+                "frontier district manager " + district + " $(player_name)",
+                true));
+        actions.add(
+            command(
+                "Transfer manager",
+                "frontier district manager-transfer " + district + " $(player_name)",
+                true));
+        actions.add(
+            command("Remove manager", "frontier district manager-remove " + district, true));
+      }
+      case "budget" ->
+          actions.add(
+              command(
+                  "Allocate budget", "frontier district budget " + district + " $(amount)", true));
+      case "workers" -> {
+        actions.add(
+            command(
+                "Assign worker",
+                "frontier district worker-assign " + district + " $(worker_id) $(priority)",
+                true));
+        actions.add(
+            command(
+                "Remove worker",
+                "frontier district worker-remove " + district + " $(worker_id)",
+                true));
+      }
+      case "buildings" -> {
+        actions.add(
+            command(
+                "Assign building",
+                "frontier district building-assign " + district + " $(building_id)",
+                true));
+        actions.add(
+            command(
+                "Remove building",
+                "frontier district building-remove " + district + " $(building_id)",
+                true));
+      }
+      case "production" ->
+          actions.add(
+              command(
+                  "Set production priority",
+                  "frontier district production-priority " + district + " $(priority)",
+                  true));
+      case "maintenance" ->
+          actions.add(
+              command(
+                  "Set repair priority",
+                  "frontier district repair-priority " + district + " $(priority)",
+                  true));
+      case "policies" ->
+          actions.add(
+              command(
+                  "Set policy",
+                  "frontier district policy " + district + " $(policy_key) $(policy_value)",
+                  true));
+      default -> {
+        // Read-only report and history views need only navigation.
+      }
+    }
+    actions.add(command("District menu", "frontier menu district"));
+    actions.add(command("Back", "frontier menu"));
+    open(player, "District " + view, summary, districtInputs(), List.copyOf(actions));
   }
 
   private void open(PlayerId playerId, String title, String message, List<ActionButton> actions) {
@@ -176,8 +249,10 @@ public final class PaperFrontierUi implements FrontierUi {
       case SETTLEMENT -> List.of(text("city_name", "Settlement name", "New Frontier"));
       case DISTRICT ->
           List.of(
-              text("district_id", "District UUID", ""),
-              text("district_name", "District name", "Central"));
+              text("district_name", "District name to open", "Central"),
+              text("new_district_name", "New district name", "Central"),
+              text("district_type", "District type", "RESIDENTIAL"),
+              text("radius", "Radius (blocks)", "16"));
       case KINGDOM ->
           List.of(
               text("kingdom_id", "Kingdom UUID", ""),
@@ -214,6 +289,19 @@ public final class PaperFrontierUi implements FrontierUi {
           List.of(text("node_type", "Node type", "ROAD"), text("shipment_id", "Shipment UUID", ""));
       case HISTORY -> List.of(text("district_id", "District UUID", ""));
     };
+  }
+
+  private static List<DialogInput> districtInputs() {
+    return List.of(
+        text("district_name", "New district name", "Central"),
+        text("player_name", "Manager player name", ""),
+        text("amount", "Budget in cents", "1000"),
+        text("priority", "Priority 0-100", "50"),
+        text("policy_key", "Policy", "ACCESS"),
+        text("policy_value", "Policy value", "MEMBERS"),
+        text("worker_id", "Worker UUID", ""),
+        text("building_id", "Building UUID", ""),
+        text("radius", "Radius (blocks)", "16"));
   }
 
   private static DialogInput text(String key, String label, String initial) {

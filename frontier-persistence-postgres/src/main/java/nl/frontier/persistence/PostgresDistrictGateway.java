@@ -13,6 +13,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import nl.frontier.api.TransactionalStore;
+import nl.frontier.city.BuildingType;
+import nl.frontier.city.DistrictBuildingPolicy;
 import nl.frontier.city.DistrictGateway;
 import nl.frontier.city.DistrictRole;
 import nl.frontier.city.DistrictStatus;
@@ -85,18 +87,42 @@ public final class PostgresDistrictGateway implements DistrictGateway {
   }
 
   @Override
+  public DistrictSnapshot resolve(UUID actor, String reference) {
+    return store.inTransaction(
+        connection -> {
+          UUID id = null;
+          try {
+            id = UUID.fromString(reference);
+          } catch (IllegalArgumentException ignored) {
+            // Names are the normal player-facing reference.
+          }
+          List<UUID> matches = new ArrayList<>();
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT d.id FROM districts d JOIN city_members m ON m.city_id=d.city_id WHERE m.player_id=? AND d.status='ACTIVE' AND (d.id=? OR lower(d.name)=lower(?)) ORDER BY d.id")) {
+            statement.setObject(1, actor);
+            statement.setObject(2, id);
+            statement.setString(3, reference);
+            try (ResultSet result = statement.executeQuery()) {
+              while (result.next()) matches.add(result.getObject(1, UUID.class));
+            }
+          }
+          if (matches.isEmpty()) throw new DomainException("district not found");
+          if (matches.size() > 1)
+            throw new DomainException("district name is ambiguous; use its UUID");
+          return snapshot(connection, matches.getFirst());
+        });
+  }
+
+  @Override
   public DistrictReport report(UUID district, UUID actor) {
     return store.inTransaction(
         connection -> {
           DistrictSnapshot snapshot = snapshot(connection, district);
           requireMember(connection, snapshot.city(), actor);
-          int workers = count(connection, "district_workers", "district_id", district);
           int members = count(connection, "district_memberships", "district_id", district);
-          int buildings =
-              scalarInt(
-                  connection,
-                  "SELECT count(*) FROM city_buildings WHERE district_id=? AND status<>'DESTROYED'",
-                  district);
+          List<WorkerAssignment> workerAssignments = workerAssignments(connection, district);
+          List<BuildingAssignment> buildingAssignments = buildingAssignments(connection, district);
           long stored =
               scalarLong(
                   connection,
@@ -123,7 +149,15 @@ public final class PostgresDistrictGateway implements DistrictGateway {
             }
           }
           return new DistrictReport(
-              snapshot, members, workers, buildings, stored, spent, List.copyOf(history));
+              snapshot,
+              members,
+              workerAssignments.size(),
+              buildingAssignments.size(),
+              stored,
+              spent,
+              workerAssignments,
+              buildingAssignments,
+              List.copyOf(history));
         });
   }
 
@@ -210,6 +244,38 @@ public final class PostgresDistrictGateway implements DistrictGateway {
   }
 
   @Override
+  public DistrictSnapshot removeManager(UUID district, UUID actor, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          DistrictSnapshot before = locked(connection, district);
+          requireRole(connection, before.city(), actor, GOVERNMENT);
+          if (before.manager() == null) throw new DomainException("district has no manager");
+          try (PreparedStatement update =
+                  connection.prepareStatement(
+                      "UPDATE districts SET manager_id=NULL,updated_at=?,version=version+1 WHERE id=?");
+              PreparedStatement membership =
+                  connection.prepareStatement(
+                      "DELETE FROM district_memberships WHERE district_id=? AND player_id=? AND role_key='MANAGER'")) {
+            update.setTimestamp(1, Timestamp.from(now));
+            update.setObject(2, district);
+            update.executeUpdate();
+            membership.setObject(1, district);
+            membership.setObject(2, before.manager());
+            membership.executeUpdate();
+          }
+          history(
+              connection,
+              district,
+              "MANAGER_REMOVED",
+              before.manager().toString(),
+              null,
+              actor,
+              now);
+          return snapshot(connection, district);
+        });
+  }
+
+  @Override
   public DistrictSnapshot setBudget(UUID district, UUID actor, long budgetMinor, Instant now) {
     return store.inTransaction(
         connection -> {
@@ -268,6 +334,19 @@ public final class PostgresDistrictGateway implements DistrictGateway {
               now);
           return snapshot(connection, district);
         });
+  }
+
+  @Override
+  public DistrictSnapshot setProductionPriority(
+      UUID district, UUID actor, int priority, Instant now) {
+    return setOperationalPriority(
+        district, actor, priority, "production_priority", "PRODUCTION_PRIORITY_CHANGED", now);
+  }
+
+  @Override
+  public DistrictSnapshot setRepairPriority(UUID district, UUID actor, int priority, Instant now) {
+    return setOperationalPriority(
+        district, actor, priority, "repair_priority", "REPAIR_PRIORITY_CHANGED", now);
   }
 
   @Override
@@ -374,6 +453,87 @@ public final class PostgresDistrictGateway implements DistrictGateway {
   }
 
   @Override
+  public BuildingAssignment assignBuilding(UUID district, UUID actor, UUID building, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          DistrictSnapshot target = locked(connection, district);
+          requireManagerOrPlanner(connection, target, actor);
+          UUID oldDistrict;
+          BuildingType type;
+          String status;
+          SettlementGateway.Bounds bounds;
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "SELECT district_id,building_type,status,(bounds->>'world')::uuid,(bounds->>'minX')::int,(bounds->>'minY')::int,(bounds->>'minZ')::int,(bounds->>'maxX')::int,(bounds->>'maxY')::int,(bounds->>'maxZ')::int FROM city_buildings WHERE id=? AND city_id=? AND status<>'DESTROYED' FOR UPDATE")) {
+            statement.setObject(1, building);
+            statement.setObject(2, target.city());
+            try (ResultSet result = statement.executeQuery()) {
+              if (!result.next()) throw new DomainException("building not found in settlement");
+              oldDistrict = result.getObject(1, UUID.class);
+              String typeName = result.getString(2);
+              if (typeName == null)
+                throw new DomainException("legacy building has no building type");
+              type = BuildingType.valueOf(typeName);
+              status = result.getString(3);
+              bounds =
+                  new SettlementGateway.Bounds(
+                      result.getObject(4, UUID.class),
+                      result.getInt(5),
+                      result.getInt(6),
+                      result.getInt(7),
+                      result.getInt(8),
+                      result.getInt(9),
+                      result.getInt(10));
+            }
+          }
+          if (!contains(target.bounds(), bounds))
+            throw new DomainException("building must be fully inside district bounds");
+          if (!DistrictBuildingPolicy.compatible(target.type(), type))
+            throw new DomainException("building type is incompatible with district type");
+          if (district.equals(oldDistrict))
+            return new BuildingAssignment(district, building, type, status);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE city_buildings SET district_id=?,version=version+1 WHERE id=?")) {
+            statement.setObject(1, district);
+            statement.setObject(2, building);
+            statement.executeUpdate();
+          }
+          if (oldDistrict != null && districtExists(connection, oldDistrict))
+            history(
+                connection, oldDistrict, "BUILDING_REMOVED", building.toString(), null, actor, now);
+          history(
+              connection,
+              district,
+              "BUILDING_ASSIGNED",
+              oldDistrict == null ? null : oldDistrict.toString(),
+              building.toString(),
+              actor,
+              now);
+          return new BuildingAssignment(district, building, type, status);
+        });
+  }
+
+  @Override
+  public void removeBuilding(UUID district, UUID actor, UUID building, Instant now) {
+    store.inTransaction(
+        connection -> {
+          DistrictSnapshot snapshot = locked(connection, district);
+          requireManagerOrPlanner(connection, snapshot, actor);
+          try (PreparedStatement statement =
+              connection.prepareStatement(
+                  "UPDATE city_buildings SET district_id=NULL,version=version+1 WHERE id=? AND district_id=?")) {
+            statement.setObject(1, building);
+            statement.setObject(2, district);
+            if (statement.executeUpdate() != 1)
+              throw new DomainException("building is not assigned to district");
+          }
+          history(connection, district, "BUILDING_REMOVED", building.toString(), null, actor, now);
+          return null;
+        });
+  }
+
+  @Override
   public List<DistrictMembership> memberships(UUID district, UUID actor) {
     return store.inTransaction(
         connection -> {
@@ -426,6 +586,86 @@ public final class PostgresDistrictGateway implements DistrictGateway {
         });
   }
 
+  private DistrictSnapshot setOperationalPriority(
+      UUID district, UUID actor, int priority, String column, String action, Instant now) {
+    return store.inTransaction(
+        connection -> {
+          DistrictSnapshot before = locked(connection, district);
+          requireManagerOrPlanner(connection, before, actor);
+          int previous =
+              column.equals("production_priority")
+                  ? before.productionPriority()
+                  : before.repairPriority();
+          updateNumber(connection, district, column, priority, now);
+          history(
+              connection,
+              district,
+              action,
+              Integer.toString(previous),
+              Integer.toString(priority),
+              actor,
+              now);
+          return snapshot(connection, district);
+        });
+  }
+
+  private static List<WorkerAssignment> workerAssignments(Connection connection, UUID district)
+      throws SQLException {
+    List<WorkerAssignment> values = new ArrayList<>();
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT worker_id,priority,assigned_at FROM district_workers WHERE district_id=? ORDER BY priority DESC,worker_id")) {
+      statement.setObject(1, district);
+      try (ResultSet result = statement.executeQuery()) {
+        while (result.next())
+          values.add(
+              new WorkerAssignment(
+                  district,
+                  result.getObject(1, UUID.class),
+                  result.getInt(2),
+                  result.getTimestamp(3).toInstant()));
+      }
+    }
+    return List.copyOf(values);
+  }
+
+  private static List<BuildingAssignment> buildingAssignments(Connection connection, UUID district)
+      throws SQLException {
+    List<BuildingAssignment> values = new ArrayList<>();
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            "SELECT id,building_type,status FROM city_buildings WHERE district_id=? AND status<>'DESTROYED' AND building_type IS NOT NULL ORDER BY building_type,id")) {
+      statement.setObject(1, district);
+      try (ResultSet result = statement.executeQuery()) {
+        while (result.next())
+          values.add(
+              new BuildingAssignment(
+                  district,
+                  result.getObject(1, UUID.class),
+                  BuildingType.valueOf(result.getString(2)),
+                  result.getString(3)));
+      }
+    }
+    return List.copyOf(values);
+  }
+
+  private static boolean contains(
+      SettlementGateway.Bounds district, SettlementGateway.Bounds building) {
+    return district.world().equals(building.world())
+        && district.minX() <= building.minX()
+        && district.minY() <= building.minY()
+        && district.minZ() <= building.minZ()
+        && district.maxX() >= building.maxX()
+        && district.maxY() >= building.maxY()
+        && district.maxZ() >= building.maxZ();
+  }
+
+  private static boolean districtExists(Connection connection, UUID district) throws SQLException {
+    return scalarInt(
+            connection, "SELECT count(*) FROM districts WHERE id=? AND status='ACTIVE'", district)
+        == 1;
+  }
+
   private static DistrictSnapshot locked(Connection connection, UUID district) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
@@ -442,7 +682,7 @@ public final class PostgresDistrictGateway implements DistrictGateway {
       throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT d.id,d.city_id,d.name,d.district_type,r.world_id,r.min_x,r.min_y,r.min_z,r.max_x,r.max_y,r.max_z,r.center_x,r.center_y,r.center_z,d.manager_id,d.status,d.tier,d.budget_minor,d.maintenance_minor,d.priority,d.version FROM districts d JOIN district_regions r ON r.district_id=d.id WHERE d.id=? AND d.status='ACTIVE'")) {
+            "SELECT d.id,d.city_id,d.name,d.district_type,r.world_id,r.min_x,r.min_y,r.min_z,r.max_x,r.max_y,r.max_z,r.center_x,r.center_y,r.center_z,d.manager_id,d.status,d.tier,d.budget_minor,d.maintenance_minor,d.priority,d.production_priority,d.repair_priority,d.version FROM districts d JOIN district_regions r ON r.district_id=d.id WHERE d.id=? AND d.status='ACTIVE'")) {
       statement.setObject(1, district);
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) throw new DomainException("district not found");
@@ -471,9 +711,11 @@ public final class PostgresDistrictGateway implements DistrictGateway {
             result.getLong(18),
             result.getLong(19),
             result.getInt(20),
+            result.getInt(21),
+            result.getInt(22),
             policies(connection, district),
             type.bonuses(),
-            result.getLong(21));
+            result.getLong(23));
       }
     }
   }

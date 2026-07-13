@@ -58,9 +58,11 @@ public final class DialogScreenCatalog {
       case DISTRICT ->
           List.of(
               read("District list", "frontier district list"),
-              read("Open district", "frontier district view $(district_id) overview"),
-              mutate("Rename district", "frontier district rename $(district_id) $(district_name)"),
-              read("District reports", "frontier district view $(district_id) reports"),
+              read("Open district", "frontier district info $(district_name)"),
+              mutate(
+                  "Create district",
+                  "frontier district create $(district_type) $(radius) $(new_district_name)"),
+              read("District reports", "frontier district view $(district_name) reports"),
               back());
       case KINGDOM ->
           List.of(

@@ -11,7 +11,7 @@ This is the truthful baseline for the 60-sprint Master Remediation & Expansion R
 | Command roots | 25 |
 | Paper Dialog screens | 14 |
 | Paper listener adapters | 6 |
-| Flyway migrations | 41 (V1–V41) |
+| Flyway migrations | 42 (V1–V42) |
 | PostgreSQL public gameplay tables | 154 |
 | Bukkit permissions | 3 |
 
@@ -25,7 +25,7 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 | Claim protection | complete | One cached `TerritoryActionPolicy` covers actor/action/source/target, ownership, roles, overrides, campaign, treaty, incident and bypass; all listed Paper actions plus cross-boundary propagation have exploit and handler-contract coverage |
 | Repair integrity | complete | Generation-linked breach accounting, two-phase mutation/material consumption, idempotent purchase/commit, multi-task progress, lease/restart recovery, unload defer, conflict quarantine and completion-based archive/re-break tests pass |
 | Settlement founding/lifecycle | complete for Sprints 6–7 | Physical expedition founding, charter/founders, configurable fee/material/location rules, invitations/revocation, leave/kick/ban, role-safe transfer/succession, delayed disband, abandonment, asset-frozen ruins/recovery, merge and complete audit history have transactional integration coverage |
-| Districts | complete for Sprint 8 | Canonical district aggregates have normalized persistent regions/centers, roles, memberships, policies, budgets/history, twelve types including Logistics, UUID building foreign keys, versioning and transactional boundary/overlap coverage; Sprint 9 expands management UX and Sprint 10 balancing |
+| Districts | complete for Sprint 9 | Canonical aggregates now include complete name-based command/Dialog management, manager removal, worker/building allocation, separate production/repair priorities and concrete assignment reports; Sprint 10 completes specialization balancing |
 | Buildings | partial | Physical validators exist for six types and lifecycle/history are durable; Town Hall, Workshop, Mine, Watchtower and selection/preview UX are missing |
 | Roads/infrastructure | partial | Physical bounded validation, capacity/health/traffic and routing exist; dirty-segment invalidation, failure orders and critical-path gameplay are incomplete |
 | Workers/population | partial | Profession, skill, morale, wage, experience, housing, employment, migration and retirement exist; full task states, visible schedules and Builder Guild player contribution are incomplete |

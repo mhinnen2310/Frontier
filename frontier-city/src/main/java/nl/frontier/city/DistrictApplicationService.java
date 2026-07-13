@@ -32,6 +32,13 @@ public final class DistrictApplicationService {
     return gateway.report(district, actor);
   }
 
+  public DistrictGateway.DistrictSnapshot resolve(UUID actor, String reference) {
+    String clean = Objects.requireNonNull(reference).strip();
+    if (clean.isEmpty() || clean.length() > 36)
+      throw new DomainException("district reference must be a name or UUID");
+    return gateway.resolve(actor, clean);
+  }
+
   public DistrictGateway.DistrictSnapshot rename(
       UUID district, UUID actor, String name, Instant now) {
     return gateway.rename(district, actor, cleanName(name), now);
@@ -47,6 +54,10 @@ public final class DistrictApplicationService {
     return gateway.assignManager(district, actor, manager, transfer, now);
   }
 
+  public DistrictGateway.DistrictSnapshot removeManager(UUID district, UUID actor, Instant now) {
+    return gateway.removeManager(district, actor, now);
+  }
+
   public DistrictGateway.DistrictSnapshot budget(
       UUID district, UUID actor, long budgetMinor, Instant now) {
     if (budgetMinor < 0) throw new DomainException("district budget cannot be negative");
@@ -58,6 +69,18 @@ public final class DistrictApplicationService {
     if (priority < 0 || priority > 100)
       throw new DomainException("district priority must be 0-100");
     return gateway.setPriority(district, actor, priority, now);
+  }
+
+  public DistrictGateway.DistrictSnapshot productionPriority(
+      UUID district, UUID actor, int priority, Instant now) {
+    validatePriority(priority);
+    return gateway.setProductionPriority(district, actor, priority, now);
+  }
+
+  public DistrictGateway.DistrictSnapshot repairPriority(
+      UUID district, UUID actor, int priority, Instant now) {
+    validatePriority(priority);
+    return gateway.setRepairPriority(district, actor, priority, now);
   }
 
   public DistrictGateway.DistrictSnapshot policy(
@@ -84,6 +107,15 @@ public final class DistrictApplicationService {
     gateway.removeWorker(district, actor, worker, now);
   }
 
+  public DistrictGateway.BuildingAssignment building(
+      UUID district, UUID actor, UUID building, Instant now) {
+    return gateway.assignBuilding(district, actor, building, now);
+  }
+
+  public void removeBuilding(UUID district, UUID actor, UUID building, Instant now) {
+    gateway.removeBuilding(district, actor, building, now);
+  }
+
   public List<DistrictGateway.DistrictMembership> memberships(UUID district, UUID actor) {
     return gateway.memberships(district, actor);
   }
@@ -92,6 +124,11 @@ public final class DistrictApplicationService {
     long chunksX = Math.floorDiv(bounds.maxX(), 16) - Math.floorDiv(bounds.minX(), 16) + 1L;
     long chunksZ = Math.floorDiv(bounds.maxZ(), 16) - Math.floorDiv(bounds.minZ(), 16) + 1L;
     return Math.multiplyExact(Math.multiplyExact(chunksX, chunksZ), 25L * tier);
+  }
+
+  private static void validatePriority(int priority) {
+    if (priority < 0 || priority > 100)
+      throw new DomainException("district priority must be 0-100");
   }
 
   private static String cleanName(String name) {

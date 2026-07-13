@@ -370,7 +370,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(41, result.getInt(1));
+        assertEquals(42, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -802,6 +802,8 @@ class DatabaseIntegrationTest {
       assertEquals(1, district.tier());
       assertEquals("ACTIVE", district.status().name());
       assertEquals(25, district.maintenanceMinor());
+      assertEquals(50, district.productionPriority());
+      assertEquals(50, district.repairPriority());
       assertEquals(167, district.center().x());
       assertEquals(167, district.center().z());
       assertEquals(1, districtService.list(city.id(), owner).size());
@@ -850,6 +852,8 @@ class DatabaseIntegrationTest {
       districtService.manager(district.id(), owner, secondManager, true, Instant.now());
       districtService.budget(district.id(), owner, 500, Instant.now());
       districtService.priority(district.id(), owner, 80, Instant.now());
+      districtService.productionPriority(district.id(), secondManager, 90, Instant.now());
+      districtService.repairPriority(district.id(), secondManager, 70, Instant.now());
       districtService.policy(district.id(), owner, "work", "DAYLIGHT", Instant.now());
       districtService.worker(district.id(), owner, worker, 90, Instant.now());
       BuildingValidationService buildingValidation =
@@ -867,6 +871,16 @@ class DatabaseIntegrationTest {
               new BuildingSurvey(8, 7, 8, 48, 0, 0, 0, 0, 0, 0, 24, 1, 16, 0, 0, 0, Map.of()),
               Instant.now());
       assertEquals("ACTIVE", registeredFarm.state());
+      assertEquals(district.id(), districtService.resolve(owner, "Harvest Fields").id());
+      assertEquals(district.id(), districtService.resolve(owner, district.id().toString()).id());
+      districtService.removeBuilding(
+          district.id(), secondManager, registeredFarm.id(), Instant.now());
+      assertEquals(0, districtService.report(district.id(), owner).buildings());
+      assertEquals(
+          registeredFarm.id(),
+          districtService
+              .building(district.id(), secondManager, registeredFarm.id(), Instant.now())
+              .building());
       try (var connection = database.dataSource().getConnection();
           var statement =
               connection.prepareStatement(
@@ -876,13 +890,17 @@ class DatabaseIntegrationTest {
       }
       var districtReport = districtService.report(district.id(), owner);
       assertEquals(1, districtReport.workers());
+      assertEquals(worker, districtReport.workerAssignments().getFirst().worker());
       assertEquals(1, districtReport.members());
       assertEquals(
           secondManager, districtService.memberships(district.id(), owner).getFirst().player());
       assertEquals(1, districtReport.buildings());
+      assertEquals(registeredFarm.id(), districtReport.buildingAssignments().getFirst().building());
       assertEquals(32, districtReport.storedUnits());
       assertEquals(500, districtReport.district().budgetMinor());
       assertEquals(80, districtReport.district().priority());
+      assertEquals(90, districtReport.district().productionPriority());
+      assertEquals(70, districtReport.district().repairPriority());
       assertEquals("DAYLIGHT", districtReport.district().policies().get("WORK"));
       assertTrue(districtReport.history().size() >= 8);
       try (var connection = database.dataSource().getConnection();
@@ -905,6 +923,8 @@ class DatabaseIntegrationTest {
         }
       }
       districtService.removeWorker(district.id(), owner, worker, Instant.now());
+      districtService.removeManager(district.id(), owner, Instant.now());
+      assertTrue(districtService.memberships(district.id(), owner).isEmpty());
       districtService.delete(district.id(), owner, Instant.now());
       assertTrue(districtService.list(city.id(), owner).isEmpty());
       assertEquals(SettlementLevel.CAMP, city.level());
