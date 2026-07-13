@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0-RC4 — Release Train C
+
+- Completed Master Roadmap Sprints 11–15: bounded physical building validation, ten core validator profiles, Architect registration/transfer UX, curved physical infrastructure and the complete route health/failure/maintenance loop.
+- Advanced the database from V43 to V48 with upgrade-safe building lifecycle/transfer, physical route segments, leased failure state, health history, settlement warnings, maintenance orders and shipment-edge mappings.
+- Passed the complete suite, empty-database player journey, RC3 V43-to-V48 upgrade and Paper 26.2 startup on Java 26.
+- Published source and the shaded plugin JAR as the immutable Train C checkpoint.
+
 ## Master Roadmap Sprint 15 — Infrastructure Health and Failure
 
 - Added leased route-health processing that re-surveys dirty physical routes on Paper region schedulers, analyzes immutable snapshots asynchronously and commits one transactional health resolution.

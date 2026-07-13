@@ -20,7 +20,7 @@ $env:FRONTIER_QA_DATABASE_URL='jdbc:postgresql://localhost:55432/frontier_qa'
 | Districts | Create, bounds/overlap enforcement, rename, resize, manager transfer, budget, priority, policy, worker/building assignment, reports, history and deletion pass |
 | Economy and markets | Wallet, treasury/audit, order escrow/matching, warehouse stock, production, company, invoice, loan/interest, tax, procurement and emergency buying invariants pass |
 | Population and workers | Housing/food/safety/prosperity, birth, immigration, emigration/migration history, salary, skill/morale/experience and retirement pass |
-| Roads and infrastructure | Physical edge ownership, width, surface, health, capacity, traffic and route delivery pass |
+| Roads and infrastructure | Physical edge ownership, width, surface, health, bridge integrity, critical failure, capacity, rerouting, funded maintenance and route delivery pass |
 | Buildings | Physical validation and full lifecycle history pass; invalid overlap/type/claim attempts fail atomically |
 | Caravans/contracts | Authoritative cargo, visible binding, escort/combat, unload/despawn and contract escrow/delivery pass |
 | Wars/conquest | Declaration cost, preparation/active/ceasefire/resolution, objectives, breach budget, conquest/territory assets, reparations and tribute pass |

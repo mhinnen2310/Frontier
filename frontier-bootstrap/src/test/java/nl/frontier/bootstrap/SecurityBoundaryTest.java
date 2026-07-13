@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Properties;
 import java.util.UUID;
 import nl.frontier.api.DialogScreenCatalog;
 import nl.frontier.api.FrontierUi;
@@ -35,6 +36,15 @@ final class SecurityBoundaryTest {
         assertTrue(action.command().startsWith("frontier "));
         if (action.mutation()) assertFalse(action.command().startsWith("frontier admin "));
       }
+  }
+
+  @Test
+  void paperMetadataUsesTheSameGeneratedVersionAsBuildDiagnostics() throws IOException {
+    String plugin = resource("plugin.yml");
+    Properties build = new Properties();
+    build.load(new java.io.StringReader(resource("frontier-build.properties")));
+    assertTrue(plugin.contains("version: '" + build.getProperty("version") + "'"));
+    assertFalse(plugin.contains("@version@"));
   }
 
   private static String resource(String name) throws IOException {
