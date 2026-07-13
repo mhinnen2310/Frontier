@@ -28,4 +28,4 @@ Copy the JAR to the server `plugins` folder, start Paper once, and edit `plugins
 
 Use `/frontier` for the command fallback interface. Paper Dialog screens are opened for supported management flows; commands remain available for automation and recovery.
 
-The original design documents are retained in the repository root. See [SPRINTS.md](SPRINTS.md), [DECISIONS.md](DECISIONS.md), [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md), [docs/VERIFICATION.md](docs/VERIFICATION.md), and [docs/OPERATIONS.md](docs/OPERATIONS.md) for scope, decisions, verification and operations.
+The original design documents are retained in the repository root. The maintained documentation starts at [docs/README.md](docs/README.md), including gameplay, every command and Dialog screen, administration, permissions, architecture, API, database, configuration, upgrades, verification and operations.

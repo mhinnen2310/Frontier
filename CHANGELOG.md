@@ -1,5 +1,12 @@
 # Changelog
 
+## Sprint 22 — Documentation
+
+- Added one maintained documentation index and complete manuals for architecture, gameplay, commands, all Paper Dialog screens, administration, permissions, developer API, database schema, configuration and upgrades.
+- Documented the no-admin Harbor progression, transaction/service boundaries, all command families, runtime recovery/security/performance operations and forward-only rollback rules.
+- Added a documentation coverage test that fails when a required manual, Dialog screen, permission, configuration section or migration range disappears.
+- Updated the root quick start and implementation status to point at the post-audit documentation and 31-migration runtime.
+
 ## Unreleased — Post-1.0 remediation
 
 ### Sprint 1 — Settlement Bootstrap

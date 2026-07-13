@@ -1,6 +1,6 @@
 # Implementation status
 
-Release `1.0.0` implements the documented Paper 26.2 gameplay as a modular, persistent server plugin. All 28 supplied design documents were read and mapped into the dependency-ordered sprints in `SPRINTS.md`.
+The post-1.0 remediation line implements the documented Paper 26.2 gameplay as a modular, persistent server plugin. The original design set and 24-sprint audit roadmap are mapped to tested, committed increments in `SPRINTS.md` and `CHANGELOG.md`.
 
 ## Completed
 
@@ -13,7 +13,7 @@ Release `1.0.0` implements the documented Paper 26.2 gameplay as a modular, pers
 - Kingdom membership, diplomacy/treaties, research, eras, prestige, unique world wonders, shared mega projects, global objectives and history.
 - Paper Dialog presenters for settlement, treasury, market, campaign and repair flows, backed by player/action/aggregate-bound single-use expiring action tokens; commands remain the complete fallback interface.
 - Transactional outbox dispatch, startup recovery, hot caches, Micrometer health metrics, admin diagnostics/audit/inspection and command rate limiting.
-- Fifteen forward-only Flyway migrations, unit/integration/concurrency checks, a real Paper 26.2 startup/upgrade smoke test and a reproducible shaded release JAR.
+- Thirty-one forward-only Flyway migrations, unit/integration/concurrency/exploit/scale checks, real Paper 26.2 startup/upgrade smoke tests and a reproducible shaded release JAR.
 
 ## Deliberately configurable, not missing
 
@@ -21,7 +21,7 @@ The open balancing choices from the documents are resolved in `DECISIONS.md` and
 
 ## Remaining
 
-No implementation item remains for `1.0.0`. Live multiplayer balance and UX feedback are the next input expected from server playtesting; those are tuning rather than unfinished code.
+Sprints 22–24 complete maintained documentation, final clean-world QA and the release-candidate gate. Live human multiplayer feel and balance remain feedback for post-release tuning rather than a substitute for automated integrity checks.
 
 ## Unclear requirements
 
