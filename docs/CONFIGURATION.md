@@ -58,7 +58,7 @@ Harbor's commodity allowlist is additionally bounded in code to bread, wheat, oa
 
 District balance percentages are constrained to 1–100, contribution/adjacency/same-type counts to 1–20, integrity to 1–100 and adjacency distance to 1–256 blocks. Changing balance settings requires a server restart; startup synchronizes the validated immutable policy to the authoritative database projection.
 
-Building dimensions and volume must be positive and are enforced before any live-world iteration. Structural minimums must be positive; floor, wall and roof coverage are percentages from 1–100. These settings require a server restart because both the Paper survey adapter and pure validator capture one immutable policy at startup.
+Building dimensions and volume must be positive and are enforced before any live-world iteration. Structural minimums must be positive; floor, wall and roof coverage are percentages from 1–100. Under `types`, every one of the ten building types has minimum dimensions, enclosure/entrance/road switches and functional block-group counts. Type dimensions cannot exceed the global scan bounds or volume; counts are non-negative, bounded by maximum volume and at least one functional group per type must remain positive. These settings require a server restart because both the Paper survey adapter and pure validator capture one immutable policy at startup.
 
 ## Administration
 

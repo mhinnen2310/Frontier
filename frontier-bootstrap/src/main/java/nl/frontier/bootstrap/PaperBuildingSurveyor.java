@@ -111,7 +111,11 @@ final class PaperBuildingSurveyor {
           if (name.contains("TORCH")
               || name.contains("LANTERN")
               || name.contains("GLOWSTONE")
-              || name.contains("SHROOMLIGHT")) lights++;
+              || name.contains("SHROOMLIGHT")
+              || name.contains("FROGLIGHT")
+              || name.endsWith("_CANDLE")
+              || material == Material.END_ROD
+              || material == Material.REDSTONE_LAMP) lights++;
           if (STORAGE.contains(material)) storage++;
           if (name.endsWith("_BED")) beds++;
           if (material == Material.FARMLAND) farmland++;

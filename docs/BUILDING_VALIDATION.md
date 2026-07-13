@@ -14,7 +14,22 @@ Shared rules require:
 - width, height, depth and total volume within configured hard limits;
 - at least the configured structural-block minimum.
 
-Enclosed buildings additionally require an entrance plus configured floor, boundary-wall and roof coverage. Type rules require their functional blocks: storage for warehouses, beds/interior/light for housing, farmland/water/crops for farms, crafting/storage for builder guilds, stalls/access for markets, and beds/storage for barracks. Warehouses and markets require a recognized road on the one-block perimeter. Farms intentionally use an outdoor definition and do not require walls or a roof.
+Enclosed buildings additionally use configured floor, boundary-wall and roof coverage. Per-type profiles decide whether enclosure, entrance and a recognized road on the one-block perimeter are required. Functional requirements use block families rather than exact block positions or a schematic.
+
+| Type | Default functional minimum |
+|---|---|
+| Town Hall | bell, lectern, four stair seats, enclosure, entrance and road |
+| Warehouse | two chests/barrels, enclosure, entrance and road |
+| Housing | bed, six interior-air blocks, light, enclosure and entrance |
+| Farm | 16 farmland, water and eight crops; intentionally outdoors |
+| Builder Guild | two crafting/smithing stations and two storage blocks, enclosed |
+| Market | three stall blocks, entrance and road; may be outdoors |
+| Barracks | four beds and two storage blocks, enclosed |
+| Workshop | two crafting stations, a furnace variant, storage, enclosure, entrance and road |
+| Mine Entrance | four rails, two lights, entrance and road; may be open-air |
+| Watchtower | minimum height eight, four ladders/scaffolding, light, enclosure and entrance |
+
+All counts and type dimensions are server-configurable within the global scan limits. Every profile must keep at least one functional minimum. Failure text includes both the required and observed value, for example `requires 4 rail blocks (found 2)`.
 
 ## Registration protocol
 

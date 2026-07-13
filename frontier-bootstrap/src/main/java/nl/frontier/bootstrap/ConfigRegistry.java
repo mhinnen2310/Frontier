@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -15,6 +16,10 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Consumer;
+import nl.frontier.city.BuildingFeature;
+import nl.frontier.city.BuildingRequirements;
+import nl.frontier.city.BuildingType;
+import nl.frontier.city.BuildingValidationPolicy;
 import nl.frontier.economy.HarborPolicy;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -246,18 +251,28 @@ public final class ConfigRegistry {
                 positive(districts, "balance.commercial-market-orders-per-building", 100),
                 positive(districts, "balance.logistics-warehouse-capacity-percent", 100)));
     YamlConfiguration buildings = modules.get("buildings");
+    int maximumBuildingWidth = positive(buildings, "validation.maximum-width", 256);
+    int maximumBuildingHeight = positive(buildings, "validation.maximum-height", 384);
+    int maximumBuildingDepth = positive(buildings, "validation.maximum-depth", 256);
+    int maximumBuildingVolume = positive(buildings, "validation.maximum-volume", 1_000_000);
     var buildingConfig =
         new FrontierConfiguration.Buildings(
             control(buildings),
-            new nl.frontier.city.BuildingValidationPolicy(
-                positive(buildings, "validation.maximum-width", 256),
-                positive(buildings, "validation.maximum-height", 384),
-                positive(buildings, "validation.maximum-depth", 256),
-                positive(buildings, "validation.maximum-volume", 1_000_000),
+            new BuildingValidationPolicy(
+                maximumBuildingWidth,
+                maximumBuildingHeight,
+                maximumBuildingDepth,
+                maximumBuildingVolume,
                 positive(buildings, "validation.minimum-structural-blocks", 1_000_000),
                 positive(buildings, "validation.minimum-floor-coverage-percent", 100),
                 positive(buildings, "validation.minimum-wall-coverage-percent", 100),
-                positive(buildings, "validation.minimum-roof-coverage-percent", 100)));
+                positive(buildings, "validation.minimum-roof-coverage-percent", 100),
+                buildingRequirements(
+                    buildings,
+                    maximumBuildingWidth,
+                    maximumBuildingHeight,
+                    maximumBuildingDepth,
+                    maximumBuildingVolume)));
     YamlConfiguration kingdoms = modules.get("kingdoms");
     var kingdomConfig =
         new FrontierConfiguration.Kingdoms(
@@ -512,14 +527,25 @@ public final class ConfigRegistry {
       if (input == null) throw invalid("missing packaged module defaults: " + resource);
       YamlConfiguration defaults =
           YamlConfiguration.loadConfiguration(new InputStreamReader(input, StandardCharsets.UTF_8));
-      Set<String> before = document.getKeys(true);
-      document.addDefaults(defaults);
-      document.options().copyDefaults(true);
-      if (!before.containsAll(defaults.getKeys(true))) document.save(file);
+      if (mergeDefaults(document, defaults)) document.save(file);
       return document;
     } catch (IOException failure) {
       throw new IllegalStateException("could not merge module defaults: " + file, failure);
     }
+  }
+
+  static boolean mergeDefaults(YamlConfiguration document, YamlConfiguration defaults) {
+    boolean changed = false;
+    for (String key : defaults.getKeys(true)) {
+      Object value = defaults.get(key);
+      if (value instanceof org.bukkit.configuration.ConfigurationSection || document.isSet(key))
+        continue;
+      document.set(key, value);
+      changed = true;
+    }
+    document.addDefaults(defaults);
+    document.options().copyDefaults(true);
+    return changed;
   }
 
   private static HarborPolicy harborPolicy(FileConfiguration document) {
@@ -577,6 +603,58 @@ public final class ConfigRegistry {
     if (!(value instanceof Number number) || number.longValue() <= 0)
       throw invalid("Harbor list number must be positive: " + key);
     return number.longValue();
+  }
+
+  private static Map<BuildingType, BuildingRequirements> buildingRequirements(
+      FileConfiguration document,
+      int maximumWidth,
+      int maximumHeight,
+      int maximumDepth,
+      int maximumVolume) {
+    EnumMap<BuildingType, BuildingRequirements> requirements = new EnumMap<>(BuildingType.class);
+    for (BuildingType type : BuildingType.values()) {
+      String prefix = "types." + buildingTypeKey(type);
+      int width = positive(document, prefix + ".minimum-width", maximumWidth);
+      int height = positive(document, prefix + ".minimum-height", maximumHeight);
+      int depth = positive(document, prefix + ".minimum-depth", maximumDepth);
+      long minimumVolume = (long) width * height * depth;
+      if (minimumVolume > maximumVolume)
+        throw invalid(prefix + " minimum dimensions exceed validation.maximum-volume");
+      EnumMap<BuildingFeature, Integer> features = new EnumMap<>(BuildingFeature.class);
+      for (BuildingFeature feature : BuildingFeature.values()) {
+        String key = prefix + ".functional." + feature.configKey();
+        int minimum = nonNegative(document, key, maximumVolume);
+        if (minimum > 0) features.put(feature, minimum);
+      }
+      if (features.isEmpty())
+        throw invalid(prefix + " must require at least one functional block group");
+      requirements.put(
+          type,
+          new BuildingRequirements(
+              width,
+              height,
+              depth,
+              requiredBoolean(document, prefix + ".require-enclosure"),
+              requiredBoolean(document, prefix + ".require-entrance"),
+              requiredBoolean(document, prefix + ".require-road"),
+              features));
+    }
+    return Map.copyOf(requirements);
+  }
+
+  private static int nonNegative(FileConfiguration document, String key, int maximum) {
+    int value = document.getInt(key, 0);
+    if (value < 0 || value > maximum) throw invalid(key + " must be between 0 and " + maximum);
+    return value;
+  }
+
+  private static boolean requiredBoolean(FileConfiguration document, String key) {
+    if (!document.isBoolean(key)) throw invalid(key + " must be true or false");
+    return document.getBoolean(key);
+  }
+
+  private static String buildingTypeKey(BuildingType type) {
+    return type.name().toLowerCase(Locale.ROOT).replace('_', '-');
   }
 
   private static int positive(FileConfiguration document, String key, int maximum) {
@@ -718,19 +796,7 @@ public final class ConfigRegistry {
             "balance.military-wage-penalty-percent",
             "balance.commercial-market-orders-per-building",
             "balance.logistics-warehouse-capacity-percent"));
-    keys.put(
-        "buildings",
-        leaves(
-            "config-version",
-            "enabled",
-            "validation.maximum-width",
-            "validation.maximum-height",
-            "validation.maximum-depth",
-            "validation.maximum-volume",
-            "validation.minimum-structural-blocks",
-            "validation.minimum-floor-coverage-percent",
-            "validation.minimum-wall-coverage-percent",
-            "validation.minimum-roof-coverage-percent"));
+    keys.put("buildings", buildingKeys());
     keys.put(
         "economy",
         leaves(
@@ -820,6 +886,34 @@ public final class ConfigRegistry {
             "simulation.maximum-cities-per-cycle"));
     for (String module : MODULES) keys.putIfAbsent(module, leaves("config-version", "enabled"));
     return Map.copyOf(keys);
+  }
+
+  private static Set<String> buildingKeys() {
+    Set<String> keys = new LinkedHashSet<>();
+    keys.addAll(
+        leaves(
+            "config-version",
+            "enabled",
+            "validation.maximum-width",
+            "validation.maximum-height",
+            "validation.maximum-depth",
+            "validation.maximum-volume",
+            "validation.minimum-structural-blocks",
+            "validation.minimum-floor-coverage-percent",
+            "validation.minimum-wall-coverage-percent",
+            "validation.minimum-roof-coverage-percent"));
+    for (BuildingType type : BuildingType.values()) {
+      String prefix = "types." + buildingTypeKey(type);
+      keys.add(prefix + ".minimum-width");
+      keys.add(prefix + ".minimum-height");
+      keys.add(prefix + ".minimum-depth");
+      keys.add(prefix + ".require-enclosure");
+      keys.add(prefix + ".require-entrance");
+      keys.add(prefix + ".require-road");
+      for (BuildingFeature feature : BuildingFeature.values())
+        keys.add(prefix + ".functional." + feature.configKey());
+    }
+    return Set.copyOf(keys);
   }
 
   private static Set<String> leaves(String... values) {

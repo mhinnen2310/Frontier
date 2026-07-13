@@ -619,7 +619,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
     if (args.length < 2 || args.length > 4)
       throw new IllegalArgumentException(
           "usage: /frontier city building <type> [radius] [district-uuid]");
-    BuildingType type = BuildingType.valueOf(args[1].toUpperCase(Locale.ROOT));
+    BuildingType type = BuildingType.valueOf(args[1].toUpperCase(Locale.ROOT).replace('-', '_'));
     int radius = args.length >= 3 ? Integer.parseInt(args[2]) : 4;
     String district = args.length == 4 ? args[3] : null;
     if (radius < 1 || radius > 16)
@@ -3421,7 +3421,7 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
         && args[1].equalsIgnoreCase("building"))
       return matching(
           Arrays.stream(BuildingType.values())
-              .map(type -> type.name().toLowerCase(Locale.ROOT))
+              .map(type -> type.name().toLowerCase(Locale.ROOT).replace('_', '-'))
               .toList(),
           args[2]);
     if (args.length == 2 && args[0].equalsIgnoreCase("district"))

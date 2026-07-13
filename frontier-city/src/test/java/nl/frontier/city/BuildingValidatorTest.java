@@ -1,5 +1,6 @@
 package nl.frontier.city;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,6 +33,74 @@ class BuildingValidatorTest {
       assertFalse(result.valid(), type.name());
       assertFalse(result.violations().isEmpty(), type.name());
     }
+  }
+
+  @Test
+  void playerFacingViolationsShowRequiredAndObservedFunctionalCounts() {
+    var result =
+        validator.validate(
+            BuildingType.TOWN_HALL,
+            new BuildingSurvey(
+                9,
+                8,
+                9,
+                300,
+                40,
+                81,
+                192,
+                81,
+                2,
+                4,
+                4,
+                6,
+                32,
+                4,
+                16,
+                4,
+                4,
+                2,
+                Map.of("minecraft:bell", 1)),
+            new BuildingValidationContext(true, false, true, true));
+    assertFalse(result.valid());
+    assertTrue(
+        result.violations().stream()
+            .anyMatch(message -> message.equals("requires 1 lecterns (found 0)")));
+    assertTrue(
+        result.violations().stream()
+            .anyMatch(message -> message.equals("requires 4 seats (found 0)")));
+  }
+
+  @Test
+  void flexibleMaterialGroupsDoNotRequireAnExactSchematic() {
+    BuildingSurvey survey =
+        new BuildingSurvey(
+            9,
+            8,
+            9,
+            300,
+            40,
+            81,
+            192,
+            81,
+            2,
+            4,
+            4,
+            6,
+            32,
+            4,
+            16,
+            4,
+            4,
+            2,
+            Map.of(
+                "minecraft:birch_stairs", 5,
+                "minecraft:smoker", 2,
+                "minecraft:powered_rail", 6,
+                "minecraft:scaffolding", 8));
+    assertEquals(5, BuildingFeature.SEATING.count(survey));
+    assertEquals(2, BuildingFeature.FURNACE.count(survey));
+    assertEquals(6, BuildingFeature.RAIL.count(survey));
+    assertEquals(8, BuildingFeature.LADDER.count(survey));
   }
 
   @Test
@@ -83,6 +152,13 @@ class BuildingValidatorTest {
         4,
         4,
         2,
-        Map.of("minecraft:stone", 300));
+        Map.of(
+            "minecraft:stone", 280,
+            "minecraft:bell", 1,
+            "minecraft:lectern", 1,
+            "minecraft:oak_stairs", 4,
+            "minecraft:furnace", 1,
+            "minecraft:rail", 4,
+            "minecraft:ladder", 4));
   }
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 12 — Core Building Validators
+
+- Completed configurable physical validators for Town Hall, Warehouse, Housing, Farm, Builder Guild, Market, Barracks, Workshop, Mine Entrance and Watchtower.
+- Replaced hard-coded type thresholds with safe per-type profiles covering dimensions, enclosure, entrance, perimeter road and functional block-group counts.
+- Kept creative construction viable by recognizing material families such as any stair seat, furnace variant, rail variant and ladder/scaffolding access instead of requiring a schematic.
+- Made every failure report the required and observed dimensions, coverage or functional count, and added hyphenated player-facing type names and tab completion.
+- Added complete type/district matrices, packaged-config bounds tests and pure validation coverage proving every type passes a valid survey and rejects an empty one.
+
 ## Master Roadmap Sprint 11 — Building Validation Framework
 
 - Replaced registration-only acceptance with reusable `BuildingDefinition`, `ValidationRule`, `BuildingInspection` and `BuildingValidationResult` domain components.

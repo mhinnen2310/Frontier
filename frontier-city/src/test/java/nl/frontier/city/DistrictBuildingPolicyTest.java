@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 class DistrictBuildingPolicyTest {
   @Test
   void compatibilityMatrixIsExplicitAndComplete() {
+    assertCompatible(BuildingType.TOWN_HALL, DistrictType.GOVERNMENT, DistrictType.CULTURE);
     assertCompatible(
         BuildingType.WAREHOUSE,
         DistrictType.INDUSTRIAL,
@@ -28,6 +29,14 @@ class DistrictBuildingPolicyTest {
     assertCompatible(
         BuildingType.MARKET, DistrictType.COMMERCIAL, DistrictType.HARBOR, DistrictType.CULTURE);
     assertCompatible(BuildingType.BARRACKS, DistrictType.MILITARY);
+    assertCompatible(
+        BuildingType.WORKSHOP, DistrictType.INDUSTRIAL, DistrictType.MINING, DistrictType.FORESTRY);
+    assertCompatible(BuildingType.MINE_ENTRANCE, DistrictType.MINING);
+    assertCompatible(
+        BuildingType.WATCHTOWER,
+        DistrictType.MILITARY,
+        DistrictType.GOVERNMENT,
+        DistrictType.HARBOR);
   }
 
   private static void assertCompatible(BuildingType building, DistrictType... allowed) {

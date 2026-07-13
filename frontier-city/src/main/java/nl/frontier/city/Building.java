@@ -24,7 +24,8 @@ public final class Building {
     ACTIVE,
     DAMAGED,
     DISABLED,
-    DESTROYED
+    DESTROYED,
+    ABANDONED
   }
 
   private final BuildingId id;
@@ -63,7 +64,7 @@ public final class Building {
     return switch (status()) {
       case ACTIVE -> 1.0;
       case DAMAGED -> integrity >= 70 ? 0.85 : integrity >= 40 ? 0.55 : 0.20;
-      case PLANNED, UNDER_CONSTRUCTION, VALIDATING, DISABLED, DESTROYED -> 0.0;
+      case PLANNED, UNDER_CONSTRUCTION, VALIDATING, DISABLED, DESTROYED, ABANDONED -> 0.0;
     };
   }
 

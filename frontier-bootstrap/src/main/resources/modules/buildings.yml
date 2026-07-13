@@ -11,3 +11,109 @@ validation:
   minimum-floor-coverage-percent: 60
   minimum-wall-coverage-percent: 50
   minimum-roof-coverage-percent: 60
+
+# Shape-agnostic functional profiles. Counts can be tuned, but every type must retain
+# at least one functional requirement and remain within the hard scan bounds above.
+types:
+  town-hall:
+    minimum-width: 7
+    minimum-height: 5
+    minimum-depth: 7
+    require-enclosure: true
+    require-entrance: true
+    require-road: true
+    functional:
+      bell: 1
+      lectern: 1
+      seating: 4
+  warehouse:
+    minimum-width: 5
+    minimum-height: 4
+    minimum-depth: 5
+    require-enclosure: true
+    require-entrance: true
+    require-road: true
+    functional:
+      storage: 2
+  housing:
+    minimum-width: 3
+    minimum-height: 3
+    minimum-depth: 3
+    require-enclosure: true
+    require-entrance: true
+    require-road: false
+    functional:
+      bed: 1
+      interior-air: 6
+      light: 1
+  farm:
+    minimum-width: 1
+    minimum-height: 1
+    minimum-depth: 1
+    require-enclosure: false
+    require-entrance: false
+    require-road: false
+    functional:
+      farmland: 16
+      water: 1
+      crop: 8
+  builder-guild:
+    minimum-width: 7
+    minimum-height: 4
+    minimum-depth: 7
+    require-enclosure: true
+    require-entrance: true
+    require-road: false
+    functional:
+      crafting: 2
+      storage: 2
+  market:
+    minimum-width: 1
+    minimum-height: 1
+    minimum-depth: 1
+    require-enclosure: false
+    require-entrance: true
+    require-road: true
+    functional:
+      stall: 3
+  barracks:
+    minimum-width: 5
+    minimum-height: 4
+    minimum-depth: 5
+    require-enclosure: true
+    require-entrance: true
+    require-road: false
+    functional:
+      bed: 4
+      storage: 2
+  workshop:
+    minimum-width: 5
+    minimum-height: 4
+    minimum-depth: 5
+    require-enclosure: true
+    require-entrance: true
+    require-road: true
+    functional:
+      crafting: 2
+      furnace: 1
+      storage: 1
+  mine-entrance:
+    minimum-width: 3
+    minimum-height: 3
+    minimum-depth: 3
+    require-enclosure: false
+    require-entrance: true
+    require-road: true
+    functional:
+      rail: 4
+      light: 2
+  watchtower:
+    minimum-width: 3
+    minimum-height: 8
+    minimum-depth: 3
+    require-enclosure: true
+    require-entrance: true
+    require-road: false
+    functional:
+      ladder: 4
+      light: 1

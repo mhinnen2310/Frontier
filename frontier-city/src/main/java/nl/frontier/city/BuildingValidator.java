@@ -3,7 +3,6 @@ package nl.frontier.city;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Predicate;
 
 public final class BuildingValidator {
   private final BuildingValidationPolicy policy;
@@ -14,49 +13,18 @@ public final class BuildingValidator {
 
   public BuildingDefinition definition(BuildingType type) {
     List<ValidationRule> rules = new ArrayList<>(commonRules());
-    switch (type) {
-      case WAREHOUSE -> {
-        rules.add(minimum(5, 4, 5));
-        rules.addAll(enclosure());
-        rules.add(require(survey -> survey.storageBlocks() >= 2, "requires two storage blocks"));
-        rules.add(entrance());
-        rules.add(road());
-      }
-      case HOUSING -> {
-        rules.add(minimum(3, 3, 3));
-        rules.addAll(enclosure());
-        rules.add(require(survey -> survey.bedBlocks() >= 1, "requires a bed"));
-        rules.add(
-            require(survey -> survey.interiorAirBlocks() >= 6, "requires enclosed interior space"));
-        rules.add(entrance());
-        rules.add(require(survey -> survey.lightBlocks() >= 1, "requires a light source"));
-      }
-      case FARM -> {
-        rules.add(require(survey -> survey.farmlandBlocks() >= 16, "requires 16 farmland blocks"));
-        rules.add(require(survey -> survey.waterBlocks() >= 1, "requires water"));
-        rules.add(require(survey -> survey.cropBlocks() >= 8, "requires 8 planted crops"));
-      }
-      case BUILDER_GUILD -> {
-        rules.add(minimum(7, 4, 7));
-        rules.addAll(enclosure());
-        rules.add(
-            require(survey -> survey.craftingBlocks() >= 2, "requires two crafting stations"));
-        rules.add(require(survey -> survey.storageBlocks() >= 2, "requires two storage blocks"));
-        rules.add(entrance());
-      }
-      case MARKET -> {
-        rules.add(require(survey -> survey.stallBlocks() >= 3, "requires three stalls"));
-        rules.add(entrance());
-        rules.add(road());
-      }
-      case BARRACKS -> {
-        rules.add(minimum(5, 4, 5));
-        rules.addAll(enclosure());
-        rules.add(require(survey -> survey.bedBlocks() >= 4, "requires four beds"));
-        rules.add(require(survey -> survey.storageBlocks() >= 2, "requires equipment storage"));
-        rules.add(entrance());
-      }
-    }
+    BuildingRequirements requirements = policy.requirements(type);
+    rules.add(
+        minimum(
+            requirements.minimumWidth(),
+            requirements.minimumHeight(),
+            requirements.minimumDepth()));
+    if (requirements.enclosureRequired()) rules.addAll(enclosure());
+    if (requirements.entranceRequired()) rules.add(entrance());
+    if (requirements.roadRequired()) rules.add(road());
+    requirements
+        .functionalMinimums()
+        .forEach((feature, minimum) -> rules.add(feature(feature, minimum)));
     return new BuildingDefinition(type, rules);
   }
 
@@ -95,7 +63,9 @@ public final class BuildingValidator {
                 : Optional.of(
                     "requires at least "
                         + policy.minimumStructuralBlocks()
-                        + " structural blocks"));
+                        + " structural blocks (found "
+                        + inspection.survey().nonAirBlocks()
+                        + ")"));
   }
 
   private List<ValidationRule> enclosure() {
@@ -106,17 +76,27 @@ public final class BuildingValidator {
                 : Optional.of(
                     "floor coverage must be at least "
                         + policy.minimumFloorCoveragePercent()
-                        + "%"),
+                        + "% (found "
+                        + inspection.floorCoveragePercent()
+                        + "%)"),
         (inspection, context) ->
             inspection.wallCoveragePercent() >= policy.minimumWallCoveragePercent()
                 ? Optional.empty()
                 : Optional.of(
-                    "wall coverage must be at least " + policy.minimumWallCoveragePercent() + "%"),
+                    "wall coverage must be at least "
+                        + policy.minimumWallCoveragePercent()
+                        + "% (found "
+                        + inspection.wallCoveragePercent()
+                        + "%)"),
         (inspection, context) ->
             inspection.roofCoveragePercent() >= policy.minimumRoofCoveragePercent()
                 ? Optional.empty()
                 : Optional.of(
-                    "roof coverage must be at least " + policy.minimumRoofCoveragePercent() + "%"));
+                    "roof coverage must be at least "
+                        + policy.minimumRoofCoveragePercent()
+                        + "% (found "
+                        + inspection.roofCoveragePercent()
+                        + "%)"));
   }
 
   private static ValidationRule minimum(int width, int height, int depth) {
@@ -124,23 +104,44 @@ public final class BuildingValidator {
       BuildingSurvey survey = inspection.survey();
       return survey.width() >= width && survey.height() >= height && survey.depth() >= depth
           ? Optional.empty()
-          : Optional.of("minimum dimensions are " + width + "x" + height + "x" + depth);
+          : Optional.of(
+              "minimum dimensions are "
+                  + width
+                  + "x"
+                  + height
+                  + "x"
+                  + depth
+                  + " (found "
+                  + survey.width()
+                  + "x"
+                  + survey.height()
+                  + "x"
+                  + survey.depth()
+                  + ")");
     };
   }
 
-  private static ValidationRule require(Predicate<BuildingSurvey> predicate, String failure) {
-    return (inspection, context) ->
-        predicate.test(inspection.survey()) ? Optional.empty() : Optional.of(failure);
-  }
-
   private static ValidationRule entrance() {
-    return require(survey -> survey.entranceBlocks() >= 1, "requires an entrance");
+    return (inspection, context) ->
+        inspection.survey().entranceBlocks() >= 1
+            ? Optional.empty()
+            : Optional.of("requires an entrance (found 0)");
   }
 
   private static ValidationRule road() {
     return (inspection, context) ->
         context.roadConnected()
             ? Optional.empty()
-            : Optional.of("requires a physical road connection");
+            : Optional.of("requires a physical perimeter-road connection (found 0)");
+  }
+
+  private static ValidationRule feature(BuildingFeature feature, int minimum) {
+    return (inspection, context) -> {
+      int actual = feature.count(inspection.survey());
+      return actual >= minimum
+          ? Optional.empty()
+          : Optional.of(
+              "requires " + minimum + " " + feature.displayName() + " (found " + actual + ")");
+    };
   }
 }

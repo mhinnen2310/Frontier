@@ -10,6 +10,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import nl.frontier.city.BuildingFeature;
+import nl.frontier.city.BuildingType;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 
@@ -35,11 +37,35 @@ class ConfigRegistryTest {
     assertEquals(25, config.districts().balance().logisticsWarehouseCapacityPercent());
     assertEquals(32_768, config.buildings().validation().maximumVolume());
     assertEquals(60, config.buildings().validation().minimumRoofCoveragePercent());
+    assertEquals(
+        1,
+        config
+            .buildings()
+            .validation()
+            .requirements(BuildingType.TOWN_HALL)
+            .functionalMinimums()
+            .get(BuildingFeature.BELL));
+    assertEquals(
+        8, config.buildings().validation().requirements(BuildingType.WATCHTOWER).minimumHeight());
     assertTrue(config.enabled("settlements"));
     assertFalse(config.enabled("waypoints"));
     assertFalse(config.enabled("cartography"));
     assertFalse(config.enabled("map-walls"));
     assertFalse(config.enabled("web"));
+  }
+
+  @Test
+  void nestedBuildingDefaultsUpgradeAnExistingSprintElevenFile() {
+    YamlConfiguration existing = new YamlConfiguration();
+    existing.set("config-version", 1);
+    existing.set("enabled", true);
+    existing.set("validation.maximum-width", 64);
+    YamlConfiguration defaults = resource("modules/buildings.yml");
+
+    assertTrue(ConfigRegistry.mergeDefaults(existing, defaults));
+    assertEquals(1, existing.getInt("types.town-hall.functional.bell"));
+    assertEquals(4, existing.getInt("types.mine-entrance.functional.rail"));
+    assertFalse(ConfigRegistry.mergeDefaults(existing, defaults));
   }
 
   @Test
@@ -91,6 +117,36 @@ class ConfigRegistryTest {
             IllegalStateException.class,
             () -> ConfigRegistry.parse(resource("config.yml"), invalidBuildings, ignored -> {}));
     assertTrue(buildingFailure.getMessage().contains("minimum-wall-coverage-percent"));
+
+    var invalidBuildingType = moduleResources();
+    invalidBuildingType.get("buildings").set("types.watchtower.minimum-height", 65);
+    var buildingTypeFailure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> ConfigRegistry.parse(resource("config.yml"), invalidBuildingType, ignored -> {}));
+    assertTrue(buildingTypeFailure.getMessage().contains("types.watchtower.minimum-height"));
+
+    var noFunctionalRequirement = moduleResources();
+    noFunctionalRequirement.get("buildings").set("types.warehouse.functional.storage", 0);
+    var functionalFailure =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                ConfigRegistry.parse(
+                    resource("config.yml"), noFunctionalRequirement, ignored -> {}));
+    assertTrue(functionalFailure.getMessage().contains("functional block group"));
+
+    var invalidBuildingBoolean = moduleResources();
+    invalidBuildingBoolean
+        .get("buildings")
+        .set("types.mine-entrance.require-enclosure", "sometimes");
+    var booleanFailure =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                ConfigRegistry.parse(
+                    resource("config.yml"), invalidBuildingBoolean, ignored -> {}));
+    assertTrue(booleanFailure.getMessage().contains("must be true or false"));
   }
 
   @Test
