@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0-RC5 — Release Train D
+
+- Completed Master Roadmap Sprints 16–20: normalized workers, durable visible/abstract activities, complete Builder Guild gameplay, resilient explainable population and bounded ambient settlement life.
+- Advanced the database from V48 to V53 with constrained worker vocabulary/history, leased activity scheduling, Builder Guild teams/depots/contributions/manual repair, population cycle evidence and ambient scene lifecycle.
+- Passed the complete suite, empty-database player journey, RC4 V48-to-V53 upgrade and Paper 26.2 startup on Java 26.
+- Published source and the shaded plugin JAR as the immutable Train D checkpoint.
+
 ## Master Roadmap Sprint 20 — Settlement Ambient Life
 
 - Added durable, observer-driven ambient scenes for limited citizens, guards, active markets, repairs, visible shortages and Town Hall events through Flyway V53.

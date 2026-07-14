@@ -19,7 +19,8 @@ $env:FRONTIER_QA_DATABASE_URL='jdbc:postgresql://localhost:55432/frontier_qa'
 | Settlement creation and upgrade | Player settlement creates with starter solvency; physical founding saga, core validation, fee/refund, roles, transfer, succession, ruins, recovery and merge pass; CAMP upgrades to OUTPOST |
 | Districts | Create, bounds/overlap enforcement, rename, resize, manager transfer, budget, priority, policy, worker/building assignment, reports, history and deletion pass |
 | Economy and markets | Wallet, treasury/audit, order escrow/matching, warehouse stock, production, company, invoice, loan/interest, tax, procurement and emergency buying invariants pass |
-| Population and workers | Housing/food/safety/prosperity, birth, immigration, emigration/migration history, salary, skill/morale/experience and retirement pass |
+| Population and workers | Valid housing, food, employment, safety, prosperity, explainable trend, grace/caps/collapse floor, birth, migration, salary, worker activity, Builder Guild and retirement pass |
+| Ambient settlement life | Shared entity budget, citizens, guards, market/repair scenes, shortage/Town Hall event display, day/night retirement, duplicate binding and observer departure pass |
 | Roads and infrastructure | Physical edge ownership, width, surface, health, bridge integrity, critical failure, capacity, rerouting, funded maintenance and route delivery pass |
 | Buildings | Physical validation and full lifecycle history pass; invalid overlap/type/claim attempts fail atomically |
 | Caravans/contracts | Authoritative cargo, visible binding, escort/combat, unload/despawn and contract escrow/delivery pass |
