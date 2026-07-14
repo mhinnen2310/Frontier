@@ -1,6 +1,6 @@
 # Frontier implementation status
 
-This is the truthful baseline for the 60-sprint Master Remediation & Expansion Roadmap, initially audited on 2026-07-13 against commit `f04db67` and maintained through Sprint 18 with real Paper 26.2/PostgreSQL gates. A class, table or command name alone does not count as a complete feature.
+This is the truthful baseline for the 60-sprint Master Remediation & Expansion Roadmap, initially audited on 2026-07-13 against commit `f04db67` and maintained through Sprint 19 with real Paper 26.2/PostgreSQL gates. A class, table or command name alone does not count as a complete feature.
 
 ## Inventory
 
@@ -11,8 +11,8 @@ This is the truthful baseline for the 60-sprint Master Remediation & Expansion R
 | Command roots | 26 |
 | Paper Dialog screens | 15 |
 | Paper listener adapters | 8 |
-| Flyway migrations | 51 (V1–V51) |
-| PostgreSQL public gameplay tables | 172 |
+| Flyway migrations | 52 (V1–V52) |
+| PostgreSQL public gameplay tables | 173 |
 | Bukkit permissions | 3 |
 
 The runtime modules are domain, API, city, influence, economy, warfare, repair, NPC, world, Paper UI, PostgreSQL persistence, observability and bootstrap. Testkit is build-only. `/frontier admin build` reports the packaged version, Git source revision/time, Java runtime, Paper target, live schema version and these module states.
@@ -28,7 +28,7 @@ The runtime modules are domain, API, city, influence, economy, warfare, repair, 
 | Districts | complete for Sprint 10 | Name-based management and complete Dialog reports feed a config-driven effective specialization projection requiring valid buildings plus connected infrastructure, with diminishing returns, adjacency, over-specialization and real cost/capacity trade-offs |
 | Buildings | complete for Sprint 13 | All ten types have safe config-driven physical rules; the Architect Dialog and tagged selection tool provide timeout, particles, overlap preview, reports and confirm/cancel; transactional revalidation/unregister/history and two-mayor parcel ownership transfer have PostgreSQL coverage |
 | Roads/infrastructure | complete for Sprint 15 | Configured bounded physical validation feeds exact dirty coordinates and leased reinspection; physical/bridge health, critical-path priority, blocked/destroyed capacity loss, shipment rerouting, daily/event decay, warnings, funded maintenance and repair-engine reinspection have pure/PostgreSQL coverage. |
-| Workers/population | complete for Sprint 18 | Eight constrained professions and nine readable states expose the full worker profile; a bounded leased scheduler drives physical/abstract work with restart recovery. Builder Guild foremen, tier-limited teams, player material/labor/manual repair contribution and worker-shortage reports pass. Expanded population depth remains Sprint 19. |
+| Workers/population | complete for Sprint 19 | Eight constrained professions and nine readable states expose the full worker profile; a bounded leased scheduler drives physical/abstract work with restart recovery. Population uses validated housing, food, employment, safety and prosperity with separate natural/migration outcomes, explainable trends, grace periods, daily caps and collapse protection. |
 | Ambient settlement life | partial | Harbor/worker/caravan presentation and announcements exist; citizen/guard/market/day-night activity is incomplete |
 | Cargo/caravans/contracts | partial | Database cargo, shipment reservation, abstract/physical caravan handoff, escort and delivery exist; capture, always-attackable cargo, raid locks and multi-escort contribution are missing |
 | Crime/incidents/stolen cargo | missing | No criminality, evidence, bounty, laundering, restitution or incident/casus-belli domain |

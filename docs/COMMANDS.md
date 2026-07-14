@@ -13,7 +13,7 @@
 | Production | `/frontier production list`, `queue <building> <recipe> <quantity> [priority]`, `hire <profession> <skill> <daily-salary-cents>` |
 | Logistics | `/frontier logistics list`, `node <type>`, `connect <from> <to> <type> [importance]`, `ship <origin-warehouse> <destination-warehouse> <origin-node> <destination-node> <commodity> <quantity> <carrier> <declared-value>`, `warnings`, `maintenance`, `maintain <maintenance-order>` |
 | Caravans | `/frontier caravan list`, `escort <shipment>` |
-| Population | `/frontier population`; `/frontier workers [list]`, `assign <worker> <building|none>`, `wage <worker> <daily-cents>` |
+| Population | `/frontier population` (capacity, food, employment, safety, prosperity, signed trend and causes); `/frontier workers [list]`, `assign <worker> <building|none>`, `wage <worker> <daily-cents>` |
 | Economy | `/frontier economy companies`, `company-create <capital-cents> <name>`, `invoice <company> <player> <cents> <due-days>`, `invoice-pay <invoice>`, `loan <company> <cents> <annual-basis-points>`, `loan-repay <loan> <cents>`, `tax <business-basis-points>`, `procure <commodity> <quantity> <max-unit-cents>`, `fulfill <procurement> <company> <quantity>`, `emergency <commodity> <quantity>`, `history` |
 | Contracts | `/frontier contracts list`, `post <destination-warehouse> <commodity> <quantity> <reward-cents> <deadline-minutes>`, `accept <contract>`, `deliver <contract>` |
 | War | `/frontier war list`, `declare <defender-city> <type> <objective-type> [target]`, `ceasefire <campaign> [reason]`, `resume <campaign> [reason]`, `resolve <campaign> [reason]`, `outcome <campaign> <outcome> [amount-cents]`, `end <campaign> [reason]` |

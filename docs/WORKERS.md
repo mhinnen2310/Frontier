@@ -8,7 +8,15 @@ Flyway V50 gives each worker at most one active activity. The bounded scheduler 
 
 When any online player is within 128 blocks of a settlement capital, eligible workers materialize as Mannequins and walk in bounded terrain-following steps. Builders assigned to a guild begin there and leave toward the capital; other assigned professions travel from the settlement toward their workplace. Arrival is committed transactionally before the short work phase completes. When no player is nearby, the same activity completes as an abstract database simulation and no entity is spawned. Moving away retires the entity, while an expired lease is reset by startup recovery and safely retried.
 
-`population.yml` caps visible workers per settlement, activities per cycle, lease duration, path steps and step cadence. These bounds prevent hundreds of permanent entities or unbounded path work.
+`population.yml` caps visible workers per settlement, activities per cycle, lease duration, path steps and step cadence. It also controls daily population growth/decline, settlement and food-shortage grace periods, and the collapse floor. These bounds prevent hundreds of permanent entities, unbounded path work or sudden demographic collapse.
+
+## Population, housing and migration
+
+Population is recalculated at most once per UTC day in one settlement transaction. Capacity comes from the core allowance, district effects and validated `ACTIVE` Housing buildings; damaged, disabled and merely planned structures do not count. Stored wheat/bread determines food security, non-retired worker records determine employment, military buildings and hostile campaigns determine safety, and the settlement supplies prosperity.
+
+Healthy housing, food, employment, safety and prosperity permit bounded births and immigration. Food shortage, unemployment, low safety or low prosperity cause bounded deaths and emigration after protection expires. The packaged policy allows at most five growth and three decline per day, protects a new settlement for three days, gives a newly observed food shortage two days, and retains one resident as collapse protection.
+
+`/frontier population` reports the signed trend and exact causes, for example `+ Housing available`, `+ Food surplus`, `+ Employment` or `- Border conflict`. Every cycle keeps the inputs, grace state, separate birth/death/migration values and reasons in `population_cycle_history`.
 
 ## Professions and attributes
 

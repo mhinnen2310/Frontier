@@ -269,7 +269,13 @@ public final class ConfigRegistry {
             positive(population, "activities.maximum-per-cycle", 10_000),
             positiveLong(population, "activities.lease-seconds"),
             positive(population, "activities.maximum-path-steps", 2_048),
-            positive(population, "activities.path-step-millis", 5_000));
+            positive(population, "activities.path-step-millis", 5_000),
+            new nl.frontier.city.PopulationPolicy(
+                positive(population, "simulation.maximum-daily-growth", 1_000),
+                positive(population, "simulation.maximum-daily-decline", 1_000),
+                nonNegative(population, "simulation.settlement-grace-days", 365),
+                nonNegative(population, "simulation.food-shortage-grace-days", 365),
+                nonNegative(population, "simulation.collapse-floor", 1_000)));
     YamlConfiguration districts = modules.get("districts");
     var districtConfig =
         new FrontierConfiguration.Districts(
@@ -981,7 +987,12 @@ public final class ConfigRegistry {
             "activities.maximum-per-cycle",
             "activities.lease-seconds",
             "activities.maximum-path-steps",
-            "activities.path-step-millis"));
+            "activities.path-step-millis",
+            "simulation.maximum-daily-growth",
+            "simulation.maximum-daily-decline",
+            "simulation.settlement-grace-days",
+            "simulation.food-shortage-grace-days",
+            "simulation.collapse-floor"));
     keys.put(
         "kingdoms",
         leaves(

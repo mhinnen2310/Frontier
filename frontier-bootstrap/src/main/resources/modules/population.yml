@@ -8,3 +8,9 @@ activities:
   lease-seconds: 60
   maximum-path-steps: 256
   path-step-millis: 250
+simulation:
+  maximum-daily-growth: 5
+  maximum-daily-decline: 3
+  settlement-grace-days: 3
+  food-shortage-grace-days: 2
+  collapse-floor: 1

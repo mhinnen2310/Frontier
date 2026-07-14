@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 19 — Population, Housing and Migration
+
+- Made only validated `ACTIVE` Housing buildings contribute capacity and added employment to the daily demographic factor snapshot.
+- Added configurable growth and decline caps, new-settlement and food-shortage grace periods, plus a collapse floor that protects the final resident.
+- Added deterministic, transactionally persisted births, deaths, immigration, emigration and signed population trends with a complete factor history through Flyway V52.
+- Expanded `/frontier population` with employment and player-readable positive/negative causes such as housing, food, jobs, prosperity and border conflict.
+- Added pure policy tests and PostgreSQL regressions for healthy growth, grace protection, invalid housing, bounded decline, migration and collapse protection.
+
 ## Master Roadmap Sprint 18 — Builder Guild Gameplay
 
 - Turned Builder Guild depots into a complete transactional settlement service with a foreman, tier-limited builder teams, material capacity, repair queue progress, worker shortages and explicit blocked reasons.

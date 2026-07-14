@@ -1907,6 +1907,8 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                 + value.housingCapacity()
                 + "\nFood security: "
                 + value.foodSecurity()
+                + "%\nEmployment: "
+                + value.employment()
                 + "%\nSafety: "
                 + value.safety()
                 + "%\nProsperity: "
@@ -1918,7 +1920,11 @@ public final class FrontierCommand implements CommandExecutor, TabCompleter {
                 + "\nImmigration / emigration: "
                 + value.immigration()
                 + "/"
-                + value.emigration());
+                + value.emigration()
+                + "\nPopulation trend: "
+                + (value.trend() >= 0 ? "+" : "")
+                + value.trend()
+                + (value.reasons().isEmpty() ? "" : "\n" + String.join("\n", value.reasons())));
   }
 
   private void workers(Player player, String[] args) {

@@ -177,7 +177,9 @@ public final class FrontierPlugin extends JavaPlugin {
       LogisticsGateway logisticsGateway = new PostgresLogisticsGateway(store);
       ContractGateway contractGateway = new PostgresContractGateway(store);
       CaravanService caravans = new CaravanService(new PostgresCaravanGateway(store));
-      PopulationService population = new PopulationService(new PostgresPopulationGateway(store));
+      PopulationService population =
+          new PopulationService(
+              new PostgresPopulationGateway(store, config.population().simulation()));
       CommercialService commerce = new CommercialService(new PostgresCommercialGateway(store));
       CampaignGateway campaignGateway = new PostgresCampaignGateway(store);
       CampaignOutcomeService campaignOutcomes =

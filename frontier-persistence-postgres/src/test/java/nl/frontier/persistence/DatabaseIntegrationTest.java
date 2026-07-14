@@ -377,7 +377,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(51, result.getInt(1));
+        assertEquals(52, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -2680,13 +2680,14 @@ class DatabaseIntegrationTest {
       var populationCity =
           settlements.create(
               populationOwner, "Population-" + shortId(), sellerWorld, 70, 70, Instant.now());
-      settlements.registerBuilding(
-          populationCity.id(),
-          populationOwner,
-          nl.frontier.city.Building.Category.RESIDENTIAL,
-          new SettlementGateway.Bounds(sellerWorld, 1120, 50, 1120, 1135, 80, 1135),
-          EnumSet.of(GovernmentRole.MAYOR),
-          Instant.now());
+      var populationHousing =
+          settlements.registerBuilding(
+              populationCity.id(),
+              populationOwner,
+              nl.frontier.city.Building.Category.RESIDENTIAL,
+              new SettlementGateway.Bounds(sellerWorld, 1120, 50, 1120, 1135, 80, 1135),
+              EnumSet.of(GovernmentRole.MAYOR),
+              Instant.now());
       var agingWorker =
           production.hire(populationCity.id(), populationOwner, "FARMER", 80, 20, Instant.now());
       try (var connection = database.dataSource().getConnection();
@@ -2708,14 +2709,56 @@ class DatabaseIntegrationTest {
       var populationReport = population.report(populationCity.id(), populationOwner);
       assertEquals(14, populationReport.population());
       assertEquals(15, populationReport.housingCapacity());
+      assertEquals(100, populationReport.employment());
       assertEquals(1, populationReport.births());
       assertEquals(3, populationReport.immigration());
+      assertEquals(4, populationReport.trend());
+      assertTrue(populationReport.reasons().contains("+ Housing available"));
+      assertTrue(populationReport.reasons().contains("+ Employment"));
       assertEquals(
           "RETIRED",
           population.workers(populationCity.id(), populationOwner).getFirst().employment());
       assertEquals(
           "UNAVAILABLE",
           population.workers(populationCity.id(), populationOwner).getFirst().status());
+
+      try (var connection = database.dataSource().getConnection();
+          var cityStatement =
+              connection.prepareStatement(
+                  "UPDATE cities SET population=100,prosperity=0,created_at=now()-interval '10 days' WHERE id=?");
+          var stateStatement =
+              connection.prepareStatement(
+                  "UPDATE city_population_state SET next_cycle_at=now()-interval '1 second',food_shortage_since=now()-interval '3 days' WHERE city_id=?");
+          var buildingStatement =
+              connection.prepareStatement(
+                  "UPDATE city_buildings SET status='DAMAGED' WHERE id=?")) {
+        cityStatement.setObject(1, populationCity.id());
+        cityStatement.executeUpdate();
+        stateStatement.setObject(1, populationCity.id());
+        stateStatement.executeUpdate();
+        buildingStatement.setObject(1, populationHousing.id());
+        buildingStatement.executeUpdate();
+      }
+      population.cycle(500, Instant.now());
+      var declineReport = population.report(populationCity.id(), populationOwner);
+      assertEquals(98, declineReport.population());
+      assertEquals(5, declineReport.housingCapacity());
+      assertEquals(-2, declineReport.trend());
+      assertTrue(declineReport.reasons().contains("- Housing full"));
+
+      try (var connection = database.dataSource().getConnection();
+          var cityStatement =
+              connection.prepareStatement("UPDATE cities SET population=1 WHERE id=?");
+          var stateStatement =
+              connection.prepareStatement(
+                  "UPDATE city_population_state SET next_cycle_at=now()-interval '1 second',food_shortage_since=now()-interval '3 days' WHERE city_id=?")) {
+        cityStatement.setObject(1, populationCity.id());
+        cityStatement.executeUpdate();
+        stateStatement.setObject(1, populationCity.id());
+        stateStatement.executeUpdate();
+      }
+      population.cycle(500, Instant.now());
+      assertEquals(1, population.report(populationCity.id(), populationOwner).population());
 
       UUID invoicePayer = UUID.randomUUID();
       try (var connection = database.dataSource().getConnection();

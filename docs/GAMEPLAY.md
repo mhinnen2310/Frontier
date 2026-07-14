@@ -20,7 +20,7 @@ Districts divide owned land into residential, agricultural, industrial, commerci
 
 Players have wallets and can pay each other or transact with settlement treasuries. Warehouses back real stock, production consumes recipes, workers earn salaries and markets escrow orders. Companies add invoices, loans, tax and procurement. Shipments move authoritative cargo over infrastructure; a caravan NPC only visualizes that database state.
 
-Population depends on housing, food, safety and prosperity. Workers have profession, skill, morale, efficiency, experience, employment and salary. Migration, immigration, emigration, retirement, births and deaths are simulated in bounded cycles.
+Population depends on validated active housing, stored food, employment, safety and prosperity. Workers have profession, skill, morale, efficiency, experience, employment and salary. Migration, immigration, emigration, retirement, births and deaths are simulated in bounded daily transactions. New-settlement/food grace, daily growth/decline caps and a collapse floor keep shortages recoverable; `/frontier population` explains the signed trend and every contributing cause.
 
 ## War, damage and repair
 

@@ -1,5 +1,6 @@
 package nl.frontier.bootstrap;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -62,8 +63,30 @@ class DocumentationCoverageTest {
 
     String database = Files.readString(docs.resolve("DATABASE.md"));
     assertTrue(database.contains("V1–V3"));
-    assertTrue(database.contains("V30–V51"));
+    assertTrue(database.contains("V30–V52"));
     assertTrue(database.contains("flyway_schema_history"));
+  }
+
+  @Test
+  void packagedMigrationIndexContainsEveryMigration() throws IOException {
+    Path migrations =
+        repositoryRoot().resolve("frontier-persistence-postgres/src/main/resources/db/migration");
+    List<String> indexed =
+        Files.readAllLines(migrations.resolve("index.txt")).stream()
+            .map(String::trim)
+            .filter(line -> !line.isEmpty())
+            .sorted()
+            .toList();
+    List<String> present;
+    try (var files = Files.list(migrations)) {
+      present =
+          files
+              .filter(path -> path.getFileName().toString().endsWith(".sql"))
+              .map(path -> path.getFileName().toString())
+              .sorted()
+              .toList();
+    }
+    assertEquals(present, indexed);
   }
 
   private static Path repositoryRoot() {

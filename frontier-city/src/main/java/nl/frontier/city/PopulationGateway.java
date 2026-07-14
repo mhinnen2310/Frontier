@@ -22,12 +22,16 @@ public interface PopulationGateway {
       int population,
       int housingCapacity,
       int foodSecurity,
+      int employment,
       int safety,
       int prosperity,
       int births,
       int deaths,
       int immigration,
       int emigration,
+      int trend,
+      List<String> reasons,
+      Instant declineGraceUntil,
       Instant simulatedAt) {}
 
   record WorkerProfile(

@@ -43,7 +43,7 @@ Every file has `config-version: 1`; every module has `enabled`. Values are loade
 | `caravans.yml` | Caravan subsystem control | enabled |
 | `warfare.yml` | Campaign timing/cost, breach budget and objective lifecycle | enabled |
 | `repairs.yml` | Task cycle/lease/archive/bound, unsafe radius, damage recovery and Builder Guild tier/depot/team/delivery/boost/assist bounds | enabled; Guild tier 3 maximum, 10,000 depot units and one team per tier, 10-minute/64-task assist mode |
-| `population.yml` | NPC materialization cadence/cap plus activity cycle bound, lease, maximum path steps and movement cadence | enabled; 20 visible workers, 100 activities/cycle, 60-second lease, 256 steps at 250 ms |
+| `population.yml` | NPC materialization/activity bounds plus daily demographic growth/decline caps, settlement/food grace and collapse floor | enabled; 20 visible workers, 100 activities/cycle, 60-second lease, 256 steps at 250 ms; +5/-3 daily, 3/2-day grace, floor 1 |
 | `kingdoms.yml` | Civilization cadence and kingdom bound | enabled |
 | `waypoints.yml` | Reserved typed control for Train G | disabled until implemented |
 | `cartography.yml` | Reserved typed control for Train G | disabled until implemented |
@@ -63,6 +63,8 @@ Building dimensions and volume must be positive and are enforced before any live
 Infrastructure material profiles use Bukkit material names and qualities from 1–100. Gate material names must also resolve at startup. Maximum edge length is capped at 2,048, corridor/vertical radii at 16, snapshot columns at 1,000,000 and dirty queue size at 1,000,000; packaged defaults are deliberately much lower. `health.cycle-seconds`, `health.lease-seconds` and `health.maximum-per-cycle` bound dirty-route reinspection; defaults are 10, 120 and 4. Changing these values requires a restart because the snapshot adapter, pure analyzer, validator and transactional gateway share one immutable policy.
 
 Builder Guild settings under `repairs.yml` bound the level offset, maximum tier, capacity units and teams per tier, base team size, delivery size, per-action/daily boost and assist duration/task count. Derived team slots may not exceed five and derived workers per team may not exceed eight, matching database constraints. Packaged defaults cap manual repair mode at 600 seconds and 64 coordinates. Changes require a restart because the gateway and Paper handoff share one immutable policy.
+
+Population simulation settings must keep daily growth and decline positive and at most 1,000, grace periods between zero and 365 days, and the collapse floor between zero and 1,000. Changes require a restart because the transactional population gateway captures one immutable policy at startup.
 
 ## Administration
 

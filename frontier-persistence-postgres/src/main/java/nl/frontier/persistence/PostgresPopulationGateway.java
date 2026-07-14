@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,13 +13,20 @@ import java.util.Set;
 import java.util.UUID;
 import nl.frontier.api.TransactionalStore;
 import nl.frontier.city.PopulationGateway;
+import nl.frontier.city.PopulationPolicy;
 import nl.frontier.domain.DomainException;
 
 public final class PostgresPopulationGateway implements PopulationGateway {
   private final TransactionalStore store;
+  private final PopulationPolicy policy;
 
   public PostgresPopulationGateway(TransactionalStore store) {
+    this(store, PopulationPolicy.defaults());
+  }
+
+  public PostgresPopulationGateway(TransactionalStore store, PopulationPolicy policy) {
     this.store = store;
+    this.policy = policy;
   }
 
   @Override
@@ -46,68 +54,73 @@ public final class PostgresPopulationGateway implements PopulationGateway {
           int retired = 0;
           for (UUID city : cities) {
             Factors factors = factors(connection, city);
-            int freeHousing = Math.max(0, factors.housing - factors.population);
-            int cityBirths =
-                factors.population > 1
-                        && factors.food >= 70
-                        && factors.safety >= 50
-                        && factors.prosperity >= 50
-                        && freeHousing > 0
-                    ? Math.min(freeHousing, Math.max(1, factors.population / 200))
-                    : 0;
-            int cityDeaths =
-                factors.food < 25 && factors.population > 0
-                    ? Math.max(1, factors.population / 100)
-                    : factors.population / 1000;
-            int cityImmigration =
-                freeHousing > cityBirths
-                        && factors.prosperity >= 55
-                        && factors.safety >= 50
-                        && factors.food >= 50
-                    ? Math.min(freeHousing - cityBirths, Math.max(1, factors.prosperity / 25))
-                    : 0;
-            int cityEmigration =
-                (factors.food < 50 || factors.safety < 40 || factors.prosperity < 30)
-                        && factors.population > 0
-                    ? Math.max(1, factors.population / 50)
-                    : 0;
-            int population =
-                Math.max(
-                    0,
-                    factors.population
-                        + cityBirths
-                        - cityDeaths
-                        + cityImmigration
-                        - cityEmigration);
+            Instant shortageSince =
+                factors.food < 50
+                    ? factors.foodShortageSince == null ? now : factors.foodShortageSince
+                    : null;
+            Instant declineGraceUntil =
+                factors.createdAt.plus(Duration.ofDays(policy.settlementGraceDays()));
+            boolean settlementGrace = now.isBefore(declineGraceUntil);
+            boolean foodGrace =
+                shortageSince != null
+                    && now.isBefore(
+                        shortageSince.plus(Duration.ofDays(policy.foodShortageGraceDays())));
+            PopulationPolicy.Outcome outcome =
+                policy.evaluate(
+                    new PopulationPolicy.Factors(
+                        factors.population,
+                        factors.housing,
+                        factors.food,
+                        factors.safety,
+                        factors.prosperity,
+                        factors.employment,
+                        settlementGrace,
+                        foodGrace));
             update(
                 connection,
                 "UPDATE cities SET population=?,version=version+1 WHERE id=?",
-                population,
+                outcome.population(),
                 city);
             update(
                 connection,
-                "UPDATE city_population_state SET housing_capacity=?,food_security=?,safety=?,births=?,deaths=?,immigration=?,emigration=?,simulated_at=?,next_cycle_at=?,version=version+1 WHERE city_id=?",
+                "UPDATE city_population_state SET housing_capacity=?,food_security=?,employment_score=?,safety=?,births=?,deaths=?,immigration=?,emigration=?,population_trend=?,trend_reasons=?::jsonb,food_shortage_since=?,decline_grace_until=?,simulated_at=?,next_cycle_at=?,version=version+1 WHERE city_id=?",
                 factors.housing,
                 factors.food,
+                factors.employment,
                 factors.safety,
-                cityBirths,
-                cityDeaths,
-                cityImmigration,
-                cityEmigration,
+                outcome.births(),
+                outcome.deaths(),
+                outcome.immigration(),
+                outcome.emigration(),
+                outcome.trend(),
+                jsonArray(outcome.reasons()),
+                shortageSince,
+                declineGraceUntil,
                 now,
                 now.plusSeconds(86_400),
                 city);
-            record(connection, city, "BIRTH", cityBirths, population, factors, now);
-            record(connection, city, "DEATH", cityDeaths, population, factors, now);
+            record(connection, city, "BIRTH", outcome.births(), outcome.population(), factors, now);
+            record(connection, city, "DEATH", outcome.deaths(), outcome.population(), factors, now);
             migration(
-                connection, city, "IMMIGRATION", cityImmigration, "prosperity_and_capacity", now);
+                connection,
+                city,
+                "IMMIGRATION",
+                outcome.immigration(),
+                "housing_food_employment_safety_prosperity",
+                now);
             migration(
-                connection, city, "EMIGRATION", cityEmigration, "food_safety_or_prosperity", now);
+                connection,
+                city,
+                "EMIGRATION",
+                outcome.emigration(),
+                "food_employment_safety_or_prosperity",
+                now);
+            cycleHistory(connection, city, factors, outcome, settlementGrace, foodGrace, now);
             retired += updateWorkers(connection, city, factors, now);
-            births += cityBirths;
-            deaths += cityDeaths;
-            immigration += cityImmigration;
-            emigration += cityEmigration;
+            births += outcome.births();
+            deaths += outcome.deaths();
+            immigration += outcome.immigration();
+            emigration += outcome.emigration();
           }
           return new CycleReport(cities.size(), births, deaths, immigration, emigration, retired);
         });
@@ -120,11 +133,12 @@ public final class PostgresPopulationGateway implements PopulationGateway {
           requireMember(connection, city, actor);
           try (PreparedStatement statement =
               connection.prepareStatement(
-                  "SELECT c.population,p.housing_capacity,p.food_security,p.safety,c.prosperity,p.births,p.deaths,p.immigration,p.emigration,p.simulated_at FROM cities c JOIN city_population_state p ON p.city_id=c.id WHERE c.id=?")) {
+                  "SELECT c.population,p.housing_capacity,p.food_security,p.employment_score,p.safety,c.prosperity,p.births,p.deaths,p.immigration,p.emigration,p.population_trend,p.trend_reasons,p.decline_grace_until,p.simulated_at FROM cities c JOIN city_population_state p ON p.city_id=c.id WHERE c.id=?")) {
             statement.setObject(1, city);
             try (ResultSet result = statement.executeQuery()) {
               if (!result.next()) throw new DomainException("population report is not initialized");
-              Timestamp simulated = result.getTimestamp(10);
+              Timestamp grace = result.getTimestamp(13);
+              Timestamp simulated = result.getTimestamp(14);
               return new PopulationReport(
                   city,
                   result.getInt(1),
@@ -136,6 +150,10 @@ public final class PostgresPopulationGateway implements PopulationGateway {
                   result.getInt(7),
                   result.getInt(8),
                   result.getInt(9),
+                  result.getInt(10),
+                  result.getInt(11),
+                  jsonStrings(result.getString(12)),
+                  grace == null ? null : grace.toInstant(),
                   simulated == null ? null : simulated.toInstant());
             }
           }
@@ -238,7 +256,7 @@ public final class PostgresPopulationGateway implements PopulationGateway {
   private static Factors factors(Connection connection, UUID city) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT c.population,c.prosperity,5+(SELECT count(*)*10 FROM city_buildings b WHERE b.city_id=c.id AND (b.building_type='HOUSING' OR b.category='RESIDENTIAL') AND b.status IN ('ACTIVE','DAMAGED'))+coalesce((SELECT max(housing_bonus) FROM district_effects d WHERE d.city_id=c.id),0),least(100,coalesce((SELECT sum(CASE WHEN s.commodity_key='minecraft:bread' THEN s.available_quantity*4 ELSE s.available_quantity END)*100/greatest(1,ceil(c.population/4.0)) FROM warehouse_stock s JOIN warehouses w ON w.id=s.warehouse_id WHERE w.city_id=c.id AND w.status='ACTIVE' AND s.commodity_key IN ('minecraft:wheat','minecraft:bread')),0)),greatest(0,least(100,50+(SELECT count(*)*10 FROM city_buildings b WHERE b.city_id=c.id AND (b.building_type='BARRACKS' OR b.category='MILITARY') AND b.status IN ('ACTIVE','DAMAGED'))-(SELECT count(*)*20 FROM campaigns ca WHERE ca.defender_city_id=c.id AND ca.phase IN ('PREPARATION','ACTIVE')))) FROM cities c WHERE c.id=?")) {
+            "SELECT c.population,c.prosperity,5+(SELECT count(*)*10 FROM city_buildings b WHERE b.city_id=c.id AND (b.building_type='HOUSING' OR b.category='RESIDENTIAL') AND b.status='ACTIVE')+coalesce((SELECT max(housing_bonus) FROM district_effects d WHERE d.city_id=c.id),0),least(100,coalesce((SELECT sum(CASE WHEN s.commodity_key='minecraft:bread' THEN s.available_quantity*4 ELSE s.available_quantity END)*100/greatest(1,ceil(c.population/4.0)) FROM warehouse_stock s JOIN warehouses w ON w.id=s.warehouse_id WHERE w.city_id=c.id AND w.status='ACTIVE' AND s.commodity_key IN ('minecraft:wheat','minecraft:bread')),0)),greatest(0,least(100,50+(SELECT count(*)*10 FROM city_buildings b WHERE b.city_id=c.id AND (b.building_type='BARRACKS' OR b.category='MILITARY') AND b.status='ACTIVE')-(SELECT count(*)*20 FROM campaigns ca WHERE ca.defender_city_id=c.id AND ca.phase IN ('PREPARATION','ACTIVE')))),CASE WHEN (SELECT count(*) FROM workers w WHERE w.city_id=c.id AND w.employment_status<>'RETIRED')=0 THEN 50 ELSE (SELECT count(*) FILTER(WHERE w.employment_status='EMPLOYED')*100/count(*) FROM workers w WHERE w.city_id=c.id AND w.employment_status<>'RETIRED') END,c.created_at,p.food_shortage_since FROM cities c JOIN city_population_state p ON p.city_id=c.id WHERE c.id=?")) {
       statement.setObject(1, city);
       try (ResultSet result = statement.executeQuery()) {
         if (!result.next()) throw new DomainException("population settlement missing");
@@ -247,7 +265,10 @@ public final class PostgresPopulationGateway implements PopulationGateway {
             result.getInt(2),
             result.getInt(3),
             result.getInt(4),
-            result.getInt(5));
+            result.getInt(5),
+            result.getInt(6),
+            result.getTimestamp(7).toInstant(),
+            result.getTimestamp(8) == null ? null : result.getTimestamp(8).toInstant());
       }
     }
   }
@@ -257,7 +278,7 @@ public final class PostgresPopulationGateway implements PopulationGateway {
     UUID housing = null;
     try (PreparedStatement statement =
         connection.prepareStatement(
-            "SELECT id FROM city_buildings WHERE city_id=? AND (building_type='HOUSING' OR category='RESIDENTIAL') AND status IN ('ACTIVE','DAMAGED') ORDER BY id LIMIT 1")) {
+            "SELECT id FROM city_buildings WHERE city_id=? AND (building_type='HOUSING' OR category='RESIDENTIAL') AND status='ACTIVE' ORDER BY id LIMIT 1")) {
       statement.setObject(1, city);
       try (ResultSet result = statement.executeQuery()) {
         if (result.next()) housing = result.getObject(1, UUID.class);
@@ -341,7 +362,40 @@ public final class PostgresPopulationGateway implements PopulationGateway {
             + factors.safety
             + ",\"prosperity\":"
             + factors.prosperity
+            + ",\"employment\":"
+            + factors.employment
             + "}",
+        now);
+  }
+
+  private static void cycleHistory(
+      Connection connection,
+      UUID city,
+      Factors factors,
+      PopulationPolicy.Outcome outcome,
+      boolean settlementGrace,
+      boolean foodGrace,
+      Instant now)
+      throws SQLException {
+    update(
+        connection,
+        "INSERT INTO population_cycle_history(id,city_id,population_before,population_after,births,deaths,immigration,emigration,housing_capacity,food_security,employment_score,safety,prosperity,settlement_grace_active,food_grace_active,reasons,occurred_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?)",
+        UUID.randomUUID(),
+        city,
+        factors.population,
+        outcome.population(),
+        outcome.births(),
+        outcome.deaths(),
+        outcome.immigration(),
+        outcome.emigration(),
+        factors.housing,
+        factors.food,
+        factors.employment,
+        factors.safety,
+        factors.prosperity,
+        settlementGrace,
+        foodGrace,
+        jsonArray(outcome.reasons()),
         now);
   }
 
@@ -457,6 +511,22 @@ public final class PostgresPopulationGateway implements PopulationGateway {
     return Math.max(minimum, Math.min(maximum, value));
   }
 
+  private static String jsonArray(List<String> values) {
+    return values.stream()
+        .map(value -> "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+        .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+  }
+
+  private static List<String> jsonStrings(String json) {
+    if (json == null || json.length() < 2) return List.of();
+    List<String> values = new ArrayList<>();
+    String body = json.substring(1, json.length() - 1).trim();
+    if (body.isEmpty()) return List.of();
+    for (String value : body.split("\",\\s*\""))
+      values.add(value.replaceFirst("^\"", "").replaceFirst("\"$", ""));
+    return List.copyOf(values);
+  }
+
   private static void update(Connection connection, String sql, Object... values)
       throws SQLException {
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -470,7 +540,15 @@ public final class PostgresPopulationGateway implements PopulationGateway {
     }
   }
 
-  private record Factors(int population, int prosperity, int housing, int food, int safety) {}
+  private record Factors(
+      int population,
+      int prosperity,
+      int housing,
+      int food,
+      int safety,
+      int employment,
+      Instant createdAt,
+      Instant foodShortageSince) {}
 
   private record Worker(
       UUID id,
