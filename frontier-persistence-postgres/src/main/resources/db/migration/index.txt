@@ -50,3 +50,4 @@ V49__worker_model_completion.sql
 V50__worker_activity_scheduler.sql
 V51__builder_guild_gameplay.sql
 V52__population_resilience.sql
+V53__settlement_ambient_life.sql

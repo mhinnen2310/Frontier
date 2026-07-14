@@ -43,7 +43,7 @@ Every file has `config-version: 1`; every module has `enabled`. Values are loade
 | `caravans.yml` | Caravan subsystem control | enabled |
 | `warfare.yml` | Campaign timing/cost, breach budget and objective lifecycle | enabled |
 | `repairs.yml` | Task cycle/lease/archive/bound, unsafe radius, damage recovery and Builder Guild tier/depot/team/delivery/boost/assist bounds | enabled; Guild tier 3 maximum, 10,000 depot units and one team per tier, 10-minute/64-task assist mode |
-| `population.yml` | NPC materialization/activity bounds plus daily demographic growth/decline caps, settlement/food grace and collapse floor | enabled; 20 visible workers, 100 activities/cycle, 60-second lease, 256 steps at 250 ms; +5/-3 daily, 3/2-day grace, floor 1 |
+| `population.yml` | Worker/ambient presentation and activity bounds; daily demographics, grace and collapse floor; ambient scene/cooldown budgets | enabled; 20 workers within 24 total presentations, 6 citizens, 2 market/guard/repair scenes, 10-second cycle and 5-minute announcements; +5/-3 daily, 3/2-day grace, floor 1 |
 | `kingdoms.yml` | Civilization cadence and kingdom bound | enabled |
 | `waypoints.yml` | Reserved typed control for Train G | disabled until implemented |
 | `cartography.yml` | Reserved typed control for Train G | disabled until implemented |
@@ -65,6 +65,8 @@ Infrastructure material profiles use Bukkit material names and qualities from 1â
 Builder Guild settings under `repairs.yml` bound the level offset, maximum tier, capacity units and teams per tier, base team size, delivery size, per-action/daily boost and assist duration/task count. Derived team slots may not exceed five and derived workers per team may not exceed eight, matching database constraints. Packaged defaults cap manual repair mode at 600 seconds and 64 coordinates. Changes require a restart because the gateway and Paper handoff share one immutable policy.
 
 Population simulation settings must keep daily growth and decline positive and at most 1,000, grace periods between zero and 365 days, and the collapse floor between zero and 1,000. Changes require a restart because the transactional population gateway captures one immutable policy at startup.
+
+Ambient limits cap total presentations at 500, citizens at 100 and market/guard/repair scenes at 20 each. The total ceiling cannot be smaller than the worker presentation cap. Cycle and announcement cooldown durations must be positive. These settings require a restart because both projection supervisors and the transactional ambient policy capture them at startup.
 
 ## Administration
 

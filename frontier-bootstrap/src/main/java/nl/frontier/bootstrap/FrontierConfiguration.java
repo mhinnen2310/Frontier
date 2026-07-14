@@ -127,7 +127,10 @@ public record FrontierConfiguration(
       long activityLeaseSeconds,
       int maximumPathSteps,
       long pathStepMillis,
-      nl.frontier.city.PopulationPolicy simulation) {}
+      nl.frontier.city.PopulationPolicy simulation,
+      nl.frontier.npc.AmbientLifePolicy ambient,
+      long ambientCycleSeconds,
+      long ambientAnnouncementCooldownSeconds) {}
 
   public record Kingdoms(
       Control control, long civilizationCycleSeconds, int maximumKingdomsPerCycle) {}

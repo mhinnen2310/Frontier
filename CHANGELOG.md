@@ -1,5 +1,13 @@
 # Changelog
 
+## Master Roadmap Sprint 20 — Settlement Ambient Life
+
+- Added durable, observer-driven ambient scenes for limited citizens, guards, active markets, repairs, visible shortages and Town Hall events through Flyway V53.
+- Added distinct day/night schedules: markets close, citizens head home and barracks supply an expanded night watch.
+- Enforced one shared per-settlement presentation budget across authoritative workers and decorative ambient Mannequins, with current/peak/cycle metrics.
+- Added local cooldown-controlled settlement announcements for events, shortages and population trends; no ambient entity owns gameplay state or inventory.
+- Fixed worker presentation coordinates that were incorrectly multiplied as chunks a second time, and added policy/config/PostgreSQL lifecycle/load regressions including duplicate bind, observer departure and day/night retirement.
+
 ## Master Roadmap Sprint 19 — Population, Housing and Migration
 
 - Made only validated `ACTIVE` Housing buildings contribute capacity and added employment to the daily demographic factor snapshot.

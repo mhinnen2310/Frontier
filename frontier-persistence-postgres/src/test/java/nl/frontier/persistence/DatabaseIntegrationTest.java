@@ -54,6 +54,8 @@ import nl.frontier.economy.ProductionGateway;
 import nl.frontier.influence.ChunkOwnershipCache;
 import nl.frontier.influence.InfluenceSimulationService;
 import nl.frontier.influence.TerritoryState;
+import nl.frontier.npc.AmbientLifeGateway;
+import nl.frontier.npc.AmbientLifePolicy;
 import nl.frontier.npc.NpcMaterializationGateway;
 import nl.frontier.npc.PlayerObservation;
 import nl.frontier.npc.WorkerActivityGateway;
@@ -377,7 +379,7 @@ class DatabaseIntegrationTest {
           var result =
               statement.executeQuery("SELECT count(*) FROM flyway_schema_history WHERE success")) {
         result.next();
-        assertEquals(52, result.getInt(1));
+        assertEquals(53, result.getInt(1));
       }
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {
@@ -1732,6 +1734,8 @@ class DatabaseIntegrationTest {
               .filter(value -> value.city().equals(seller.id()))
               .findFirst()
               .orElseThrow();
+      assertTrue(candidate.x() >= 480 && candidate.x() <= 495);
+      assertTrue(candidate.z() >= 480 && candidate.z() <= 495);
       UUID presentation = UUID.randomUUID();
       npcs.bind(candidate.worker(), presentation, Instant.now());
       assertEquals(
@@ -1748,6 +1752,128 @@ class DatabaseIntegrationTest {
           npcs.retirements(java.util.Set.of(farObserver)).stream()
               .anyMatch(binding -> binding.worker().equals(candidate.worker())));
       npcs.unbind(candidate.worker(), presentation, Instant.now());
+
+      UUID ambientEvent = UUID.randomUUID();
+      UUID ambientMarketOrder = UUID.randomUUID();
+      try (var connection = database.dataSource().getConnection();
+          var building =
+              connection.prepareStatement(
+                  "INSERT INTO city_buildings(id,city_id,category,bounds,integrity,status,building_type,last_validated_at) VALUES(?,?,?,?::jsonb,100,'ACTIVE',?,now())");
+          var cityStatement =
+              connection.prepareStatement("UPDATE cities SET population=40 WHERE id=?");
+          var populationStatement =
+              connection.prepareStatement(
+                  "UPDATE city_population_state SET housing_capacity=20,food_security=20,employment_score=20,population_trend=-2 WHERE city_id=?");
+          var eventStatement =
+              connection.prepareStatement(
+                  "INSERT INTO world_events(id,category,event_key,state,state_at,payload,city_id) VALUES(?,'SOCIAL','TRADE_FAIR','ACTIVE',now(),'{}'::jsonb,?)");
+          var marketStatement =
+              connection.prepareStatement(
+                  "INSERT INTO market_orders(id,owner_id,settlement_id,side,commodity_key,quantity,remaining_quantity,unit_price_minor,status,created_at) VALUES(?,?,?,'BUY','minecraft:wheat',1,1,1,'OPEN',now())")) {
+        int x = 482;
+        for (String type : List.of("TOWN_HALL", "MARKET", "BARRACKS", "BUILDER_GUILD")) {
+          building.setObject(1, UUID.randomUUID());
+          building.setObject(2, seller.id());
+          building.setString(
+              3,
+              switch (type) {
+                case "TOWN_HALL" -> "GOVERNMENT";
+                case "MARKET" -> "ECONOMIC";
+                case "BARRACKS" -> "MILITARY";
+                default -> "INDUSTRY";
+              });
+          building.setString(
+              4, new SettlementGateway.Bounds(sellerWorld, x, 60, 482, x + 1, 66, 483).json());
+          building.setString(5, type);
+          building.addBatch();
+          x += 2;
+        }
+        building.executeBatch();
+        cityStatement.setObject(1, seller.id());
+        cityStatement.executeUpdate();
+        populationStatement.setObject(1, seller.id());
+        populationStatement.executeUpdate();
+        eventStatement.setObject(1, ambientEvent);
+        eventStatement.setObject(2, seller.id());
+        eventStatement.executeUpdate();
+        marketStatement.setObject(1, ambientMarketOrder);
+        marketStatement.setObject(2, sellerOwner);
+        marketStatement.setObject(3, seller.id());
+        marketStatement.executeUpdate();
+      }
+      PostgresAmbientLifeGateway ambient = new PostgresAmbientLifeGateway(store);
+      AmbientLifePolicy ambientPolicy = new AmbientLifePolicy(12, 6, 2, 2, 2);
+      Instant ambientNow = Instant.now();
+      AmbientLifeGateway.CycleReport daytime =
+          ambient.cycle(
+              Set.of(sellerObserver),
+              Set.of(sellerWorld),
+              ambientPolicy,
+              20,
+              ambientNow.minusSeconds(300),
+              ambientNow);
+      assertTrue(daytime.budgetedScenes() <= 12);
+      assertTrue(daytime.scenes().stream().anyMatch(scene -> scene.type().equals("SHORTAGE")));
+      assertTrue(
+          daytime.scenes().stream().anyMatch(scene -> scene.type().equals("TOWN_HALL_EVENT")));
+      assertTrue(daytime.scenes().stream().anyMatch(scene -> scene.type().equals("MARKET")));
+      assertEquals(1, daytime.announcements().size());
+      AmbientLifeGateway.Scene marketScene =
+          daytime.scenes().stream()
+              .filter(scene -> scene.type().equals("MARKET"))
+              .findFirst()
+              .orElseThrow();
+      UUID marketEntity = UUID.randomUUID();
+      ambient.bind(marketScene.id(), marketEntity, ambientNow.plusSeconds(1));
+      assertThrows(
+          DomainException.class,
+          () -> ambient.bind(marketScene.id(), UUID.randomUUID(), ambientNow.plusSeconds(2)));
+      AmbientLifeGateway.CycleReport night =
+          ambient.cycle(
+              Set.of(sellerObserver),
+              Set.of(),
+              ambientPolicy,
+              20,
+              ambientNow.minusSeconds(299),
+              ambientNow.plusSeconds(1));
+      assertTrue(night.scenes().stream().noneMatch(scene -> scene.type().equals("MARKET")));
+      assertTrue(
+          night.retirements().stream().anyMatch(binding -> binding.entity().equals(marketEntity)));
+      assertTrue(night.announcements().isEmpty());
+      ambient.unbind(marketScene.id(), marketEntity, ambientNow.plusSeconds(2));
+      AmbientLifeGateway.Scene shortageScene =
+          night.scenes().stream()
+              .filter(scene -> scene.type().equals("SHORTAGE"))
+              .findFirst()
+              .orElseThrow();
+      UUID shortageEntity = UUID.randomUUID();
+      ambient.bind(shortageScene.id(), shortageEntity, ambientNow.plusSeconds(3));
+      AmbientLifeGateway.CycleReport hidden =
+          ambient.cycle(
+              Set.of(farObserver),
+              Set.of(sellerWorld),
+              ambientPolicy,
+              20,
+              ambientNow.minusSeconds(297),
+              ambientNow.plusSeconds(3));
+      assertTrue(hidden.scenes().isEmpty());
+      assertTrue(
+          hidden.retirements().stream()
+              .anyMatch(binding -> binding.entity().equals(shortageEntity)));
+      ambient.unbind(shortageScene.id(), shortageEntity, ambientNow.plusSeconds(4));
+      try (var connection = database.dataSource().getConnection();
+          var marketCleanup = connection.prepareStatement("DELETE FROM market_orders WHERE id=?");
+          var eventCleanup = connection.prepareStatement("DELETE FROM world_events WHERE id=?");
+          var buildingCleanup =
+              connection.prepareStatement(
+                  "DELETE FROM city_buildings WHERE city_id=? AND building_type IN ('TOWN_HALL','MARKET','BARRACKS','BUILDER_GUILD')")) {
+        marketCleanup.setObject(1, ambientMarketOrder);
+        marketCleanup.executeUpdate();
+        eventCleanup.setObject(1, ambientEvent);
+        eventCleanup.executeUpdate();
+        buildingCleanup.setObject(1, seller.id());
+        buildingCleanup.executeUpdate();
+      }
 
       try (var connection = database.dataSource().getConnection();
           var statement = connection.createStatement()) {

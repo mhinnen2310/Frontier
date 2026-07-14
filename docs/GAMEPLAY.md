@@ -22,6 +22,8 @@ Players have wallets and can pay each other or transact with settlement treasuri
 
 Population depends on validated active housing, stored food, employment, safety and prosperity. Workers have profession, skill, morale, efficiency, experience, employment and salary. Migration, immigration, emigration, retirement, births and deaths are simulated in bounded daily transactions. New-settlement/food grace, daily growth/decline caps and a collapse floor keep shortages recoverable; `/frontier population` explains the signed trend and every contributing cause.
 
+Observed settlements show bounded ambient citizens, day/night guards, active markets and repairs, shortage indicators and Town Hall events. These no-AI Mannequins are visual only, retire without nearby players and share one performance budget with real worker projections. Local announcements explain event, shortage and population changes without global spam.
+
 ## War, damage and repair
 
 Campaigns move through preparation, active, ceasefire and resolution. [Claim protection](CLAIM_PROTECTION.md) checks actor/action/source/target, campaign, treaty, incident, ownership, role, overrides and bypass for the complete Paper interaction surface. Automation, liquids, fire and redstone cannot cross a territory boundary. Authorized campaign structural damage is journaled once per generation. [Paid repair](REPAIR_INTEGRITY.md) progresses `REGISTERED` → `RESERVED` → `REPAIRING` → `COMPLETED` → `ARCHIVED`; leases and prepared consumption make restart, disconnect and chunk-unload recovery safe. The [Builder Guild](BUILDER_GUILD.md) adds foremen, teams, depot supply, queue control, emergency work and controlled player contribution without bypassing that lifecycle.

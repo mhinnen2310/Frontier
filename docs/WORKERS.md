@@ -29,3 +29,5 @@ Mayors, architects and builder masters can assign or clear an operational buildi
 `IDLE`, `TRAVELLING`, `WORKING`, `WAITING_MATERIALS`, `WAITING_PAYMENT`, `RESTING`, `INJURED`, `FLEEING` and `UNAVAILABLE` are the complete state vocabulary. Repairs lease only an idle Builder and move it to travelling until the package completes or expires. Unpaid idle workers wait for payment; retired workers become unavailable. The activity scheduler uses the same vocabulary and exposes its activity UUID as the current task when no repair work package is active.
 
 Flyway V49 maps older GUIDE/PORTER/LUMBERJACK-style professions, internal repair phases and PAUSED/RETIRED states deterministically before adding database checks. V50 adds the scheduler, activity lease and recovery fields. No manual SQL is required.
+
+Ambient residents, guards, market traders and visible repair scenes are not workers and never receive jobs, wages or inventory. They share the configured per-settlement presentation ceiling with worker Mannequins and retire when the settlement has no nearby observer. See [AMBIENT_LIFE.md](AMBIENT_LIFE.md).

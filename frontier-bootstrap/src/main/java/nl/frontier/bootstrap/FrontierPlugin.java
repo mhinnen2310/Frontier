@@ -48,6 +48,7 @@ import nl.frontier.observability.FrontierMetrics;
 import nl.frontier.persistence.DatabaseManager;
 import nl.frontier.persistence.JdbcTransactionalStore;
 import nl.frontier.persistence.PostgresAdminDiagnostics;
+import nl.frontier.persistence.PostgresAmbientLifeGateway;
 import nl.frontier.persistence.PostgresBuilderGuildGateway;
 import nl.frontier.persistence.PostgresBuildingValidationGateway;
 import nl.frontier.persistence.PostgresCampaignGateway;
@@ -107,6 +108,7 @@ public final class FrontierPlugin extends JavaPlugin {
   private ProductionSupervisor productionSupervisor;
   private LogisticsSupervisor logisticsSupervisor;
   private NpcMaterializationSupervisor npcMaterializationSupervisor;
+  private AmbientLifeSupervisor ambientLifeSupervisor;
   private CampaignSupervisor campaignSupervisor;
   private ObjectiveSupervisor objectiveSupervisor;
   private RepairSupervisor repairSupervisor;
@@ -466,6 +468,17 @@ public final class FrontierPlugin extends JavaPlugin {
               config.population().maximumVisibleNpcsPerSettlement(),
               getLogger());
       if (config.enabled("population")) npcMaterializationSupervisor.start();
+      ambientLifeSupervisor =
+          new AmbientLifeSupervisor(
+              this,
+              schedulers,
+              new PostgresAmbientLifeGateway(store),
+              config.population().ambient(),
+              config.population().maximumVisibleNpcsPerSettlement(),
+              Duration.ofSeconds(config.population().ambientCycleSeconds()),
+              Duration.ofSeconds(config.population().ambientAnnouncementCooldownSeconds()),
+              getLogger());
+      if (config.enabled("population")) ambientLifeSupervisor.start();
       campaignSupervisor =
           new CampaignSupervisor(
               schedulers,
@@ -607,6 +620,7 @@ public final class FrontierPlugin extends JavaPlugin {
     if (infrastructureHealthSupervisor != null) infrastructureHealthSupervisor.stop();
     if (builderGuildCoordinator != null) builderGuildCoordinator.stop();
     if (npcMaterializationSupervisor != null) npcMaterializationSupervisor.stop();
+    if (ambientLifeSupervisor != null) ambientLifeSupervisor.stop();
     if (campaignSupervisor != null) campaignSupervisor.stop();
     if (objectiveSupervisor != null) objectiveSupervisor.stop();
     if (repairSupervisor != null) repairSupervisor.stop();

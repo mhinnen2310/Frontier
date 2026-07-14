@@ -14,3 +14,11 @@ simulation:
   settlement-grace-days: 3
   food-shortage-grace-days: 2
   collapse-floor: 1
+ambient:
+  cycle-seconds: 10
+  maximum-total-per-settlement: 24
+  maximum-citizens: 6
+  maximum-market-scenes: 2
+  maximum-guards: 2
+  maximum-repair-scenes: 2
+  announcement-cooldown-seconds: 300

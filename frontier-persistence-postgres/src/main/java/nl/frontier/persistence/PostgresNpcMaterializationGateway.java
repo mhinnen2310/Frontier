@@ -44,8 +44,6 @@ public final class PostgresNpcMaterializationGateway implements NpcMaterializati
             statement.setInt(index, maximumPerSettlement);
             try (ResultSet result = statement.executeQuery()) {
               while (result.next()) {
-                int chunkX = result.getInt(6);
-                int chunkZ = result.getInt(7);
                 values.add(
                     new Candidate(
                         result.getObject(1, UUID.class),
@@ -53,9 +51,9 @@ public final class PostgresNpcMaterializationGateway implements NpcMaterializati
                         result.getString(3),
                         result.getInt(4),
                         result.getObject(5, UUID.class),
-                        chunkX * 16 + 8,
+                        result.getInt(6),
                         64,
-                        chunkZ * 16 + 8,
+                        result.getInt(7),
                         result.getObject(8, UUID.class)));
               }
             }

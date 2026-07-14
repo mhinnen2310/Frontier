@@ -275,7 +275,19 @@ public final class ConfigRegistry {
                 positive(population, "simulation.maximum-daily-decline", 1_000),
                 nonNegative(population, "simulation.settlement-grace-days", 365),
                 nonNegative(population, "simulation.food-shortage-grace-days", 365),
-                nonNegative(population, "simulation.collapse-floor", 1_000)));
+                nonNegative(population, "simulation.collapse-floor", 1_000)),
+            new nl.frontier.npc.AmbientLifePolicy(
+                positive(population, "ambient.maximum-total-per-settlement", 500),
+                nonNegative(population, "ambient.maximum-citizens", 100),
+                nonNegative(population, "ambient.maximum-market-scenes", 20),
+                nonNegative(population, "ambient.maximum-guards", 20),
+                nonNegative(population, "ambient.maximum-repair-scenes", 20)),
+            positiveLong(population, "ambient.cycle-seconds"),
+            positiveLong(population, "ambient.announcement-cooldown-seconds"));
+    if (populationConfig.ambient().maximumTotalPresentations()
+        < populationConfig.maximumVisibleNpcsPerSettlement())
+      throw invalid(
+          "ambient.maximum-total-per-settlement cannot be smaller than presentation.maximum-visible-per-settlement");
     YamlConfiguration districts = modules.get("districts");
     var districtConfig =
         new FrontierConfiguration.Districts(
@@ -992,7 +1004,14 @@ public final class ConfigRegistry {
             "simulation.maximum-daily-decline",
             "simulation.settlement-grace-days",
             "simulation.food-shortage-grace-days",
-            "simulation.collapse-floor"));
+            "simulation.collapse-floor",
+            "ambient.cycle-seconds",
+            "ambient.maximum-total-per-settlement",
+            "ambient.maximum-citizens",
+            "ambient.maximum-market-scenes",
+            "ambient.maximum-guards",
+            "ambient.maximum-repair-scenes",
+            "ambient.announcement-cooldown-seconds"));
     keys.put(
         "kingdoms",
         leaves(

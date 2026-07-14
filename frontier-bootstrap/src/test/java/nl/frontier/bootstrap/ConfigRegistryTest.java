@@ -51,6 +51,9 @@ class ConfigRegistryTest {
     assertEquals(60, config.population().activityLeaseSeconds());
     assertEquals(256, config.population().maximumPathSteps());
     assertEquals(250, config.population().pathStepMillis());
+    assertEquals(24, config.population().ambient().maximumTotalPresentations());
+    assertEquals(6, config.population().ambient().maximumCitizens());
+    assertEquals(300, config.population().ambientAnnouncementCooldownSeconds());
     assertEquals(
         1,
         config
@@ -183,6 +186,15 @@ class ConfigRegistryTest {
             IllegalStateException.class,
             () -> ConfigRegistry.parse(resource("config.yml"), invalidRoadQuality, ignored -> {}));
     assertTrue(roadQualityFailure.getMessage().contains("surface quality"));
+
+    var invalidAmbientBudget = moduleResources();
+    invalidAmbientBudget.get("population").set("ambient.maximum-total-per-settlement", 10);
+    var ambientFailure =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                ConfigRegistry.parse(resource("config.yml"), invalidAmbientBudget, ignored -> {}));
+    assertTrue(ambientFailure.getMessage().contains("cannot be smaller"));
   }
 
   @Test
